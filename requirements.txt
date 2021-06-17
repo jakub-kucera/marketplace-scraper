@@ -1,0 +1,6 @@
+discord.py
+selenium
+requests
+python-dotenv
+mypy
+pylint
