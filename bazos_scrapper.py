@@ -10,6 +10,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from default_config import SETTINGS
+from product import Product
 
 
 def wrap_multi(message: str) -> str:
@@ -67,11 +68,24 @@ class BazosScrapper:
         #     return False
         return True
 
-    def get_page_products(self) -> List[str]:
-        products = self.driver.find_elements_by_class_name("inzeraty")
+    def get_page_products(self) -> List[Product]:
+        product_elements = self.driver.find_elements_by_class_name("inzeraty")
+        products: List[Product] = []
 
-        for product in products:
-            print(product.find_element_by_class_name("inzeratynadpis").find_element_by_class_name("nadpis").text)
+        for product in product_elements:
+            # new_product = Product()
+            product_header_tmp = product.find_element_by_class_name("inzeratynadpis")
+
+            product_name = product_header_tmp.find_element_by_class_name("nadpis").text
+            product_description = product_header_tmp.find_element_by_class_name("popis").text
+            product_price = product.find_element_by_class_name("inzeratycena").text
+            product_location = product.find_element_by_class_name("inzeratylok").text
+
+            print("=======================")
+            print(f"product_name = {product_name}")
+            print(f"product_description = {product_description}")
+            print(f"product_price = {product_price}")
+            print(f"product_location = {product_location}")
 
         pass
 
