@@ -17,7 +17,7 @@ def wrap_multi(message: str) -> str:
     return "'''" + message + "'''"
 
 
-def wrap_multi(message: str) -> str:
+def wrap_single(message: str) -> str:
     return "'" + message + "'"
 
 
