@@ -72,10 +72,8 @@ class BazosScrapper:
         self.send_query(query)
 
         while True:
-            await sleep(5)
             retrieved_products.extend(self.get_page_products())
-            # if not self.next_page():
-            if True:
+            if not self.next_page():
                 break
 
         return retrieved_products
