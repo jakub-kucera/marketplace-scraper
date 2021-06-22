@@ -3,6 +3,7 @@ selenium
 requests
 python-dotenv
 pydantic
+validators
 pytest
 mypy
 pylint
