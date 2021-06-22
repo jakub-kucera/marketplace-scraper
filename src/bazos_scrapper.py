@@ -36,17 +36,10 @@ class BazosScrapper:
         next_page = next_pages_hrefs[-1]
 
         if next_page.text == 'Další':
-            next_page.click()  # todo fix
+            self.driver.get(next_page.get_attribute('href'))
         else:
             return False
-        # for a in :
-        #     print(a.text)
-        # print("printed all")
-        #
-        # next_page_button = self.driver.find_element_by_link_text('Další')
-        # next_page_button.click()
-        # except NoSuchElementException:
-        #     return False
+
         return True
 
     def get_page_products(self) -> List[Product]:
