@@ -20,9 +20,11 @@ class DiscordSender:
         return "`" + message + "`"
 
     async def send_result(self, products: List[Product]):
+        # todo maybe run in parallel
         if len(products) != 0:
             await self.ctx.send("Found products:")
             for product in products:
+                print(f"Sending {product.name=}")
                 await self.ctx.send(self.wrap_multi(str(product)))
                 await self.ctx.send(product.url)
         elif self.send_empty:
