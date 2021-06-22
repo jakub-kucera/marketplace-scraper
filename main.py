@@ -28,7 +28,12 @@ async def start_bot(ctx: Context):
 
     sender = DiscordSender(ctx=ctx)
     scrapper = BazosScrapper(sender=sender)
-    queries: List[Query] = [Query(text='Sennheiser', price_range=(0, 0))]
+    queries: List[Query] =\
+        [
+            Query(text='Sennheiser', price_range=(0, 0), skip_round=True),
+            Query(text='Audeze', price_range=(0, 0), skip_round=False),
+            Query(text='sluchatka', price_range=(0, 0), skip_round=True),
+        ]
     await scrapper.run(queries)
 
 
