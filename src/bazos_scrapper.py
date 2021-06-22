@@ -2,6 +2,7 @@ from asyncio import sleep
 from typing import Optional, List
 
 from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.remote.webdriver import WebDriver
 
 from default_config import SETTINGS
@@ -30,8 +31,10 @@ class BazosScrapper:
         submit_button.click()
 
     def next_page(self) -> bool:
-
-        pages_div = self.driver.find_element_by_class_name('strankovani')
+        try:
+            pages_div = self.driver.find_element_by_class_name('strankovani')
+        except NoSuchElementException:
+            return False
         next_pages_hrefs = pages_div.find_elements_by_tag_name('a')
         next_page = next_pages_hrefs[-1]
 
