@@ -5,9 +5,10 @@ from pydantic import BaseModel
 
 class Product(BaseModel):
     name: str
-    description: str
     price: str  # todo change to Optional[int]
     url: str
+    location: str
+    description: str
 
     @staticmethod  # todo each scrapper to have its own converter
     def convert_price(original: str) -> Optional[int]:

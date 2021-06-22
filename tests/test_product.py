@@ -5,20 +5,20 @@ from src.product import Product
 
 
 @pytest.mark.parametrize(
-    "name, description, price, url",
+    "name, description, price, url, location",
     (
-        ("product", "this is a nice product...", "1000 Kč", "https://pc.bazos.cz/"),
-        ("foobar", "this is a nice product...", "1000 Kč", "https://pc.bazos.cz/"),
-        ("foobar", "this is a nice product...", "Neuvedeno", "https://pc.bazos.cz/"),
-        ("foobar", "this is a nice product...", "Zdarma", "https://pc.bazos.cz/"),
-        ("foobar", "this is a nice product...", "V textu", "https://pc.bazos.cz/"),
-        ("product", "", "1000 Kč", "https://pc.bazos.cz/"),
-        ("product", "this is a nice product...", "1000 Kč", "https://aukro.cz/elektro"),
-        ("product", "this is a nice product...", "1000 Kč", "https://www.facebookasdfasfd.com/marketplace"),
+        ("product", "this is a nice product...", "1000 Kč", "https://pc.bazos.cz/", "Praha 6 16000"),
+        ("foobar", "this is a nice product...", "1000 Kč", "https://pc.bazos.cz/", "Praha 6 16000"),
+        ("foobar", "this is a nice product...", "Neuvedeno", "https://pc.bazos.cz/", "Praha 6 16000"),
+        ("foobar", "this is a nice product...", "Zdarma", "https://pc.bazos.cz/", "Praha 6 16000"),
+        ("foobar", "this is a nice product...", "V textu", "https://pc.bazos.cz/", "Praha 6 16000"),
+        ("product", "", "1000 Kč", "https://pc.bazos.cz/", "Praha 6 16000"),
+        ("product", "this is a nice product...", "1000 Kč", "https://aukro.cz/elektro", "Praha 6 16000"),
+        ("product", "this is a nice product...", "1000 Kč", "https://www.facebookasdfasfd.com/marketplace", "Praha 6 16000"),
     ),
 )
-def test_product_create_valid(name: str, description: str, price: str, url: str):
-    product = Product(name=name, description=description, price=price, url=url)
+def test_product_create_valid(name: str, description: str, price: str, url: str, location: str):
+    product = Product(name=name, description=description, price=price, url=url, location=location)
     assert product.name == name
     assert product.description == description
     assert product.price == price
