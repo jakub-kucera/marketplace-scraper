@@ -10,6 +10,13 @@ class Product(BaseModel):
     location: str
     description: str
 
+    def __str__(self):
+        return self.name + '\n' + \
+               self.price + '\n' + \
+               self.location + '\n' + \
+               self.url + '\n' + \
+               self.description
+
     @staticmethod  # todo each scrapper to have its own converter
     def convert_price(original: str) -> Optional[int]:
         digit_part = original.split()[0]
