@@ -16,7 +16,7 @@ from src.query import Query
         ("text 123 foo 3", 10, 20)
     ),
 )
-def test_project_create_valid(text: str, low: int, high: int):
+def test_query_create_valid(text: str, low: int, high: int):
     query = Query(text=text, price_range=(low, high))
     assert query.price_range == (low, high)
     assert query.text == text
@@ -36,6 +36,6 @@ def test_project_create_valid(text: str, low: int, high: int):
         ("\0", 10, 20)
     ),
 )
-def test_project_create_invalid(text: str, low: int, high: int) -> None:
+def test_query_create_invalid(text: str, low: int, high: int) -> None:
     with pytest.raises(ValidationError):
         Query(text=text, price_range=(low, high))
