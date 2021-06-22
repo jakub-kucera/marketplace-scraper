@@ -1,10 +1,8 @@
-from typing import Dict, Optional
-
 import discord
 from discord.ext import commands
 from discord.ext.commands import Context
 
-from bazos_scrapper import BazosScrapper
+from src.bazos_scrapper import BazosScrapper
 from default_config import SETTINGS
 
 intents = discord.Intents.default()
