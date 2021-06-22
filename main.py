@@ -1,9 +1,13 @@
+from typing import List
+
 import discord
 from discord.ext import commands
 from discord.ext.commands import Context
 
 from src.bazos_scrapper import BazosScrapper
 from default_config import SETTINGS
+from src.discord_sender import DiscordSender
+from src.query import Query
 
 intents = discord.Intents.default()
 intents.members = True
@@ -22,8 +26,10 @@ async def start_bot(ctx: Context):
     await ctx.send(f"Sent by user: {ctx.message.author.id}")
     await ctx.send(f"Sent into : {ctx.message.channel.id}")
 
-    scrapper = BazosScrapper(ctx=ctx)
-    await scrapper.run(queries=['sennheiser'])
+    sender = DiscordSender(ctx=ctx)
+    scrapper = BazosScrapper(sender=sender)
+    queries: List[Query] = [Query(text='Sennheiser', price_range=(0, 0))]
+    await scrapper.run(queries)
 
 
 # @discord_bot.command(name='stop')

@@ -1,25 +1,18 @@
 from asyncio import sleep
 from typing import Optional, List
 
-from discord.ext.commands import Context
 from selenium import webdriver
 from selenium.webdriver.remote.webdriver import WebDriver
 
 from default_config import SETTINGS
-from product import Product
-
-
-def wrap_multi(message: str) -> str:
-    return "'''" + message + "'''"
-
-
-def wrap_single(message: str) -> str:
-    return "'" + message + "'"
+from src.discord_sender import DiscordSender
+from src.product import Product
+from src.query import Query
 
 
 class BazosScrapper:
-    def __init__(self, ctx: Context):
-        self.ctx = ctx
+    def __init__(self, sender: DiscordSender):
+        self.sender = sender
         self.shutdown: bool = False
         self.driver = self.create_driver()
 
@@ -30,17 +23,9 @@ class BazosScrapper:
     def stop(self):
         self.shutdown = True
 
-    async def send_result(self, products: List[str]):
-        if len(products) != 0:
-            await self.ctx.send("Found products:")
-            for product in products:
-                await self.ctx.send(wrap_multi(product))
-        else:
-            await self.ctx.send("empty")
-
-    def send_query(self, query: str):
+    def send_query(self, query: Query):
         query_textbox = self.driver.find_element_by_id('hledat')
-        query_textbox.send_keys(query)
+        query_textbox.send_keys(query.text)
         submit_button = self.driver.find_element_by_name('Submit')
         submit_button.click()
 
@@ -70,23 +55,22 @@ class BazosScrapper:
 
         for product in product_elements:
             # new_product = Product()
-            product_header_tmp = product.find_element_by_class_name("inzeratynadpis")
+            header_tmp = product.find_element_by_class_name("inzeratynadpis")
+            name_div = header_tmp.find_element_by_class_name("nadpis")
+            name = name_div.text
+            link = name_div.find_element_by_css_selector('[href]').get_attribute('href')
+            description = header_tmp.find_element_by_class_name("popis").text
+            price = product.find_element_by_class_name("inzeratycena").text
+            location = product.find_element_by_class_name("inzeratylok").text
 
-            product_name = product_header_tmp.find_element_by_class_name("nadpis").text
-            product_description = product_header_tmp.find_element_by_class_name("popis").text
-            product_price = product.find_element_by_class_name("inzeratycena").text
-            product_location = product.find_element_by_class_name("inzeratylok").text
+            new_product = Product(name=name, description=description, price=price, url=link, location=location)
+            print(f"{new_product=}")
+            products.append(new_product)
 
-            print("=======================")
-            print(f"product_name = {product_name}")
-            print(f"product_description = {product_description}")
-            print(f"product_price = {product_price}")
-            print(f"product_location = {product_location}")
+        return products
 
-        pass
-
-    async def run_query(self, query: str) -> List[str]:
-        retrieved_products: List[str] = []
+    async def run_query(self, query: Query) -> List[Product]:
+        retrieved_products: List[Product] = []
 
         self.driver.get(SETTINGS.BAZOS_URL)
         self.send_query(query)
@@ -94,21 +78,22 @@ class BazosScrapper:
         while True:
             await sleep(5)
             retrieved_products.extend(self.get_page_products())
-            if not self.next_page():
+            # if not self.next_page():
+            if True:
                 break
 
         return retrieved_products
 
-    async def run(self, queries: List[str], interval: int = 60):
+    async def run(self, queries: List[Query], interval: int = 60):
         self.shutdown = False
 
         while not self.shutdown:
 
-            retrieved_products: List[str] = []
+            retrieved_products: List[Product] = []
             for query in queries:
                 retrieved_products.extend(await self.run_query(query))
 
-            await self.send_result(retrieved_products)
+            await self.sender.send_result(retrieved_products)
             await sleep(interval)
 
         self.driver.quit()
