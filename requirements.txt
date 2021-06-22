@@ -3,5 +3,6 @@ selenium
 requests
 python-dotenv
 pydantic
+pytest
 mypy
 pylint
