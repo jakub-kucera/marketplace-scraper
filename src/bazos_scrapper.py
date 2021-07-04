@@ -1,5 +1,6 @@
-from asyncio import sleep
-from typing import Optional, List
+import asyncio
+import time
+from typing import Optional, List, Set
 
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
@@ -16,6 +17,7 @@ class BazosScrapper:
         self.sender = sender
         self.shutdown: bool = False
         self.driver = self.create_driver()
+        self.loaded_product_links: Set[str] = set()
 
     @staticmethod
     def create_driver() -> WebDriver:
@@ -83,11 +85,24 @@ class BazosScrapper:
 
         while not self.shutdown:
 
-            retrieved_products: List[Product] = []
+            new_products: List[Product] = []
             for query in queries:
-                retrieved_products.extend(await self.run_query(query))
+                query_retrieved_products = await self.run_query(query)
+                query_new_products: List[Product] = []
+                for product in query_retrieved_products:
+                    if product.url not in self.loaded_product_links:
+                        query_new_products.append(product)
+                        self.loaded_product_links.add(product.url)
+                if not query.can_skip():
+                    new_products.extend(query_new_products)
 
-            await self.sender.send_result(retrieved_products)
-            await sleep(interval)
+
+            # for product in retrieved_products:
+            #     if product.url not in self.loaded_product_links:
+            #         new_products.append(product)
+            #         self.loaded_product_links.add(product.url)
+
+            await self.sender.send_result(new_products)
+            await asyncio.sleep(interval)
 
         self.driver.quit()
