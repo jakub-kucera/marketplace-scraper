@@ -51,8 +51,8 @@ class BazosScrapper:
     @staticmethod
     def convert_date(date_raw: str) -> datetime:
         date = date_raw[date_raw.find("[") + 1:date_raw.find("]")]
-        day, month, year = date.split('.')
-        date_formatted = datetime(day=int(day), month=int(month), year=int(year))
+        day, month, year = map(int, date.split('.'))
+        date_formatted = datetime(day=day, month=month, year=year)
         return date_formatted
 
     @staticmethod
