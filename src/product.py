@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
@@ -8,6 +9,8 @@ class Product(BaseModel):
     price: str  # todo change to Optional[int]
     url: str
     location: str
+    date: datetime
+    ignore_date: bool
     description: str
 
     def __str__(self):
@@ -15,6 +18,8 @@ class Product(BaseModel):
                self.price + '\n' + \
                self.location + '\n' + \
                self.url + '\n' + \
+               str(self.date) + '\n' + \
+               ('ignore date' if self.ignore_date else 'dont ignore date') + '\n' + \
                self.description
 
     @staticmethod  # todo each scrapper to have its own converter

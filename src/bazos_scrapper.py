@@ -1,10 +1,11 @@
 import asyncio
-import time
+from datetime import datetime
 from typing import Optional, List, Set
 
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.remote.webdriver import WebDriver
+from selenium.webdriver.remote.webelement import WebElement
 
 from default_config import SETTINGS
 from src.discord_sender import DiscordSender
@@ -47,23 +48,38 @@ class BazosScrapper:
 
         return True
 
+    @staticmethod
+    def convert_date(date_raw: str) -> datetime:
+        date = date_raw[date_raw.find("[") + 1:date_raw.find("]")]
+        day, month, year = date.split('.')
+        date_formatted = datetime(day=int(day), month=int(month), year=int(year))
+        return date_formatted
+
+    @staticmethod
+    def extract_product(product_raw: WebElement) -> Product:
+        header_tmp = product_raw.find_element_by_class_name("inzeratynadpis")
+        name_div = header_tmp.find_element_by_class_name("nadpis")
+        date_raw = header_tmp.find_element_by_class_name("velikost10").text
+
+        name = name_div.text
+        link = name_div.find_element_by_css_selector('[href]').get_attribute('href')
+        date = BazosScrapper.convert_date(date_raw)
+        ignore_date = 'TOP' in date_raw
+        description = header_tmp.find_element_by_class_name("popis").text
+        price = product_raw.find_element_by_class_name("inzeratycena").text
+        location = product_raw.find_element_by_class_name("inzeratylok").text.replace('\n', ', ')
+
+        return Product(name=name, description=description, price=price, url=link, date=date,
+                       ignore_date=ignore_date, location=location)
+
     def get_page_products(self) -> List[Product]:
         product_elements = self.driver.find_elements_by_class_name("inzeraty")
         products: List[Product] = []
 
         for product in product_elements:
-            # new_product = Product()
-            header_tmp = product.find_element_by_class_name("inzeratynadpis")
-            name_div = header_tmp.find_element_by_class_name("nadpis")
-            name = name_div.text
-            link = name_div.find_element_by_css_selector('[href]').get_attribute('href')
-            description = header_tmp.find_element_by_class_name("popis").text
-            price = product.find_element_by_class_name("inzeratycena").text
-            location = product.find_element_by_class_name("inzeratylok").text
-
-            new_product = Product(name=name, description=description, price=price, url=link, location=location)
-            print(f"{new_product=}")
-            products.append(new_product)
+            loaded_product = self.extract_product(product)
+            print(f"{loaded_product=}")
+            products.append(loaded_product)
 
         return products
 
