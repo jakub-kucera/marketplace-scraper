@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from typing import Optional, List, Set
+from typing import Optional, List, Set, Iterator
 
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
@@ -83,18 +83,15 @@ class BazosScrapper:
 
         return products
 
-    async def run_query(self, query: Query) -> List[Product]:
-        retrieved_products: List[Product] = []
-
+    def run_query(self, query: Query) -> Iterator[Product]:
         self.driver.get(SETTINGS.BAZOS_URL)
         self.send_query(query)
 
         while True:
-            retrieved_products.extend(self.get_page_products())
+            for product in self.get_page_products():
+                yield product
             if not self.next_page():
                 break
-
-        return retrieved_products
 
     async def run(self, queries: List[Query], interval: int = 60):
         self.shutdown = False
@@ -103,7 +100,7 @@ class BazosScrapper:
 
             new_products: List[Product] = []
             for query in queries:
-                query_retrieved_products = await self.run_query(query)
+                query_retrieved_products = self.run_query(query)
                 query_new_products: List[Product] = []
                 for product in query_retrieved_products:
                     if product.url not in self.loaded_product_links:
@@ -111,12 +108,6 @@ class BazosScrapper:
                         self.loaded_product_links.add(product.url)
                 if not query.can_skip():
                     new_products.extend(query_new_products)
-
-
-            # for product in retrieved_products:
-            #     if product.url not in self.loaded_product_links:
-            #         new_products.append(product)
-            #         self.loaded_product_links.add(product.url)
 
             await self.sender.send_result(new_products)
             await asyncio.sleep(interval)
