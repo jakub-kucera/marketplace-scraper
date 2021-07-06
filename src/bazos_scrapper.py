@@ -100,12 +100,13 @@ class BazosScrapper:
 
             new_products: List[Product] = []
             for query in queries:
-                query_retrieved_products = self.run_query(query)
                 query_new_products: List[Product] = []
-                for product in query_retrieved_products:
+                for product in self.run_query(query):
                     if product.url not in self.loaded_product_links:
                         query_new_products.append(product)
                         self.loaded_product_links.add(product.url)
+                    elif not product.ignore_date:
+                        break
                 if not query.can_skip():
                     new_products.extend(query_new_products)
 
