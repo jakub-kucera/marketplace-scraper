@@ -10,6 +10,7 @@ from selenium.webdriver.remote.webelement import WebElement
 from default_config import SETTINGS
 from src.discord_sender import DiscordSender
 from src.product import Product
+from src.product_database import ProductDatabase
 from src.query import Query
 
 
@@ -18,7 +19,7 @@ class BazosScrapper:
         self.sender = sender
         self.shutdown: bool = False
         self.driver = self.create_driver()
-        self.loaded_product_links: Set[str] = set()
+        self.database: ProductDatabase = ProductDatabase()
 
     @staticmethod
     def create_driver() -> WebDriver:
@@ -102,9 +103,8 @@ class BazosScrapper:
             for query in queries:
                 query_new_products: List[Product] = []
                 for product in self.run_query(query):
-                    if product.url not in self.loaded_product_links:
+                    if self.database.add_if_not_present(product, query):
                         query_new_products.append(product)
-                        self.loaded_product_links.add(product.url)
                     elif not product.ignore_date:
                         break
                 if not query.can_skip():
