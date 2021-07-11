@@ -17,10 +17,11 @@ class Product(BaseModel):
         return self.name + '\n' + \
                self.price + '\n' + \
                self.location + '\n' + \
-               self.url + '\n' + \
-               str(self.date) + '\n' + \
-               ('ignore date' if self.ignore_date else 'dont ignore date') + '\n' + \
                self.description
+               # self.url + '\n' + \
+               # str(self.date) + '\n' + \
+               # ('ignore date' if self.ignore_date else 'dont ignore date') + '\n' + \
+               # self.description
 
     @staticmethod  # todo each scrapper to have its own converter
     def convert_price(original: str) -> Optional[int]:
