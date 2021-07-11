@@ -54,7 +54,7 @@ def test_query_create_invalid(text: str, low: int, high: int, skip_round: bool) 
 def test_query_skip(text: str, low: int, high: int, skip_round: bool):
     query = Query(text=text, price_range=(low, high), skip_round=skip_round)
     assert query.skip_round is skip_round
-    assert query.can_skip() is skip_round
+    assert query.can_skip_first_round() is skip_round
     assert query.skip_round is False
-    assert query.can_skip() is False
+    assert query.can_skip_first_round() is False
     assert query.skip_round is False

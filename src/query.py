@@ -10,7 +10,7 @@ class Query(BaseModel):
     # location: str
     # category: str
 
-    def can_skip(self):
+    def can_skip_first_round(self):
         if self.skip_round:
             self.skip_round = not self.skip_round
             return True

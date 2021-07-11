@@ -104,7 +104,7 @@ class BazosScrapper:
                         query_new_products.append(product)
                     elif not product.ignore_date:
                         break
-                if not query.can_skip():
+                if not query.can_skip_first_round():
                     new_products.extend(query_new_products)
 
             await self.sender.send_result(new_products)
