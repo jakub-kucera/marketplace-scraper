@@ -91,23 +91,32 @@ class BazosScrapper:
             if not self.next_page():
                 break
 
-    async def run(self, queries: List[Query], interval: int = 60):
-        self.shutdown = False
+    def first_run_queries(self, queries: List[Query]):
+        for query in queries:
+            if query.can_skip_first_round():
+                counter = 0
+                for product in self.run_query(query):
+                    self.database.add_if_not_present(product, query)
+                    if not product.ignore_date:
+                        counter += 1
+                    if counter >= SETTINGS.NEW_PRODUCT_LOAD_MAX:
+                        break
 
+    async def run(self, queries: List[Query], interval: int = 60):
+        self.first_run_queries(queries)
+
+        self.shutdown = False
         while not self.shutdown:
 
-            new_products: List[Product] = []
             for query in queries:
-                query_new_products: List[Product] = []
+                new_products: List[Product] = []
                 for product in self.run_query(query):
                     if self.database.add_if_not_present(product, query):
-                        query_new_products.append(product)
+                        new_products.append(product)
                     elif not product.ignore_date:
                         break
-                if not query.can_skip_first_round():
-                    new_products.extend(query_new_products)
+                await self.sender.send_result(new_products)
 
-            await self.sender.send_result(new_products)
             await asyncio.sleep(interval)
 
         self.driver.quit()
