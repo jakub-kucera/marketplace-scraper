@@ -30,11 +30,15 @@ async def start_bot(ctx: Context):
     scrapper = BazosScrapper(sender=sender)
     queries: List[Query] =\
         [
-            Query(text='Sennheiser', price_range=(0, 0), skip_round=True),
             Query(text='Audeze', price_range=(0, 0), skip_round=False),
+            Query(text='beyerdynamic', price_range=(0, 0), skip_round=False),
+            Query(text='audio technica', price_range=(0, 0), skip_round=False),
+            Query(text='AKG', price_range=(0, 0), skip_round=False),
+            Query(text='Sennheiser', price_range=(0, 0), skip_round=True),
             Query(text='sluchatka', price_range=(0, 0), skip_round=True),
         ]
-    await scrapper.run(queries)
+    await scrapper.run(queries, interval=600)
+    # await scrapper.run(queries)
 
 
 # @discord_bot.command(name='stop')
