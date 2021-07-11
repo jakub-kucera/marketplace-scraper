@@ -58,17 +58,17 @@ class BazosScraper:
 
     @staticmethod
     def extract_product(product_raw: WebElement) -> Product:
-        header_tmp = product_raw.find_element_by_class_name("inzeratynadpis")
-        name_div = header_tmp.find_element_by_class_name("nadpis")
-        date_raw = header_tmp.find_element_by_class_name("velikost10").text
+        header_tmp = product_raw.find_element_by_class_name('inzeratynadpis')
+        name_div = header_tmp.find_element_by_class_name('nadpis')
+        date_raw = header_tmp.find_element_by_class_name('velikost10').text
 
         name = name_div.text
         link = name_div.find_element_by_css_selector('[href]').get_attribute('href')
         date = BazosScraper.convert_date(date_raw)
         ignore_date = 'TOP' in date_raw
-        description = header_tmp.find_element_by_class_name("popis").text
-        price = product_raw.find_element_by_class_name("inzeratycena").text
-        location = product_raw.find_element_by_class_name("inzeratylok").text.replace('\n', ', ')
+        description = header_tmp.find_element_by_class_name('popis').text
+        price = product_raw.find_element_by_class_name('inzeratycena').text
+        location = product_raw.find_element_by_class_name('inzeratylok').text.replace('\n', ', ')
 
         return Product(name=name, description=description, price=price, url=link, date=date,
                        ignore_date=ignore_date, location=location)
