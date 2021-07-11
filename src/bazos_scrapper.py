@@ -73,16 +73,13 @@ class BazosScrapper:
         return Product(name=name, description=description, price=price, url=link, date=date,
                        ignore_date=ignore_date, location=location)
 
-    def get_page_products(self) -> List[Product]:
+    def get_page_products(self) -> Iterator[Product]:
         product_elements = self.driver.find_elements_by_class_name("inzeraty")
-        products: List[Product] = []
 
         for product in product_elements:
             loaded_product = self.extract_product(product)
             print(f"{loaded_product=}")
-            products.append(loaded_product)
-
-        return products
+            yield loaded_product
 
     def run_query(self, query: Query) -> Iterator[Product]:
         self.driver.get(SETTINGS.BAZOS_URL)
