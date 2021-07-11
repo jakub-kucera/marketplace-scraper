@@ -4,7 +4,7 @@ import discord
 from discord.ext import commands
 from discord.ext.commands import Context
 
-from src.bazos_scrapper import BazosScrapper
+from src.bazos_scraper import BazosScraper
 from default_config import SETTINGS
 from src.discord_sender import DiscordSender
 from src.query import Query
@@ -27,7 +27,7 @@ async def start_bot(ctx: Context):
     await ctx.send(f"Sent into : {ctx.message.channel.id}")
 
     sender = DiscordSender(ctx=ctx)
-    scrapper = BazosScrapper(sender=sender)
+    scrapper = BazosScraper(sender=sender)
     queries: List[Query] =\
         [
             Query(text='Audeze', price_range=(0, 0), skip_round=False),

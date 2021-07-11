@@ -14,7 +14,7 @@ from src.product_database import ProductDatabase
 from src.query import Query
 
 
-class BazosScrapper:
+class BazosScraper:
     def __init__(self, sender: DiscordSender):
         self.sender = sender
         self.shutdown: bool = False
@@ -64,7 +64,7 @@ class BazosScrapper:
 
         name = name_div.text
         link = name_div.find_element_by_css_selector('[href]').get_attribute('href')
-        date = BazosScrapper.convert_date(date_raw)
+        date = BazosScraper.convert_date(date_raw)
         ignore_date = 'TOP' in date_raw
         description = header_tmp.find_element_by_class_name("popis").text
         price = product_raw.find_element_by_class_name("inzeratycena").text
@@ -107,7 +107,6 @@ class BazosScrapper:
 
         self.shutdown = False
         while not self.shutdown:
-
             for query in queries:
                 new_products: List[Product] = []
                 for product in self.run_query(query):
