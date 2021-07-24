@@ -22,7 +22,8 @@ class BazosScraper:
         self.database: ProductDatabase = ProductDatabase()
 
     @staticmethod
-    def create_driver() -> WebDriver:
+    def create_driver(load_images: bool = True) -> WebDriver:
+        # todo check https://stackoverflow.com/questions/28070315/python-disable-images-in-selenium-google-chromedriver
         return webdriver.Chrome(SETTINGS.CHROMEDRIVER_PATH)
 
     def stop(self):
