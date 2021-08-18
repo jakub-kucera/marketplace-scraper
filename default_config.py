@@ -12,6 +12,7 @@ class Settings:
 
     DISCORD_TOKEN: Final[str] = environ.get("DISCORD_TOKEN", "")
     DISCORD_GUILD: Final[str] = environ.get("DISCORD_GUILD", "")
+    DISCORD_BAZOS_WEBHOOK_URL: Final[str] = "https://discord.com/api/webhooks/877681569815461920/XhA3h9R6u5E6YLiQRtdA0Cgvy-ul5CCw8WiF_uwUGwkSG9Vcmy0pvxFcZ9LISnkiiomo"
 
     NEW_PRODUCT_LOAD_MAX: Final[int] = 50
 
