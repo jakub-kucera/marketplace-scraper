@@ -2,20 +2,23 @@ import asyncio
 from datetime import datetime
 from typing import Optional, List, Set, Iterator
 
+from discord_notify import Notifier
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 
 from default_config import SETTINGS
-from src.discord_sender import DiscordSender
+from src.discord_sender_bot import DiscordSenderBot
+from src.discord_sender_wh import DiscordSenderWH
 from src.product import Product
 from src.product_database import ProductDatabase
 from src.query import Query
 
 
 class BazosScraper:
-    def __init__(self, sender: DiscordSender):
+    # def __init__(self, sender: DiscordSender):
+    def __init__(self, sender: DiscordSenderWH):
         self.sender = sender
         self.shutdown: bool = False
         self.driver = self.create_driver()
