@@ -5,7 +5,7 @@ from discord.ext.commands import Context
 from src.product import Product
 
 
-class DiscordSender:
+class DiscordSenderBot:
 
     def __init__(self, ctx: Context, send_empty: bool = False):
         self.ctx: Context = ctx
