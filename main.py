@@ -13,7 +13,7 @@ from src.query import Query
 
 def main():
 
-    sender = DiscordSenderWH(url=SETTINGS.DISCORD_BAZOS_WEBHOOK_URL)
+    sender = DiscordSenderWH(url=SETTINGS.DISCORD_BAZOS_WEBHOOK_URL, notify=True, send_empty=True)
     scrapper = BazosScraper(sender=sender)
     queries: List[Query] = \
         [
@@ -22,6 +22,10 @@ def main():
             Query(text='audio technica', price_range=(0, 0), skip_round=True),
             Query(text='AKG', price_range=(0, 0), skip_round=True),
             Query(text='Sennheiser', price_range=(0, 0), skip_round=True),
+
+
+
+            Query(text='herman miller', price_range=(0, 0), skip_round=True),
             # Query(text='sluchatka', price_range=(0, 0), skip_round=True),
         ]
     asyncio.run(scrapper.run(queries, interval=600))
