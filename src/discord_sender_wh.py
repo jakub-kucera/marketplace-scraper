@@ -37,3 +37,6 @@ class DiscordSenderWH:
                 self.notifier.send(self.format_product_message(product))
         elif self.send_empty:
             self.notifier.send(self.wrap_single("empty"))
+
+    def send_text(self, message: str):
+        self.notifier.send(message)
