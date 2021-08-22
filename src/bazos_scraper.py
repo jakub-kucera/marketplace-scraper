@@ -4,7 +4,7 @@ from typing import Optional, List, Set, Iterator
 
 from discord_notify import Notifier
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 
@@ -86,9 +86,17 @@ class BazosScraper:
             yield loaded_product
 
     def run_query(self, query: Query) -> Iterator[Product]:
-        self.driver.get(SETTINGS.BAZOS_URL)
-        self.send_query(query)
+        while True:
+            try:
+                self.driver.get(SETTINGS.BAZOS_URL)
+                self.send_query(query)
+                break
+            except TimeoutException:  # todo correct exception
+                print("TIMEOUT")
+                self.sender.send_text(f"@here \nTimeout with query: {query.text}")
 
+        # self.driver.get(SETTINGS.BAZOS_URL)
+        # self.send_query(query)
         while True:
             for product in self.get_page_products():
                 yield product
