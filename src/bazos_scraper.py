@@ -94,6 +94,8 @@ class BazosScraper:
             except TimeoutException:  # todo correct exception
                 print("TIMEOUT")
                 self.sender.send_text(f"@here \nTimeout with query: {query.text}")
+                self.driver.quit()
+                self.driver = self.create_driver()
 
         # self.driver.get(SETTINGS.BAZOS_URL)
         # self.send_query(query)
