@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from typing import Optional, List, Set, Iterator
+from typing import List, Iterator
 
 from discord_notify import Notifier
 from selenium import webdriver
@@ -9,7 +9,6 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 
 from default_config import SETTINGS
-from src.discord_sender_bot import DiscordSenderBot
 from src.discord_sender_wh import DiscordSenderWH
 from src.product import Product
 from src.product_database import ProductDatabase
@@ -86,6 +85,10 @@ class BazosScraper:
             yield loaded_product
 
     def run_query(self, query: Query) -> Iterator[Product]:
+
+        self.driver.quit()
+        self.driver = self.create_driver()
+
         while True:
             try:
                 self.driver.get(SETTINGS.BAZOS_URL)
