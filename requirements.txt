@@ -1,4 +1,5 @@
 discord.py
+discord-notify
 selenium
 requests
 python-dotenv
