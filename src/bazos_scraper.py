@@ -1,21 +1,23 @@
 import asyncio
 from datetime import datetime
-from typing import Optional, List, Set, Iterator
+from typing import List, Iterator
 
+from discord_notify import Notifier
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 
 from default_config import SETTINGS
-from src.discord_sender import DiscordSender
+from src.discord_sender_wh import DiscordSenderWH
 from src.product import Product
 from src.product_database import ProductDatabase
 from src.query import Query
 
 
 class BazosScraper:
-    def __init__(self, sender: DiscordSender):
+    # def __init__(self, sender: DiscordSender):
+    def __init__(self, sender: DiscordSenderWH):
         self.sender = sender
         self.shutdown: bool = False
         self.driver = self.create_driver()
@@ -83,9 +85,23 @@ class BazosScraper:
             yield loaded_product
 
     def run_query(self, query: Query) -> Iterator[Product]:
-        self.driver.get(SETTINGS.BAZOS_URL)
-        self.send_query(query)
 
+        self.driver.quit()
+        self.driver = self.create_driver()
+
+        while True:
+            try:
+                self.driver.get(SETTINGS.BAZOS_URL)
+                self.send_query(query)
+                break
+            except TimeoutException:  # todo correct exception
+                print("TIMEOUT")
+                self.sender.send_text(f"@here \nTimeout with query: {query.text}")
+                self.driver.quit()
+                self.driver = self.create_driver()
+
+        # self.driver.get(SETTINGS.BAZOS_URL)
+        # self.send_query(query)
         while True:
             for product in self.get_page_products():
                 yield product
