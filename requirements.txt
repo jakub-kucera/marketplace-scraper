@@ -1,5 +1,6 @@
 discord.py
 discord-notify
+slack-sdk
 selenium
 requests
 python-dotenv

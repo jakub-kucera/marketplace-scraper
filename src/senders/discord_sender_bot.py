@@ -1,11 +1,11 @@
-from typing import List, Optional
+from typing import List
 
 from discord.ext.commands import Context
 
-from src.product import Product
+from src.sendables.product import Product
 
 
-class DiscordSenderBot:
+class DiscordSenderBot():
 
     def __init__(self, ctx: Context, send_empty: bool = False):
         self.ctx: Context = ctx

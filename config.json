@@ -1,0 +1,23 @@
+{
+  "config":
+  {
+    "notifiers":
+      [
+        {
+          "sender":
+          [
+            "discord",
+            "slack"
+          ],
+          "reload_time": 600,
+          "queries":
+            [
+
+            ]
+        },
+        {
+
+        },
+      ]
+  }
+}
