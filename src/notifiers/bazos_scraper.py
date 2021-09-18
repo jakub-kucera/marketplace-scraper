@@ -1,24 +1,26 @@
-import asyncio
 from datetime import datetime
+from time import sleep
 from typing import List, Iterator
+from urllib.error import URLError
 
-from discord_notify import Notifier
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 
 from default_config import SETTINGS
-from src.discord_sender_wh import DiscordSenderWH
-from src.product import Product
-from src.product_database import ProductDatabase
+from src.notifiers.notifier import Notifier
+from src.sendables.product import Product
+from src.sendables.product_database import ProductDatabase
 from src.query import Query
+from src.senders.sender import Sender
 
 
-class BazosScraper:
-    # def __init__(self, sender: DiscordSender):
-    def __init__(self, sender: DiscordSenderWH):
-        self.sender = sender
+class BazosScraper(Notifier):
+    def __init__(self, sender: Sender, queries: List[Query], interval: int = 60):
+        super().__init__(sender)
+        self.queries = queries
+        self.interval = interval
         self.shutdown: bool = False
         self.driver = self.create_driver()
         self.database: ProductDatabase = ProductDatabase()
@@ -94,9 +96,9 @@ class BazosScraper:
                 self.driver.get(SETTINGS.BAZOS_URL)
                 self.send_query(query)
                 break
-            except TimeoutException:  # todo correct exception
+            except (TimeoutException, URLError):  # todo correct exception
                 print("TIMEOUT")
-                self.sender.send_text(f"@here \nTimeout with query: {query.text}")
+                self.sender.send_plain(f"Timeout with query: {query.text}")
                 self.driver.quit()
                 self.driver = self.create_driver()
 
@@ -119,20 +121,21 @@ class BazosScraper:
                     if counter >= SETTINGS.NEW_PRODUCT_LOAD_MAX:
                         break
 
-    async def run(self, queries: List[Query], interval: int = 60):
-        self.first_run_queries(queries)
+    def run(self):
+        self.first_run_queries(self.queries)
 
         self.shutdown = False
         while not self.shutdown:
-            for query in queries:
+            for query in self.queries:
                 new_products: List[Product] = []
                 for product in self.run_query(query):
                     if self.database.add_if_not_present(product, query):
                         new_products.append(product)
                     elif not product.ignore_date:
                         break
-                await self.sender.send_result(new_products)
+                self.sender.send_sendable(new_products)
 
-            await asyncio.sleep(interval)
+            # await asyncio.sleep(self.interval)
+            sleep(self.interval)
 
         self.driver.quit()

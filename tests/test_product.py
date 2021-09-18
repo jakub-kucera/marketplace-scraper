@@ -1,7 +1,6 @@
 import pytest
-from pydantic import ValidationError
 
-from src.product import Product
+from src.sendables.product import Product
 
 
 @pytest.mark.parametrize(
