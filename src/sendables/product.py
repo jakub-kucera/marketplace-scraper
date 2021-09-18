@@ -3,8 +3,10 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from src.sendables.sendable import Sendable
 
-class Product(BaseModel):
+
+class Product(BaseModel, Sendable):
     name: str
     price: str  # todo change to Optional[int]
     url: str
@@ -13,16 +15,6 @@ class Product(BaseModel):
     ignore_date: bool
     description: str
 
-    def __str__(self):
-        return self.name + '\n' + \
-               self.price + '\n' + \
-               self.location + '\n' + \
-               self.description
-               # self.url + '\n' + \
-               # str(self.date) + '\n' + \
-               # ('ignore date' if self.ignore_date else 'dont ignore date') + '\n' + \
-               # self.description
-
     @staticmethod  # todo each scrapper to have its own converter
     def convert_price(original: str) -> Optional[int]:
         digit_part = original.split()[0]
@@ -30,6 +22,17 @@ class Product(BaseModel):
             price = int(digit_part)
             return price if price > 1 else None
         return None
+
+    @property
+    def message(self):
+        return self.name + '\n' + \
+               self.price + '\n' + \
+               self.location + '\n' + \
+               self.description
+
+    @property
+    def link(self):
+        return self.url
 
     # @validator('url')
     # def url_valid(cls, value: str):

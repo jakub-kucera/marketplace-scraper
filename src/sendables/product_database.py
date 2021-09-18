@@ -1,6 +1,6 @@
 from typing import Dict, Set
 
-from src.product import Product
+from src.sendables.product import Product
 from src.query import Query
 
 
