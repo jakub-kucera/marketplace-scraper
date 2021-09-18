@@ -24,4 +24,4 @@
 ### Run code checkers
 
     pylint .
-    mypy -p .
+    mypy -p .# chip-facebook-post-maker

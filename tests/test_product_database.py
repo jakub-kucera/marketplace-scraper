@@ -1,7 +1,7 @@
 from datetime import datetime
 
-from src.product import Product
-from src.product_database import ProductDatabase
+from src.sendables.product import Product
+from src.sendables.product_database import ProductDatabase
 from src.query import Query
 
 
