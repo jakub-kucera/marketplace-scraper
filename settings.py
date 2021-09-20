@@ -12,9 +12,11 @@ class Settings:
 
     DISCORD_TOKEN: Final[str] = environ.get("DISCORD_TOKEN", "")
     DISCORD_GUILD: Final[str] = environ.get("DISCORD_GUILD", "")
-    DISCORD_BAZOS_WEBHOOK_URL: Final[str] = "https://discord.com/api/webhooks/REDACTED" # TODO move to .env and get new url
+    DISCORD_BAZOS_WEBHOOK_URL: Final[str] = environ.get("DISCORD_BAZOS_WEBHOOK_URL", "")
 
     NEW_PRODUCT_LOAD_MAX: Final[int] = 50
+
+    LOG_DIRECTORY_PATH: Final[str] = "logs/"
 
 
 SETTINGS = Settings()

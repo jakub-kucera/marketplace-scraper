@@ -8,7 +8,7 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 
-from default_config import SETTINGS
+from settings import SETTINGS
 from src.notifiers.notifier import Notifier
 from src.sendables.product import Product
 from src.sendables.product_database import ProductDatabase
