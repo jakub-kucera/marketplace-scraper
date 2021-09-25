@@ -14,6 +14,9 @@ class Settings:
     DISCORD_GUILD: Final[str] = environ.get("DISCORD_GUILD", "")
     DISCORD_BAZOS_WEBHOOK_URL: Final[str] = environ.get("DISCORD_BAZOS_WEBHOOK_URL", "")
 
+    EMAIL_SENDER: Final[str] = environ.get("EMAIL_SENDER", "")
+    EMAIL_RECEIVER: Final[str] = environ.get("EMAIL_RECEIVER", "")
+
     NEW_PRODUCT_LOAD_MAX: Final[int] = 50
 
     LOG_DIRECTORY_PATH: Final[str] = "logs/"

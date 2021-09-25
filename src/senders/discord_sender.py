@@ -15,7 +15,7 @@ class DiscordSender(Sender):
         self.notifier.send("@here", True)
         self.notifier.send("@everyone", True)
 
-    def format_product_message(self, sendable: Sendable) -> str:
+    def _format_product_message(self, sendable: Sendable) -> str:
         message = "@here \n" if self.notify else ""
         message += self.wrap_multi_line(sendable.message)
         message += sendable.link
