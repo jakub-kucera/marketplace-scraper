@@ -36,6 +36,14 @@ class BazosScraper(Notifier):
     def send_query(self, query: Query):
         query_textbox = self.driver.find_element_by_id('hledat')
         query_textbox.send_keys(query.text)
+
+        if query.price_range[0] > 0:
+            lower_price_textbox = self.driver.find_element_by_name('cenaod')
+            lower_price_textbox.send_keys(query.price_range[0])
+        if query.price_range[1] > 0:
+            upper_price_textbox = self.driver.find_element_by_name('cenado')
+            upper_price_textbox.send_keys(query.price_range[1])
+
         submit_button = self.driver.find_element_by_name('Submit')
         submit_button.click()
 
