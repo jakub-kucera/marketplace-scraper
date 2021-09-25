@@ -18,6 +18,10 @@ class Sender(ABC):
         return "`" + message + "`"
 
     @abstractmethod
+    def _format_product_message(self, sendable: Sendable) -> str:
+        pass
+
+    @abstractmethod
     def send_sendable(self, sendables: List[Sendable]):
         pass
 

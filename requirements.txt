@@ -1,8 +1,10 @@
 discord.py
 discord-notify
 slack-sdk
+yagmail
 selenium
 requests
+keyring
 python-dotenv
 pydantic
 validators
