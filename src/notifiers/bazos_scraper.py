@@ -9,6 +9,7 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 
 from settings import SETTINGS
+from src.interval.interval import Interval
 from src.notifiers.notifier import Notifier
 from src.sendables.product import Product
 from src.sendables.product_database import ProductDatabase
@@ -17,7 +18,7 @@ from src.senders.sender import Sender
 
 
 class BazosScraper(Notifier):
-    def __init__(self, sender: Sender, queries: List[Query], interval: int = 60):
+    def __init__(self, sender: Sender, queries: List[Query], interval: Interval):
         super().__init__(sender)
         self.queries = queries
         self.interval = interval
@@ -152,6 +153,6 @@ class BazosScraper(Notifier):
                 self.sender.send_sendable(new_products)
 
             # await asyncio.sleep(self.interval)
-            sleep(self.interval)
+            sleep(self.interval.get_next_interval())
 
         self.driver.quit()

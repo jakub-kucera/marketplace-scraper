@@ -1,6 +1,7 @@
 from typing import List
 
 from settings import SETTINGS
+from src.interval.random_interval import RandomInterval
 from src.notifiers.bazos_scraper import BazosScraper
 from src.notifiers.notifier import Notifier
 from src.query import Query
@@ -16,7 +17,13 @@ def get_new_config() -> List[Notifier]:
         [
             BazosScraper(
                 sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_WEBHOOK_URL, notify=True, send_empty=True),
-                interval=600,
+                # sender=EmailSender(sender=SETTINGS.EMAIL_SENDER, receiver=SETTINGS.EMAIL_RECEIVER),
+                # sender=MultiSender(senders_conditions=
+                #        {
+                #            d : DiscordSender(url=SETTINGS.DISCORD_BAZOS_WEBHOOK_URL, notify=True, send_empty=True),
+                #            funcwork : EmailSender(sender=SETTINGS.EMAIL_SENDER, receiver=SETTINGS.EMAIL_RECEIVER)
+                #        }),
+                interval=RandomInterval(lower=8*60, upper=15*60),
                 queries=
                 [
                     Query(text='Audeze', price_range=(0, 0), skip_round=False, category=headphones_bazos),
