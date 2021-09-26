@@ -11,9 +11,7 @@ class DiscordSender(Sender):
     def __init__(self, url: str, notify: bool = False, send_empty: bool = False):
         super().__init__(notify, send_empty)
         self.notifier = dn.Notifier(url)
-        self.notifier.send("Scraper Starting", True)
-        self.notifier.send("@here", True)
-        self.notifier.send("@everyone", True)
+        self.notifier.send("@here\nScraper Starting", True)
 
     def _format_product_message(self, sendable: Sendable) -> str:
         message = "@here \n" if self.notify else ""
