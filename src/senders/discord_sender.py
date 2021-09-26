@@ -26,7 +26,7 @@ class DiscordSender(Sender):
         if len(sendables) != 0:
             for s in sendables:
                 # print(f"Sending {product.name=}")
-                self.notifier.send(self.format_product_message(s))
+                self.notifier.send(self._format_product_message(s))
         elif self.send_empty:
             self.notifier.send(self.wrap_single_line("empty"))
 

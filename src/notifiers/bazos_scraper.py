@@ -37,6 +37,12 @@ class BazosScraper(Notifier):
         query_textbox = self.driver.find_element_by_id('hledat')
         query_textbox.send_keys(query.text)
 
+        location_textbox = self.driver.find_element_by_id('hlokalita')
+        location_textbox.send_keys(query.location[0])
+        location_range_textbox = self.driver.find_element_by_name('humkreis')
+        location_range_textbox.clear()
+        location_range_textbox.send_keys(query.location[1])
+
         if query.price_range[0] > 0:
             lower_price_textbox = self.driver.find_element_by_name('cenaod')
             lower_price_textbox.send_keys(query.price_range[0])

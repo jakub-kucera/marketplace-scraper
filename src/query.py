@@ -7,8 +7,8 @@ class Query(BaseModel):
     text: str
     price_range: Tuple[int, int]
     skip_round: bool = False
-    # location: str
-    # category: str
+    category: str = ""
+    location: Tuple[str, str] = ('', '')  # location, range
 
     def can_skip_first_round(self):
         if self.skip_round:
