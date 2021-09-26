@@ -105,9 +105,11 @@ class BazosScraper(Notifier):
         self.driver.quit()
         self.driver = self.create_driver()
 
+        url: str = SETTINGS.BAZOS_URL if len(query.category) == 0 else query.category
+
         while True:
             try:
-                self.driver.get(SETTINGS.BAZOS_URL)
+                self.driver.get(url)
                 self.send_query(query)
                 break
             except (TimeoutException, URLError):  # todo correct exception
