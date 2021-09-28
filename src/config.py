@@ -10,6 +10,7 @@ from src.senders.discord_sender import DiscordSender
 headphones_bazos = "https://elektro.bazos.cz/sluchatka/"  # TODO move elsewhere
 monitors_bazos = "https://pc.bazos.cz/monitor/"
 chairs_bazos = "https://nabytek.bazos.cz/zidle/"
+amplifiers_bazos = "https://elektro.bazos.cz/zesilovace/"
 
 
 def get_new_config() -> List[Notifier]:
@@ -27,19 +28,22 @@ def get_new_config() -> List[Notifier]:
                 interval=RandomInterval(lower=7*60, upper=15*60),
                 queries=
                 [
+                    # headphones
                     Query(text='Audeze', price_range=(0, 0), skip_round=False, category=headphones_bazos),
-                    Query(text='beyerdynamic', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '15')),
-                    Query(text='audio technica', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '15')),
-                    Query(text='AKG', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '15')),
-                    Query(text='Sennheiser', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '15')),
+                    Query(text='beyerdynamic', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    Query(text='audio technica', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    Query(text='AKG', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    Query(text='Sennheiser', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
 
+                    # amplifiers
+                    Query(text='', price_range=(1000, 0), skip_round=True, category=amplifiers_bazos, location=('11000', '50')),
+
+                    # office chairs
                     Query(text='herman miller', price_range=(0, 0), skip_round=False, category=chairs_bazos),
 
-                    Query(text='', price_range=(5000, 0), skip_round=True, category=monitors_bazos, location=('11000', '20')),
+                    # monitors
+                    Query(text='', price_range=(5000, 0), skip_round=True, category=monitors_bazos, location=('11000', '70')),
 
-                    # Query(text='', price_range=(5000, 0), skip_round=False),
-                    # Query(text='lednicka', price_range=(0, 100), skip_round=False, category="https://elektro.bazos.cz/lednicky/"),
-                    # Query(text='lednicka', price_range=(0, 100), skip_round=False),
                     # Query(text='lednicka', price_range=(0, 100), skip_round=False, category="https://elektro.bazos.cz/lednicky/"),
                 ]
             )
