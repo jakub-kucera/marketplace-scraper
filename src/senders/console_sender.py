@@ -6,10 +6,11 @@ from src.senders.sender import Sender
 
 class ConsoleSender(Sender):
     def _format_product_message(self, sendable: Sendable) -> str:
-        pass
+        return sendable.message + '\n'
 
     def send_sendable(self, sendables: List[Sendable]):
-        pass
+        for s in sendables:
+            print(self._format_product_message(s))
 
     def send_plain(self, text: str):
-        pass
+        print(text)

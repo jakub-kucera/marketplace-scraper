@@ -16,14 +16,15 @@ def get_new_config() -> List[Notifier]:
     notifiers: List[Notifier] = \
         [
             BazosScraper(
-                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_WEBHOOK_URL, notify=True, send_empty=True),
+                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_WEBHOOK_URL, notify=True),
+                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
                 # sender=EmailSender(sender=SETTINGS.EMAIL_SENDER, receiver=SETTINGS.EMAIL_RECEIVER),
                 # sender=MultiSender(senders_conditions=
                 #        {
                 #            d : DiscordSender(url=SETTINGS.DISCORD_BAZOS_WEBHOOK_URL, notify=True, send_empty=True),
                 #            funcwork : EmailSender(sender=SETTINGS.EMAIL_SENDER, receiver=SETTINGS.EMAIL_RECEIVER)
                 #        }),
-                interval=RandomInterval(lower=8*60, upper=15*60),
+                interval=RandomInterval(lower=7*60, upper=15*60),
                 queries=
                 [
                     Query(text='Audeze', price_range=(0, 0), skip_round=False, category=headphones_bazos),

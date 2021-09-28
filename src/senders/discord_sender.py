@@ -8,10 +8,9 @@ from src.senders.sender import Sender
 
 class DiscordSender(Sender):
 
-    def __init__(self, url: str, notify: bool = False, send_empty: bool = False):
-        super().__init__(notify, send_empty)
+    def __init__(self, url: str, notify: bool = False):
+        super().__init__(notify)
         self.notifier = dn.Notifier(url)
-        self.notifier.send("@here\nScraper Starting", True)
 
     def _format_product_message(self, sendable: Sendable) -> str:
         message = "@here \n" if self.notify else ""
@@ -21,12 +20,8 @@ class DiscordSender(Sender):
 
     def send_sendable(self, sendables: List[Sendable]):
         # todo maybe run in parallel
-        if len(sendables) != 0:
-            for s in sendables:
-                # print(f"Sending {product.name=}")
-                self.notifier.send(self._format_product_message(s))
-        elif self.send_empty:
-            self.notifier.send(self.wrap_single_line("empty"))
+        for s in sendables:
+            self.notifier.send(self._format_product_message(s))
 
     def send_plain(self, text: str):
         self.notifier.send(text)

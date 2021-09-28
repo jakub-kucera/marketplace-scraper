@@ -5,9 +5,8 @@ from src.sendables.sendable import Sendable
 
 
 class Sender(ABC):
-    def __init__(self, notify: bool = False, send_empty: bool = False):
+    def __init__(self, notify: bool = False):
         self.notify = notify
-        self.send_empty: bool = send_empty
 
     @staticmethod
     def wrap_multi_line(message: str) -> str:

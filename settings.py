@@ -13,6 +13,7 @@ class Settings:
     DISCORD_TOKEN: Final[str] = environ.get("DISCORD_TOKEN", "")
     DISCORD_GUILD: Final[str] = environ.get("DISCORD_GUILD", "")
     DISCORD_BAZOS_WEBHOOK_URL: Final[str] = environ.get("DISCORD_BAZOS_WEBHOOK_URL", "")
+    DISCORD_LOGGER_WEBHOOK_URL: Final[str] = environ.get("DISCORD_LOGGER_WEBHOOK_URL", "")
 
     EMAIL_SENDER: Final[str] = environ.get("EMAIL_SENDER", "")
     EMAIL_RECEIVER: Final[str] = environ.get("EMAIL_RECEIVER", "")

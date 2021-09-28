@@ -7,21 +7,17 @@ from src.senders.sender import Sender
 
 
 class SlackSender(Sender):
-    def __init__(self, url: str, notify: bool = False, send_empty: bool = False):
-        super().__init__(notify, send_empty)
+    def __init__(self, url: str, notify: bool = False):
+        super().__init__(notify)
         self.notifier = WebhookClient(url)
-        self.notifier.send(text="Scraper Starting")
-        self.notifier.send(text="@here")
-        self.notifier.send(text="@everyone")
+
+    def _format_product_message(self, sendable: Sendable) -> str:
+        return sendable.message
 
     def send_sendable(self, sendables: List[Sendable]):
-        if len(sendables) != 0:
-            for s in sendables:
-                # print(f"Sending {product.name=}")
-                response = self.notifier.send(text=s.message)
-        elif self.send_empty:
-            self.notifier.send(text=self.wrap_single_line("empty"))
+        for s in sendables:
+            response = self.notifier.send(text=self._format_product_message(s))
 
     def send_plain(self, text: str):
-        pass
+        self.notifier.send(text=text)
 
