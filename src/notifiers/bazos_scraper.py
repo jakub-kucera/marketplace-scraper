@@ -18,17 +18,17 @@ from src.senders.sender import Sender
 
 
 class BazosScraper(Notifier):
-    def __init__(self, sender: Sender, queries: List[Query], interval: Interval):
-        super().__init__(sender)
-        self.queries = queries
-        self.interval = interval
+    def __init__(self, sender: Sender, logger: Sender, queries: List[Query], interval: Interval):
+        super().__init__(sender, logger)
+        self.log("@here\nStarting")  # TODO move @here elsewhere
+        self.queries: List[Query] = queries
+        self.interval: Interval = interval
         self.shutdown: bool = False
-        self.driver = self.create_driver()
+        self.driver: WebDriver = self.create_driver()
         self.database: ProductDatabase = ProductDatabase()
 
     @staticmethod
     def create_driver(load_images: bool = True) -> WebDriver:
-        # todo check https://stackoverflow.com/questions/28070315/python-disable-images-in-selenium-google-chromedriver
         return webdriver.Chrome(SETTINGS.CHROMEDRIVER_PATH)
 
     def stop(self):
@@ -98,7 +98,6 @@ class BazosScraper(Notifier):
 
         for product in product_elements:
             loaded_product = self.extract_product(product)
-            print(f"{loaded_product=}")
             yield loaded_product
 
     def run_query(self, query: Query) -> Iterator[Product]:
@@ -114,13 +113,10 @@ class BazosScraper(Notifier):
                 self.send_query(query)
                 break
             except (TimeoutException, URLError):  # todo correct exception
-                print("TIMEOUT")
-                self.sender.send_plain(f"Timeout with query: {query.text}")
+                self.log(f"Timeout with query: {query.text}")
                 self.driver.quit()
                 self.driver = self.create_driver()
 
-        # self.driver.get(SETTINGS.BAZOS_URL)
-        # self.send_query(query)
         while True:
             for product in self.get_page_products():
                 yield product
@@ -148,11 +144,15 @@ class BazosScraper(Notifier):
                 for product in self.run_query(query):
                     if self.database.add_if_not_present(product, query):
                         new_products.append(product)
+                        self.log(f"Found new product named: {product.name}")  # TODO maybe delete
                     elif not product.ignore_date:
                         break
+                self.log(f"Sending {len(new_products)} products.")  # TODO maybe delete
                 self.sender.send_sendable(new_products)
 
-            # await asyncio.sleep(self.interval)
+            interval = self.interval.get_next_interval()
+            self.log(f"Going to sleep for {interval} seconds ({interval/60.0} minutes).")
             sleep(self.interval.get_next_interval())
+            self.log("Waking up.")
 
         self.driver.quit()
