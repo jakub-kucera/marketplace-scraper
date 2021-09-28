@@ -18,18 +18,22 @@ from src.senders.sender import Sender
 
 
 class BazosScraper(Notifier):
-    def __init__(self, sender: Sender, logger: Sender, queries: List[Query], interval: Interval):
+    def __init__(self, sender: Sender, logger: Sender, queries: List[Query], interval: Interval, load_images: bool = True):
         super().__init__(sender, logger)
         self.log("@here\nStarting")  # TODO move @here elsewhere
         self.queries: List[Query] = queries
         self.interval: Interval = interval
+        self.load_images = load_images
         self.shutdown: bool = False
         self.driver: WebDriver = self.create_driver()
         self.database: ProductDatabase = ProductDatabase()
 
-    @staticmethod
-    def create_driver(load_images: bool = True) -> WebDriver:
-        return webdriver.Chrome(SETTINGS.CHROMEDRIVER_PATH)
+    def create_driver(self) -> WebDriver:
+        chrome_options = webdriver.ChromeOptions()
+        if not self.load_images:
+            prefs = {"profile.managed_default_content_settings.images": 2}
+            chrome_options.add_experimental_option("prefs", prefs)
+        return webdriver.Chrome(SETTINGS.CHROMEDRIVER_PATH, chrome_options=chrome_options)
 
     def stop(self):
         self.shutdown = True

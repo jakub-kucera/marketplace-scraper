@@ -26,6 +26,7 @@ def get_new_config() -> List[Notifier]:
                 #            funcwork : EmailSender(sender=SETTINGS.EMAIL_SENDER, receiver=SETTINGS.EMAIL_RECEIVER)
                 #        }),
                 interval=RandomInterval(lower=7*60, upper=15*60),
+                load_images=False,
                 queries=
                 [
                     # headphones
@@ -37,6 +38,8 @@ def get_new_config() -> List[Notifier]:
 
                     # amplifiers
                     Query(text='', price_range=(1000, 0), skip_round=True, category=amplifiers_bazos, location=('11000', '50')),
+                    Query(text='Chord Mojo', price_range=(2000, 0), skip_round=True, location=('11000', '50')),
+                    Query(text='schiit', price_range=(2000, 0), skip_round=True, location=('11000', '50')),
 
                     # office chairs
                     Query(text='herman miller', price_range=(0, 0), skip_round=False, category=chairs_bazos),
