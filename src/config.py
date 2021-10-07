@@ -11,6 +11,7 @@ headphones_bazos = "https://elektro.bazos.cz/sluchatka/"  # TODO move elsewhere
 monitors_bazos = "https://pc.bazos.cz/monitor/"
 chairs_bazos = "https://nabytek.bazos.cz/zidle/"
 amplifiers_bazos = "https://elektro.bazos.cz/zesilovace/"
+gpu_bazos = "https://pc.bazos.cz/graficka/"
 
 
 def get_new_config() -> List[Notifier]:
@@ -37,15 +38,20 @@ def get_new_config() -> List[Notifier]:
                     Query(text='Sennheiser', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
 
                     # amplifiers
-                    Query(text='', price_range=(1000, 0), skip_round=True, category=amplifiers_bazos, location=('11000', '50')),
+                    # Query(text='', price_range=(1000, 0), skip_round=True, category=amplifiers_bazos, location=('11000', '50')),
                     Query(text='Chord Mojo', price_range=(2000, 0), skip_round=True, location=('11000', '50')),
                     Query(text='schiit', price_range=(2000, 0), skip_round=True, location=('11000', '50')),
 
                     # office chairs
                     Query(text='herman miller', price_range=(0, 0), skip_round=False, category=chairs_bazos),
+                    # Query(text='kancelarska zidle', price_range=(0, 0), skip_round=False, category=chairs_bazos),
+                    # Query(text='kancelarske kreslo', price_range=(0, 0), skip_round=False, category=chairs_bazos),
 
                     # monitors
-                    Query(text='', price_range=(5000, 0), skip_round=True, category=monitors_bazos, location=('11000', '70')),
+                    Query(text='', price_range=(4000, 0), skip_round=True, category=monitors_bazos, location=('11000', '70')),
+
+                    # egpu
+                    Query(text='egpu', price_range=(5000, 0), skip_round=True, category=gpu_bazos, location=('11000', '70')),
 
                     # Query(text='lednicka', price_range=(0, 100), skip_round=False, category="https://elektro.bazos.cz/lednicky/"),
                 ]
