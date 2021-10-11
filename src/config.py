@@ -40,6 +40,8 @@ def get_new_config() -> List[Notifier]:
                     Query(text='audio technica', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
                     Query(text='AKG', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
                     Query(text='Sennheiser', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    Query(text='Sony', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    Query(text='Bose', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
 
                     # amplifiers
                     Query(text='Chord Mojo', price_range=(2000, 0), skip_round=True, location=('11000', '50')),
