@@ -18,8 +18,8 @@ from src.senders.sender import Sender
 
 
 class BazosScraper(Notifier):
-    def __init__(self, sender: Sender, logger: Sender, queries: List[Query], interval: Interval, load_images: bool = True):
-        super().__init__(sender, logger)
+    def __init__(self, sender: Sender, logger: Sender, name: str, queries: List[Query], interval: Interval, load_images: bool = True):
+        super().__init__(sender, logger, name)
         self.log("@here\nStarting")  # TODO move @here elsewhere
         self.queries: List[Query] = queries
         self.interval: Interval = interval
