@@ -18,6 +18,16 @@ class DiscordSender(Sender):
         message += sendable.link
         return message
 
+    def _send(self, message: str):  # TODO make thread safe
+        while True:
+            try:
+                self.notifier.send(message)
+                break
+            except HTTPError as e:
+                print(str(e))  # TODO delete
+                print(traceback.format_exc())
+                sleep(1)
+
     def send_sendable(self, sendables: List[Sendable]):
         # todo maybe run in parallel
         for s in sendables:
