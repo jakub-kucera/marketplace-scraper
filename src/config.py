@@ -39,6 +39,8 @@ def get_new_config() -> List[Notifier]:
                 [
                     # headphones
                     Query(text='Audeze', price_range=(0, 0), skip_round=False, category=headphones_bazos),
+                    Query(text='Focal', price_range=(0, 0), skip_round=False, category=headphones_bazos),
+                    Query(text='Dan Clark', price_range=(0, 0), skip_round=False, category=headphones_bazos),
                     Query(text='beyerdynamic', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
                     Query(text='audio technica', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
                     Query(text='AKG', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),

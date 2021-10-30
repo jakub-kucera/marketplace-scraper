@@ -1,4 +1,8 @@
+import traceback
+from time import sleep
 from typing import List, Any
+from urllib.error import HTTPError
+from random import uniform
 
 import discord_notify as dn
 
@@ -26,12 +30,12 @@ class DiscordSender(Sender):
             except HTTPError as e:
                 print(str(e))  # TODO delete
                 print(traceback.format_exc())
-                sleep(1)
+                sleep(uniform(0.2, 2))
 
     def send_sendable(self, sendables: List[Sendable]):
         # todo maybe run in parallel
         for s in sendables:
-            self.notifier.send(self._format_product_message(s))
+            self._send(self._format_product_message(s))
 
     def send_plain(self, text: str):
-        self.notifier.send(text)
+        self._send(text)
