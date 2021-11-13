@@ -79,8 +79,7 @@ def get_new_config() -> List[Notifier]:
                 queries=
                 [
                     # thinkpad
-                    Query(text='thinkpad', price_range=(1000, 0), skip_round=True, category=laptop_bazos,
-                          location=('11000', '20')),
+                    Query(text='thinkpad', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '20')),
                 ]
             ),
             BazosScraper(
@@ -94,6 +93,12 @@ def get_new_config() -> List[Notifier]:
                     # iphone
                     Query(text='iphone 13', price_range=(8000, 0), skip_round=True, category=apple_phones_bazos, location=('11000', '30')),
 
+                    # laptop
+                    Query(text='', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '50')),
+
+                    # pc
+                    Query(text='', price_range=(5000, 0), skip_round=True, category=pc_bazos, location=('11000', '50')),
+
                     # cpu
                     Query(text='', price_range=(5000, 0), skip_round=True, category=cpu_bazos, location=('11000', '70')),
 
@@ -105,37 +110,33 @@ def get_new_config() -> List[Notifier]:
 
                     # fridge
                     Query(text='lednicka', price_range=(500, 0), skip_round=True, category=fridge_bazos, location=('11000', '30')),
-                ]
-            ),
-            BazosScraper(
-                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_CHAIR_WEBHOOK_URL, notify=False),
-                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
-                name="BazosScraper_chair",
-                interval=RandomInterval(lower=15 * 60, upper=45 * 60),
-                load_images=False,
-                queries=
-                [
-                    # office chair
-                    Query(text='kancelarska zidle', price_range=(0, 0), skip_round=True, category=chairs_bazos,
-                          location=('11000', '100')),
-                    Query(text='kancelarske kreslo', price_range=(0, 0), skip_round=True, category=chairs_bazos,
-                          location=('11000', '100')),
-                ]
-            ),
-            BazosScraper(
-                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_PC_LAPTOP_WEBHOOK_URL, notify=False),
-                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
-                name="BazosScraper_pc_laptop",
-                interval=RandomInterval(lower=15 * 60, upper=45 * 60),
-                load_images=False,
-                queries=
-                [
-                    # laptop
-                    Query(text='', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '50')),
 
-                    # pc
-                    Query(text='', price_range=(5000, 0), skip_round=True, category=pc_bazos, location=('11000', '50')),
+                    # office chair
+                    Query(text='kancelarska zidle', price_range=(0, 0), skip_round=True, category=chairs_bazos, location=('11000', '100')),
+                    Query(text='kancelarske kreslo', price_range=(0, 0), skip_round=True, category=chairs_bazos, location=('11000', '100')),
                 ]
-            )
+            ),
+            # BazosScraper(
+            #     sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_CHAIR_WEBHOOK_URL, notify=False),
+            #     logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+            #     name="BazosScraper_chair",
+            #     interval=RandomInterval(lower=15 * 60, upper=45 * 60),
+            #     load_images=False,
+            #     queries=
+            #     [
+            #
+            #     ]
+            # ),
+            # BazosScraper(
+            #     sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_PC_LAPTOP_WEBHOOK_URL, notify=False),
+            #     logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+            #     name="BazosScraper_pc_laptop",
+            #     interval=RandomInterval(lower=15 * 60, upper=45 * 60),
+            #     load_images=False,
+            #     queries=
+            #     [
+            #
+            #     ]
+            # )
         ]
     return notifiers
