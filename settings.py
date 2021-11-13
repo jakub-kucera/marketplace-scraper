@@ -15,7 +15,10 @@ class Settings:
 
     DISCORD_LOGGER_WEBHOOK_URL: Final[str] = environ.get("DISCORD_LOGGER_WEBHOOK_URL", "")
     DISCORD_BAZOS_ALERT_WEBHOOK_URL: Final[str] = environ.get("DISCORD_BAZOS_ALERT_WEBHOOK_URL", "")
+    DISCORD_BAZOS_THINKPAD_WEBHOOK_URL: Final[str] = environ.get("DISCORD_BAZOS_THINKPAD_WEBHOOK_URL", "")
     DISCORD_BAZOS_OTHER_WEBHOOK_URL: Final[str] = environ.get("DISCORD_BAZOS_OTHER_WEBHOOK_URL", "")
+    DISCORD_BAZOS_PC_LAPTOP_WEBHOOK_URL: Final[str] = environ.get("DISCORD_BAZOS_PC_LAPTOP_WEBHOOK_URL", "")
+    DISCORD_BAZOS_CHAIR_WEBHOOK_URL: Final[str] = environ.get("DISCORD_BAZOS_CHAIR_WEBHOOK_URL", "")
 
     EMAIL_SENDER: Final[str] = environ.get("EMAIL_SENDER", "")
     EMAIL_RECEIVER: Final[str] = environ.get("EMAIL_RECEIVER", "")
