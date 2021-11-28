@@ -38,4 +38,6 @@ class DiscordSender(Sender):
             self._send(self._format_product_message(s))
 
     def send_plain(self, text: str):
+        if self.notify:
+            text = "@here \n" + text
         self._send(text)

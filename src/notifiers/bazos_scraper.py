@@ -7,6 +7,8 @@ from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
 from settings import SETTINGS
 from src.interval.interval import Interval
@@ -33,7 +35,8 @@ class BazosScraper(Notifier):
         if not self.load_images:
             prefs = {"profile.managed_default_content_settings.images": 2}
             chrome_options.add_experimental_option("prefs", prefs)
-        return webdriver.Chrome(SETTINGS.CHROMEDRIVER_PATH, chrome_options=chrome_options)
+        s = Service(ChromeDriverManager().install())
+        return webdriver.Chrome(service=s, options=chrome_options)
 
     def stop(self):
         self.shutdown = True
@@ -156,7 +159,7 @@ class BazosScraper(Notifier):
 
             interval = self.interval.get_next_interval()
             self.log(f"Going to sleep for {interval} seconds ({interval/60.0} minutes).")
-            sleep(self.interval.get_next_interval())
+            sleep(interval)
             self.log("Waking up.")
 
         self.driver.quit()
