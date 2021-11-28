@@ -3,6 +3,7 @@ discord-notify
 slack-sdk
 yagmail
 selenium
+webdriver-manager
 requests
 keyring
 python-dotenv
