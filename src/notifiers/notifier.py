@@ -14,7 +14,6 @@ class Notifier(ABC):
         pass
 
     def log(self, text: str):  # maybe make Logger class that wraps Sender
-        # self.logger.send_plain(f"{self.name}: {text}")
-        for line in text.split(sep='\n'):
-            self.logger.send_plain(f"{self.name}: {line}")
-        #     self.logger.send_plain(f"\t {line}")
+        self.logger.send_plain(f"{self.name}: {text}")
+        # for line in text.split(sep='\n'):
+        #     self.logger.send_plain(f"{self.name}: {line}")
