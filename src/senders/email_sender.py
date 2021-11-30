@@ -2,6 +2,7 @@ from typing import List
 
 import yagmail
 
+from settings import SETTINGS
 from src.sendables.sendable import Sendable
 from src.senders.sender import Sender
 
