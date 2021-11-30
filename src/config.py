@@ -1,8 +1,12 @@
 from typing import List
 
 from settings import SETTINGS
-from src.interval.random_interval import RandomInterval
+from src.intervals.random_interval import RandomInterval
+from src.notifiers.alza_product_list_scraper import AlzaProductListScraper
 from src.notifiers.bazos_scraper import BazosScraper
+from src.notifiers.cinemacity_scraper import CinemaCityScraper
+from src.notifiers.datart_product_list_scraper import DatartProductListScraper
+from src.notifiers.greenhouse_list_scraper import GreenhouseJobListScraper
 from src.notifiers.notifier import Notifier
 from src.query import Query
 from src.senders.discord_sender import DiscordSender
@@ -24,6 +28,34 @@ chairs_bazos = "https://nabytek.bazos.cz/zidle/"
 def get_new_config() -> List[Notifier]:
     notifiers: List[Notifier] = \
         [
+            # AlzaProductListScraper(
+            #     sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True),
+            #     logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+            #     name="AlzaScraper",
+            #     interval=RandomInterval(lower=2*60, upper=7*60),
+            #     link_to_list="https://alza.cz/iphone-13-pro/18892048.htm"
+            # ),
+            DatartProductListScraper(
+                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True),
+                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+                name="DatartScraper",
+                interval=RandomInterval(lower=1*60, upper=3*60),
+                link_to_list="https://www.datart.cz/iphone-13-pro.html"
+            ),
+            GreenhouseJobListScraper(
+                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True),
+                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+                name="GreenhouseScraper",
+                interval=RandomInterval(lower=6 * 60 * 60, upper=15 * 60 * 60),
+                link_to_list="https://boards.greenhouse.io/purestorage/"
+            ),
+            CinemaCityScraper(
+                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True),
+                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+                name="CinemaCity",
+                interval=RandomInterval(lower=5*60, upper=15*60),
+                start_day=1, end_day=30
+            ),
             BazosScraper(
                 sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True),
                 logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
@@ -39,6 +71,7 @@ def get_new_config() -> List[Notifier]:
                 [
                     # headphones
                     Query(text='Audeze', price_range=(0, 0), skip_round=False, category=headphones_bazos),
+                    Query(text='AirPods Max', price_range=(0, 0), skip_round=False, category=headphones_bazos),
                     Query(text='Focal', price_range=(0, 0), skip_round=False, category=headphones_bazos),
                     Query(text='Dan Clark', price_range=(0, 0), skip_round=False, category=headphones_bazos),
                     Query(text='beyerdynamic', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
@@ -78,8 +111,8 @@ def get_new_config() -> List[Notifier]:
                 load_images=False,
                 queries=
                 [
-                    # thinkpad
                     Query(text='thinkpad', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '20')),
+                    Query(text='dell latitude', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '20')),
                 ]
             ),
             BazosScraper(
@@ -107,6 +140,7 @@ def get_new_config() -> List[Notifier]:
 
                     # headphones
                     Query(text='', price_range=(4000, 0), skip_round=True, category=headphones_bazos, location=('11000', '70')),
+                    Query(text='AirPods Pro', price_range=(1000, 0), skip_round=False, category=headphones_bazos, location=('11000', '30')),
 
                     # fridge
                     Query(text='lednicka', price_range=(500, 0), skip_round=True, category=fridge_bazos, location=('11000', '30')),
