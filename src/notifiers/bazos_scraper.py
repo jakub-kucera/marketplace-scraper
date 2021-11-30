@@ -11,7 +11,7 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 from settings import SETTINGS
-from src.interval.interval import Interval
+from src.intervals.interval import Interval
 from src.notifiers.notifier import Notifier
 from src.sendables.product import Product
 from src.sendables.product_database import ProductDatabase

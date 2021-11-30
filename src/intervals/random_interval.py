@@ -1,6 +1,6 @@
 import random
 
-from src.interval.interval import Interval
+from src.intervals.interval import Interval
 
 
 class RandomInterval(Interval):
