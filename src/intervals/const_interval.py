@@ -1,4 +1,4 @@
-from src.interval.interval import Interval
+from src.intervals.interval import Interval
 
 
 class ConstInterval(Interval):
