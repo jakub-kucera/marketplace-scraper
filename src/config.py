@@ -9,7 +9,10 @@ from src.notifiers.datart_product_list_scraper import DatartProductListScraper
 from src.notifiers.greenhouse_list_scraper import GreenhouseJobListScraper
 from src.notifiers.notifier import Notifier
 from src.query import Query
+from src.senders.calendar_api.calendar_condition_sender import CalendarConditionSender
 from src.senders.discord_sender import DiscordSender
+from src.senders.email_sender import EmailSender
+from src.senders.multi_sender import MultiSender
 
 pc_bazos = "https://pc.bazos.cz/pc/"  # TODO move elsewhere
 laptop_bazos = "https://pc.bazos.cz/notebook/"
@@ -26,45 +29,49 @@ chairs_bazos = "https://nabytek.bazos.cz/zidle/"
 
 
 def get_new_config() -> List[Notifier]:
+
+    discord_alert_sender = DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True)
+    discord_logger_sender = DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL)
+    discord_thinkpad_sender = DiscordSender(url=SETTINGS.DISCORD_BAZOS_THINKPAD_WEBHOOK_URL)
+    discord_other_sender = DiscordSender(url=SETTINGS.DISCORD_BAZOS_OTHER_WEBHOOK_URL)
+
+    # email_work_sender = EmailSender(sender=SETTINGS.EMAIL_SENDER, receiver=SETTINGS.EMAIL_RECEIVER)
+    # MultiSender([discord_alert_sender, CalendarConditionSender(email_work_sender, ['WORK'])])
+
     notifiers: List[Notifier] = \
         [
             # AlzaProductListScraper(
-            #     sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True),
-            #     logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+            #     sender=discord_alert_sender,
+            #     logger=discord_logger_sender,
             #     name="AlzaScraper",
             #     interval=RandomInterval(lower=2*60, upper=7*60),
             #     link_to_list="https://alza.cz/iphone-13-pro/18892048.htm"
             # ),
             DatartProductListScraper(
-                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True),
-                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+                sender=discord_alert_sender,
+                logger=discord_logger_sender,
                 name="DatartScraper",
                 interval=RandomInterval(lower=1*60, upper=3*60),
                 link_to_list="https://www.datart.cz/iphone-13-pro.html"
             ),
             GreenhouseJobListScraper(
-                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True),
-                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+                sender=discord_alert_sender,
+                logger=discord_logger_sender,
                 name="GreenhouseScraper",
                 interval=RandomInterval(lower=6 * 60 * 60, upper=15 * 60 * 60),
                 link_to_list="https://boards.greenhouse.io/purestorage/"
             ),
             CinemaCityScraper(
-                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True),
-                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+                sender=discord_alert_sender,
+                logger=discord_logger_sender,
                 name="CinemaCity",
                 interval=RandomInterval(lower=5*60, upper=15*60),
                 start_day=1, end_day=30
             ),
             BazosScraper(
-                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_ALERT_WEBHOOK_URL, notify=True),
-                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+                sender=discord_alert_sender,
+                logger=discord_logger_sender,
                 name="BazosScraper_alerts",
-                # sender=MultiSender(senders_conditions=
-                #        {
-                #            d : DiscordSender(url=SETTINGS.DISCORD_BAZOS_WEBHOOK_URL, notify=True, send_empty=True),
-                #            funcwork : EmailSender(sender=SETTINGS.EMAIL_SENDER, receiver=SETTINGS.EMAIL_RECEIVER)
-                #        }),
                 interval=RandomInterval(lower=7*60, upper=15*60),
                 load_images=False,
                 queries=
@@ -104,8 +111,8 @@ def get_new_config() -> List[Notifier]:
                 ]
             ),
             BazosScraper(
-                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_THINKPAD_WEBHOOK_URL, notify=True),
-                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+                sender=discord_thinkpad_sender,
+                logger=discord_logger_sender,
                 name="BazosScraper_thinkpad",
                 interval=RandomInterval(lower=10 * 60, upper=25 * 60),
                 load_images=False,
@@ -116,8 +123,8 @@ def get_new_config() -> List[Notifier]:
                 ]
             ),
             BazosScraper(
-                sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_OTHER_WEBHOOK_URL, notify=False),
-                logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
+                sender=discord_other_sender,
+                logger=discord_logger_sender,
                 name="BazosScraper_other",
                 interval=RandomInterval(lower=15 * 60, upper=45 * 60),
                 load_images=False,

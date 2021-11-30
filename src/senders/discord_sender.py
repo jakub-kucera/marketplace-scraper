@@ -29,7 +29,7 @@ class DiscordSender(Sender):
                 break
             except HTTPError as e:
                 print("DiscordSender: Rate limit reached")
-                sleep(uniform(0.2, 2))
+                sleep(uniform(0.5, 4))
 
     def send_sendable(self, sendables: List[Sendable]):
         # todo maybe run in parallel
