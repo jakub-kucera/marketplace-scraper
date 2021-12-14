@@ -26,6 +26,7 @@ class DiscordSender(Sender):
         while True:
             try:
                 self.notifier.send(message)
+                sleep(uniform(0.2, 1))
                 break
             except HTTPError as e:
                 print("DiscordSender: Rate limit reached")

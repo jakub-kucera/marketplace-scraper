@@ -7,7 +7,7 @@ load_dotenv()
 
 
 class Settings:
-    BAZOS_URL: Final[str] = "https://bazos.cz"
+    BAZOS_URL: Final[str] = "https://bazos.cz/"
 
     DISCORD_TOKEN: Final[str] = environ.get("DISCORD_TOKEN", "")
     DISCORD_GUILD: Final[str] = environ.get("DISCORD_GUILD", "")
@@ -23,6 +23,8 @@ class Settings:
     EMAIL_RECEIVER: Final[str] = environ.get("EMAIL_RECEIVER", "")
 
     NEW_PRODUCT_LOAD_MAX: Final[int] = 50
+
+    MAX_ATTEMPTS = 5
 
     LOG_DIRECTORY_PATH: Final[str] = "logs/"
 
