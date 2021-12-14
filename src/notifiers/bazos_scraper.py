@@ -1,7 +1,9 @@
+import itertools
 from datetime import datetime
 from time import sleep
-from typing import List, Iterator
+from typing import List, Iterator, Optional
 from urllib.error import URLError
+from urllib.parse import urlencode
 
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
@@ -25,56 +27,43 @@ class BazosScraper(Notifier):
         self.log("@here\nStarting")  # TODO move @here elsewhere
         self.queries: List[Query] = queries
         self.interval: Interval = interval
-        self.load_images = load_images
         self.shutdown: bool = False
-        self.driver: WebDriver = self.create_driver()
         self.database: ProductDatabase = ProductDatabase()
+        self.driver_service = Service(ChromeDriverManager().install())
+        self.driver_chrome_options = webdriver.ChromeOptions()
+        if not load_images:
+            prefs = {"profile.managed_default_content_settings.images": 2}
+            self.driver_chrome_options.add_experimental_option("prefs", prefs)
+        self.driver_chrome_options.headless = True
+        self.driver: Optional[WebDriver] = None
 
     def create_driver(self) -> WebDriver:
-        chrome_options = webdriver.ChromeOptions()
-        if not self.load_images:
-            prefs = {"profile.managed_default_content_settings.images": 2}
-            chrome_options.add_experimental_option("prefs", prefs)
-        s = Service(ChromeDriverManager().install())
-        return webdriver.Chrome(service=s, options=chrome_options)
+        return webdriver.Chrome(service=self.driver_service, options=self.driver_chrome_options)
+
+    def create_url(self, query: Query) -> Iterator[str]:  # TODO make as generator instead
+
+        url: str = SETTINGS.BAZOS_URL if len(query.category) == 0 else query.category
+
+        price_lower = '' if query.price_range[0] == 0 else query.price_range[0]
+        price_upper = '' if query.price_range[1] == 0 else query.price_range[1]
+
+        params = {
+            'hledat': query.text,
+            # 'rubriky': 'elektro',
+            'hlokalita': query.location[0],
+            'humkreis': query.location[1],
+            'cenaod': price_lower,
+            'cenado': price_upper,
+            'Submit': 'Hledat',
+            # 'kitx': 'ano'
+        }
+        encoded_params = urlencode(params)
+
+        for i in itertools.count(start=0, step=20):
+            yield f"{url}{i}/?{encoded_params}"
 
     def stop(self):
         self.shutdown = True
-
-    def send_query(self, query: Query):
-        query_textbox = self.driver.find_element_by_id('hledat')
-        query_textbox.send_keys(query.text)
-
-        location_textbox = self.driver.find_element_by_id('hlokalita')
-        location_textbox.send_keys(query.location[0])
-        location_range_textbox = self.driver.find_element_by_name('humkreis')
-        location_range_textbox.clear()
-        location_range_textbox.send_keys(query.location[1])
-
-        if query.price_range[0] > 0:
-            lower_price_textbox = self.driver.find_element_by_name('cenaod')
-            lower_price_textbox.send_keys(query.price_range[0])
-        if query.price_range[1] > 0:
-            upper_price_textbox = self.driver.find_element_by_name('cenado')
-            upper_price_textbox.send_keys(query.price_range[1])
-
-        submit_button = self.driver.find_element_by_name('Submit')
-        submit_button.click()
-
-    def next_page(self) -> bool:
-        try:
-            pages_div = self.driver.find_element_by_class_name('strankovani')
-        except NoSuchElementException:
-            return False
-        next_pages_hrefs = pages_div.find_elements_by_tag_name('a')
-        next_page = next_pages_hrefs[-1]
-
-        if next_page.text == 'Další':
-            self.driver.get(next_page.get_attribute('href'))
-        else:
-            return False
-
-        return True
 
     @staticmethod
     def convert_date(date_raw: str) -> datetime:
@@ -108,27 +97,28 @@ class BazosScraper(Notifier):
             yield loaded_product
 
     def run_query(self, query: Query) -> Iterator[Product]:
-
-        self.driver.quit()
         self.driver = self.create_driver()
 
-        url: str = SETTINGS.BAZOS_URL if len(query.category) == 0 else query.category
+        # list through multiple pages
+        for url in self.create_url(query): # todo rename, smth get_product_page
+            print(f"{url=}")
+            # try to load page, if not possible, repeat SETTINGS.MAX_ATTEMPTS
+            for attempt_number in range(1, SETTINGS.MAX_ATTEMPTS + 1):
+                try:
+                    self.driver.get(url)
+                    break
+                except (TimeoutException, URLError):  # todo correct exception
+                    self.log(f"Timeout with query: {query.text}, attempt number: {attempt_number}")
+                    self.driver.quit()
+                    self.driver = self.create_driver()
 
-        while True:
-            try:
-                self.driver.get(url)
-                self.send_query(query)
-                break
-            except (TimeoutException, URLError):  # todo correct exception
-                self.log(f"Timeout with query: {query.text}")
-                self.driver.quit()
-                self.driver = self.create_driver()
-
-        while True:
-            for product in self.get_page_products():
+            # extract products from 1 page
+            count = 0
+            for count, product in enumerate(self.get_page_products(), start=1):
                 yield product
-            if not self.next_page():
+            if count == 0:  # or count < 20
                 break
+        self.driver.quit()
 
     def first_run_queries(self, queries: List[Query]):
         for query in queries:
