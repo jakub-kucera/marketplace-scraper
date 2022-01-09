@@ -6,7 +6,7 @@ from urllib.error import URLError
 from urllib.parse import urlencode
 
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.chrome.service import Service
@@ -34,10 +34,15 @@ class BazosScraper(Notifier):
         if not load_images:
             prefs = {"profile.managed_default_content_settings.images": 2}
             self.driver_chrome_options.add_experimental_option("prefs", prefs)
-        self.driver_chrome_options.headless = True
+        # self.driver_chrome_options.headless = True
         self.driver: Optional[WebDriver] = None
 
     def create_driver(self) -> WebDriver:
+        if self.driver is not None:
+            try:
+                self.driver.quit()
+            except WebDriverException:
+                pass
         return webdriver.Chrome(service=self.driver_service, options=self.driver_chrome_options)
 
     def create_url(self, query: Query) -> Iterator[str]:  # TODO make as generator instead
@@ -109,7 +114,6 @@ class BazosScraper(Notifier):
                     break
                 except (TimeoutException, URLError):  # todo correct exception
                     self.log(f"Timeout with query: {query.text}, attempt number: {attempt_number}")
-                    self.driver.quit()
                     self.driver = self.create_driver()
 
             # extract products from 1 page
@@ -118,7 +122,6 @@ class BazosScraper(Notifier):
                 yield product
             if count == 0:  # or count < 20
                 break
-        self.driver.quit()
 
     def first_run_queries(self, queries: List[Query]):
         for query in queries:
@@ -151,5 +154,3 @@ class BazosScraper(Notifier):
             self.log(f"Going to sleep for {interval} seconds ({interval/60.0} minutes).")
             sleep(interval)
             self.log("Waking up.")
-
-        self.driver.quit()
