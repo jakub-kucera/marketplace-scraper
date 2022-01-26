@@ -2,11 +2,7 @@ from typing import List
 
 from settings import SETTINGS
 from src.intervals.random_interval import RandomInterval
-from src.notifiers.alza_product_list_scraper import AlzaProductListScraper
-from src.notifiers.bazos_scraper import BazosScraper
-from src.notifiers.cinemacity_scraper import CinemaCityScraper
-from src.notifiers.datart_product_list_scraper import DatartProductListScraper
-from src.notifiers.greenhouse_list_scraper import GreenhouseJobListScraper
+from src.notifiers.bazos.bazos_notifier import BazosNotifier
 from src.notifiers.notifier import Notifier
 from src.query import Query
 from src.senders.calendar_api.calendar_condition_sender import CalendarConditionSender
@@ -68,12 +64,11 @@ def get_new_config() -> List[Notifier]:
             #     interval=RandomInterval(lower=30*60, upper=60*60),
             #     start_day=10, end_day=30
             # ),
-            BazosScraper(
+            BazosNotifier(
                 sender=discord_alert_sender,
                 logger=discord_logger_sender,
                 name="BazosScraper_alerts",
                 interval=RandomInterval(lower=10*60, upper=30*60),
-                load_images=False,
                 queries=
                 [
                     # headphones
@@ -114,7 +109,7 @@ def get_new_config() -> List[Notifier]:
                     # Query(text='raspberry pi', price_range=(0, 0), skip_round=True, category=pc_bazos, location=('11000', '20')),
                 ]
             ),
-            # BazosScraper(
+            # BazosNotifier(
             #     sender=discord_thinkpad_sender,
             #     logger=discord_logger_sender,
             #     name="BazosScraper_thinkpad",
@@ -126,7 +121,7 @@ def get_new_config() -> List[Notifier]:
             #         Query(text='dell latitude', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '20')),
             #     ]
             # ),
-            # BazosScraper(
+            # BazosNotifier(
             #     sender=discord_other_sender,
             #     logger=discord_logger_sender,
             #     name="BazosScraper_other",
@@ -161,7 +156,7 @@ def get_new_config() -> List[Notifier]:
             #         Query(text='kancelarske kreslo', price_range=(0, 0), skip_round=True, category=chairs_bazos, location=('11000', '100')),
             #     ]
             # ),
-            # BazosScraper(
+            # BazosNotifier(
             #     sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_CHAIR_WEBHOOK_URL, notify=False),
             #     logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
             #     name="BazosScraper_chair",
@@ -172,7 +167,7 @@ def get_new_config() -> List[Notifier]:
             #
             #     ]
             # ),
-            # BazosScraper(
+            # BazosNotifier(
             #     sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_PC_LAPTOP_WEBHOOK_URL, notify=False),
             #     logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
             #     name="BazosScraper_pc_laptop",
