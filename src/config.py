@@ -47,116 +47,120 @@ def get_new_config() -> List[Notifier]:
             #     interval=RandomInterval(lower=2*60, upper=7*60),
             #     link_to_list="https://alza.cz/iphone-13-pro/18892048.htm"
             # ),
-            DatartProductListScraper(
-                sender=discord_alert_sender,
-                logger=discord_logger_sender,
-                name="DatartScraper",
-                interval=RandomInterval(lower=1*60, upper=3*60),
-                link_to_list="https://www.datart.cz/iphone-13-pro.html"
-            ),
-            GreenhouseJobListScraper(
-                sender=discord_alert_sender,
-                logger=discord_logger_sender,
-                name="GreenhouseScraper",
-                interval=RandomInterval(lower=6 * 60 * 60, upper=15 * 60 * 60),
-                link_to_list="https://boards.greenhouse.io/purestorage/"
-            ),
-            CinemaCityScraper(
-                sender=discord_alert_sender,
-                logger=discord_logger_sender,
-                name="CinemaCity",
-                interval=RandomInterval(lower=5*60, upper=15*60),
-                start_day=1, end_day=30
-            ),
+            # DatartProductListScraper(
+            #     sender=discord_alert_sender,
+            #     logger=discord_logger_sender,
+            #     name="DatartScraper",
+            #     interval=RandomInterval(lower=1*60, upper=3*60),
+            #     link_to_list="https://www.datart.cz/iphone-13-pro.html"
+            # ),
+            # GreenhouseJobListScraper(
+            #     sender=discord_alert_sender,
+            #     logger=discord_logger_sender,
+            #     name="GreenhouseScraper",
+            #     interval=RandomInterval(lower=6 * 60 * 60, upper=15 * 60 * 60),
+            #     link_to_list="https://boards.greenhouse.io/purestorage/"
+            # ),
+            # CinemaCityScraper(
+            #     sender=discord_alert_sender,
+            #     logger=discord_logger_sender,
+            #     name="CinemaCity",
+            #     interval=RandomInterval(lower=30*60, upper=60*60),
+            #     start_day=10, end_day=30
+            # ),
             BazosScraper(
                 sender=discord_alert_sender,
                 logger=discord_logger_sender,
                 name="BazosScraper_alerts",
-                interval=RandomInterval(lower=7*60, upper=15*60),
+                interval=RandomInterval(lower=10*60, upper=30*60),
                 load_images=False,
                 queries=
                 [
                     # headphones
                     Query(text='Audeze', price_range=(0, 0), skip_round=False, category=headphones_bazos),
-                    Query(text='AirPods Max', price_range=(0, 0), skip_round=False, category=headphones_bazos),
-                    Query(text='Focal', price_range=(0, 0), skip_round=False, category=headphones_bazos),
-                    Query(text='Dan Clark', price_range=(0, 0), skip_round=False, category=headphones_bazos),
-                    Query(text='beyerdynamic', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
-                    Query(text='audio technica', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
-                    Query(text='HiFiMAN', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
-                    Query(text='AKG', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
-                    Query(text='Sennheiser', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
-                    Query(text='Sony', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
-                    Query(text='Bose', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    # Query(text='AirPods Max', price_range=(1000, 0), skip_round=False, category=headphones_bazos),
+                    # Query(text='Focal', price_range=(0, 0), skip_round=False, category=headphones_bazos),
+                    # Query(text='Dan Clark', price_range=(0, 0), skip_round=False, category=headphones_bazos),
+                    # Query(text='beyerdynamic', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    # Query(text='audio technica', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    # Query(text='HiFiMAN', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    # Query(text='AKG', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    # Query(text='Sennheiser', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    # Query(text='Sony', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
+                    # Query(text='Bose', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
 
                     # amplifiers
                     Query(text='Chord Mojo', price_range=(2000, 0), skip_round=True, location=('11000', '50')),
-                    Query(text='schiit', price_range=(2000, 0), skip_round=True, location=('11000', '50')),
+                    # Query(text='schiit', price_range=(2000, 0), skip_round=True, location=('11000', '30')),
 
                     # mouse
-                    Query(text='mx master 3', price_range=(0, 0), skip_round=True, category=mouse_keyboard_bazos, location=('11000', '20')),
-                    Query(text='apple magic trackpad', price_range=(0, 0), skip_round=True, category=mouse_keyboard_bazos, location=('11000', '20')),
+                    # Query(text='mx master 3', price_range=(0, 0), skip_round=True, category=mouse_keyboard_bazos, location=('11000', '20')),
+                    # Query(text='apple magic trackpad', price_range=(0, 0), skip_round=True, category=mouse_keyboard_bazos, location=('11000', '20')),
+
+                    # Apple Watch
+                    Query(text='apple watch 6', price_range=(2000, 7000), skip_round=False, location=('11000', '20')),
+                    Query(text='apple watch 7', price_range=(4000, 9000), skip_round=False, location=('11000', '20')),
 
                     # office chairs
                     Query(text='herman miller', price_range=(0, 0), skip_round=False, category=chairs_bazos),
 
                     # monitors
-                    Query(text='', price_range=(4000, 0), skip_round=True, category=monitors_bazos, location=('11000', '70')),
+                    Query(text='', price_range=(4000, 0), skip_round=False, category=monitors_bazos, location=('11000', '50')),
 
                     # egpu
-                    Query(text='egpu', price_range=(5000, 0), skip_round=True, category=gpu_bazos, location=('11000', '70')),
+                    Query(text='egpu', price_range=(5000, 0), skip_round=False, category=gpu_bazos, location=('11000', '30')),
 
                     # raspberry pi
-                    Query(text='raspberry pi', price_range=(0, 0), skip_round=True, category=pc_bazos, location=('11000', '20')),
+                    # Query(text='raspberry pi', price_range=(0, 0), skip_round=True, category=pc_bazos, location=('11000', '20')),
                 ]
             ),
-            BazosScraper(
-                sender=discord_thinkpad_sender,
-                logger=discord_logger_sender,
-                name="BazosScraper_thinkpad",
-                interval=RandomInterval(lower=10 * 60, upper=25 * 60),
-                load_images=False,
-                queries=
-                [
-                    Query(text='thinkpad', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '20')),
-                    Query(text='dell latitude', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '20')),
-                ]
-            ),
-            BazosScraper(
-                sender=discord_other_sender,
-                logger=discord_logger_sender,
-                name="BazosScraper_other",
-                interval=RandomInterval(lower=15 * 60, upper=45 * 60),
-                load_images=False,
-                queries=
-                [
-                    # iphone
-                    Query(text='iphone 13', price_range=(8000, 0), skip_round=True, category=apple_phones_bazos, location=('11000', '30')),
-
-                    # laptop
-                    Query(text='', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '50')),
-
-                    # pc
-                    Query(text='', price_range=(5000, 0), skip_round=True, category=pc_bazos, location=('11000', '50')),
-
-                    # cpu
-                    Query(text='', price_range=(5000, 0), skip_round=True, category=cpu_bazos, location=('11000', '70')),
-
-                    # mechanical keyboard
-                    Query(text='mechanicka klavesnice', price_range=(400, 0), skip_round=True, category=mouse_keyboard_bazos, location=('11000', '30')),
-
-                    # headphones
-                    Query(text='', price_range=(4000, 0), skip_round=True, category=headphones_bazos, location=('11000', '70')),
-                    Query(text='AirPods Pro', price_range=(1000, 0), skip_round=False, category=headphones_bazos, location=('11000', '30')),
-
-                    # fridge
-                    Query(text='lednicka', price_range=(500, 0), skip_round=True, category=fridge_bazos, location=('11000', '30')),
-
-                    # office chair
-                    Query(text='kancelarska zidle', price_range=(0, 0), skip_round=True, category=chairs_bazos, location=('11000', '100')),
-                    Query(text='kancelarske kreslo', price_range=(0, 0), skip_round=True, category=chairs_bazos, location=('11000', '100')),
-                ]
-            ),
+            # BazosScraper(
+            #     sender=discord_thinkpad_sender,
+            #     logger=discord_logger_sender,
+            #     name="BazosScraper_thinkpad",
+            #     interval=RandomInterval(lower=10 * 60, upper=25 * 60),
+            #     load_images=False,
+            #     queries=
+            #     [
+            #         Query(text='thinkpad', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '20')),
+            #         Query(text='dell latitude', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '20')),
+            #     ]
+            # ),
+            # BazosScraper(
+            #     sender=discord_other_sender,
+            #     logger=discord_logger_sender,
+            #     name="BazosScraper_other",
+            #     interval=RandomInterval(lower=25 * 60, upper=45 * 60),
+            #     load_images=False,
+            #     queries=
+            #     [
+            #         # iphone
+            #         # Query(text='iphone 13', price_range=(8000, 0), skip_round=True, category=apple_phones_bazos, location=('11000', '30')),
+            #
+            #         # laptop
+            #         # Query(text='', price_range=(1000, 0), skip_round=True, category=laptop_bazos, location=('11000', '50')),
+            #
+            #         # pc
+            #         Query(text='', price_range=(5000, 0), skip_round=True, category=pc_bazos, location=('11000', '50')),
+            #
+            #         # cpu
+            #         # Query(text='', price_range=(5000, 0), skip_round=True, category=cpu_bazos, location=('11000', '70')),
+            #
+            #         # mechanical keyboard
+            #         Query(text='mechanicka klavesnice', price_range=(400, 0), skip_round=True, category=mouse_keyboard_bazos, location=('11000', '30')),
+            #
+            #         # headphones
+            #         Query(text='', price_range=(4000, 0), skip_round=True, category=headphones_bazos, location=('11000', '70')),
+            #         Query(text='AirPods Pro', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '30')),
+            #
+            #         # fridge
+            #         # Query(text='lednicka', price_range=(500, 0), skip_round=True, category=fridge_bazos, location=('11000', '30')),
+            #
+            #         # office chair
+            #         Query(text='kancelarska zidle', price_range=(0, 0), skip_round=True, category=chairs_bazos, location=('11000', '100')),
+            #         Query(text='kancelarske kreslo', price_range=(0, 0), skip_round=True, category=chairs_bazos, location=('11000', '100')),
+            #     ]
+            # ),
             # BazosScraper(
             #     sender=DiscordSender(url=SETTINGS.DISCORD_BAZOS_CHAIR_WEBHOOK_URL, notify=False),
             #     logger=DiscordSender(url=SETTINGS.DISCORD_LOGGER_WEBHOOK_URL),
