@@ -43,7 +43,10 @@ class BazosScraper(Notifier):
                 self.driver.quit()
             except WebDriverException:
                 pass
-        return webdriver.Chrome(service=self.driver_service, options=self.driver_chrome_options)
+        # return webdriver.Chrome("/usr/bin/chromedriver", options=self.driver_chrome_options)
+        # return webdriver.Chrome(service=self.driver_service, options=self.driver_chrome_options)
+        return webdriver.Remote("http://selenium_chromedriver:4444/wd/hub", options=self.driver_chrome_options)
+        # return webdriver.Remote("http://localhost:4444/wd/hub", options=self.driver_chrome_options)
 
     def create_url(self, query: Query) -> Iterator[str]:  # TODO make as generator instead
 
@@ -105,7 +108,7 @@ class BazosScraper(Notifier):
         self.driver = self.create_driver()
 
         # list through multiple pages
-        for url in self.create_url(query): # todo rename, smth get_product_page
+        for url in self.create_url(query):  # todo rename, smth get_product_page
             print(f"{url=}")
             # try to load page, if not possible, repeat SETTINGS.MAX_ATTEMPTS
             for attempt_number in range(1, SETTINGS.MAX_ATTEMPTS + 1):
