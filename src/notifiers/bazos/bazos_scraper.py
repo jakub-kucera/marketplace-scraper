@@ -1,34 +1,24 @@
 import itertools
 from datetime import datetime
-from time import sleep
 from typing import List, Iterator, Optional
 from urllib.error import URLError
 from urllib.parse import urlencode
 
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
+from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 from settings import SETTINGS
-from src.intervals.interval import Interval
-from src.notifiers.notifier import Notifier
 from src.sendables.product import Product
-from src.sendables.product_database import ProductDatabase
 from src.query import Query
-from src.senders.sender import Sender
 
 
-class BazosScraper(Notifier):
-    def __init__(self, sender: Sender, logger: Sender, name: str, queries: List[Query], interval: Interval, load_images: bool = True):
-        super().__init__(sender, logger, name)
-        self.log("@here\nStarting")  # TODO move @here elsewhere
-        self.queries: List[Query] = queries
-        self.interval: Interval = interval
-        self.shutdown: bool = False
-        self.database: ProductDatabase = ProductDatabase()
+class BazosScraper:
+    def __init__(self, load_images: bool = True):
         self.driver_service = Service(ChromeDriverManager().install())
         self.driver_chrome_options = webdriver.ChromeOptions()
         if not load_images:
@@ -37,19 +27,19 @@ class BazosScraper(Notifier):
         # self.driver_chrome_options.headless = True
         self.driver: Optional[WebDriver] = None
 
-    def create_driver(self) -> WebDriver:
+    def create_driver(self):
         if self.driver is not None:
             try:
                 self.driver.quit()
             except WebDriverException:
                 pass
-        # return webdriver.Chrome("/usr/bin/chromedriver", options=self.driver_chrome_options)
-        # return webdriver.Chrome(service=self.driver_service, options=self.driver_chrome_options)
-        return webdriver.Remote("http://selenium_chromedriver:4444/wd/hub", options=self.driver_chrome_options)
-        # return webdriver.Remote("http://localhost:4444/wd/hub", options=self.driver_chrome_options)
+        # self.driver = webdriver.Chrome("/usr/bin/chromedriver", options=self.driver_chrome_options)
+        self.driver = webdriver.Chrome(service=self.driver_service, options=self.driver_chrome_options)
+        # self.driver = webdriver.Remote("http://selenium_chromedriver:4444/wd/hub", options=self.driver_chrome_options)
+        # self.driver = webdriver.Remote("http://localhost:4444/wd/hub", options=self.driver_chrome_options)
 
-    def create_url(self, query: Query) -> Iterator[str]:  # TODO make as generator instead
-
+    @staticmethod
+    def create_url(query: Query) -> Iterator[str]:
         url: str = SETTINGS.BAZOS_URL if len(query.category) == 0 else query.category
 
         price_lower = '' if query.price_range[0] == 0 else query.price_range[0]
@@ -69,9 +59,6 @@ class BazosScraper(Notifier):
 
         for i in itertools.count(start=0, step=20):
             yield f"{url}{i}/?{encoded_params}"
-
-    def stop(self):
-        self.shutdown = True
 
     @staticmethod
     def convert_date(date_raw: str) -> datetime:
@@ -98,14 +85,14 @@ class BazosScraper(Notifier):
                        ignore_date=ignore_date, location=location)
 
     def get_page_products(self) -> Iterator[Product]:
+        # product_elements = self.driver.find_elements(By.CLASS_NAME ,"inzeraty")
         product_elements = self.driver.find_elements_by_class_name("inzeraty")
 
         for product in product_elements:
-            loaded_product = self.extract_product(product)
-            yield loaded_product
+            yield self.extract_product(product)
 
-    def run_query(self, query: Query) -> Iterator[Product]:
-        self.driver = self.create_driver()
+    def query(self, query: Query) -> Iterator[Product]:
+        self.create_driver()
 
         # list through multiple pages
         for url in self.create_url(query):  # todo rename, smth get_product_page
@@ -116,8 +103,7 @@ class BazosScraper(Notifier):
                     self.driver.get(url)
                     break
                 except (TimeoutException, URLError):  # todo correct exception
-                    self.log(f"Timeout with query: {query.text}, attempt number: {attempt_number}")
-                    self.driver = self.create_driver()
+                    self.create_driver()
 
             # extract products from 1 page
             count = 0
@@ -125,35 +111,3 @@ class BazosScraper(Notifier):
                 yield product
             if count == 0:  # or count < 20
                 break
-
-    def first_run_queries(self, queries: List[Query]):
-        for query in queries:
-            if query.can_skip_first_round():
-                counter = 0
-                for product in self.run_query(query):
-                    self.database.add_if_not_present(product, query)
-                    if not product.ignore_date:
-                        counter += 1
-                    if counter >= SETTINGS.NEW_PRODUCT_LOAD_MAX:
-                        break
-
-    def run(self):
-        self.first_run_queries(self.queries)
-
-        self.shutdown = False
-        while not self.shutdown:
-            for query in self.queries:
-                new_products: List[Product] = []
-                for product in self.run_query(query):
-                    if self.database.add_if_not_present(product, query):
-                        new_products.append(product)
-                        self.log(f"Found new product named: {product.name}")  # TODO maybe delete
-                    elif not product.ignore_date:
-                        break
-                self.log(f"Sending {len(new_products)} products.")  # TODO maybe delete
-                self.sender.send_sendable(new_products)
-
-            interval = self.interval.get_next_interval()
-            self.log(f"Going to sleep for {interval} seconds ({interval/60.0} minutes).")
-            sleep(interval)
-            self.log("Waking up.")
