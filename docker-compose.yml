@@ -8,6 +8,7 @@ services:
     - "7900:7900"
   marketplace_scraper:
     build: .
+    restart: always
     depends_on:
       - selenium_chromedriver
 #    ports:
