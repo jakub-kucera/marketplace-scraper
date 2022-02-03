@@ -17,7 +17,7 @@ from src.sendables.product import Product
 from src.query import Query
 
 
-class BazosScraper:
+class BazosScraperUrl:
     def __init__(self, load_images: bool = True):
         self.driver_service = Service(ChromeDriverManager().install())
         self.driver_chrome_options = webdriver.ChromeOptions()
@@ -75,13 +75,14 @@ class BazosScraper:
             'cenaod': price_lower,
             'cenado': price_upper,
             'Submit': 'Hledat',
-            'crz': 20
+            'crz': 0
             # 'kitx': 'ano'
         }
-        encoded_params = urlencode(params)
 
         for i in itertools.count(start=0, step=20):
-            yield f"{url}{i}/?{encoded_params}"
+            params['crz'] = i
+            encoded_params = urlencode(params)
+            yield f"{url}?{encoded_params}"
 
     @staticmethod
     def convert_date(date_raw: str) -> datetime:
@@ -98,7 +99,7 @@ class BazosScraper:
 
         name = name_div.text
         link = name_div.find_element_by_css_selector('[href]').get_attribute('href')
-        date = BazosScraper.convert_date(date_raw)
+        date = BazosScraperUrl.convert_date(date_raw)
         ignore_date = 'TOP' in date_raw
         description = header_tmp.find_element_by_class_name('popis').text
         price = product_raw.find_element_by_class_name('inzeratycena').text
@@ -117,11 +118,16 @@ class BazosScraper:
     def query(self, query: Query) -> Iterator[Product]:
         self.create_driver()
 
+        if len(query.category) > 0:
+            url_iter = self.create_url_category(query)
+        else:
+            url_iter = self.create_url_general(query)
+
         # list through multiple pages
-        for url in self.create_url(query):  # todo rename, smth get_product_page
+        for url in url_iter:  # todo rename, smth get_product_page
             print(f"{url=}")
             # try to load page, if not possible, repeat SETTINGS.MAX_ATTEMPTS
-            for attempt_number in range(1, SETTINGS.MAX_ATTEMPTS + 1):
+            for _ in range(1, SETTINGS.MAX_ATTEMPTS + 1):
                 try:
                     self.driver.get(url)
                     break
