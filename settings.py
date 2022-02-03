@@ -7,7 +7,7 @@ load_dotenv()
 
 
 class Settings:
-    BAZOS_URL: Final[str] = "https://bazos.cz/"
+    BAZOS_URL: Final[str] = "https://bazos.cz/search.php"
 
     DISCORD_TOKEN: Final[str] = environ.get("DISCORD_TOKEN", "")
     DISCORD_GUILD: Final[str] = environ.get("DISCORD_GUILD", "")
