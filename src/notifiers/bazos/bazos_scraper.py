@@ -39,8 +39,8 @@ class BazosScraper:
         # self.driver = webdriver.Remote("http://localhost:4444/wd/hub", options=self.driver_chrome_options)
 
     @staticmethod
-    def create_url(query: Query) -> Iterator[str]:
-        url: str = SETTINGS.BAZOS_URL if len(query.category) == 0 else query.category
+    def create_url_category(query: Query) -> Iterator[str]:
+        url: str = query.category
 
         price_lower = '' if query.price_range[0] == 0 else query.price_range[0]
         price_upper = '' if query.price_range[1] == 0 else query.price_range[1]
@@ -53,6 +53,29 @@ class BazosScraper:
             'cenaod': price_lower,
             'cenado': price_upper,
             'Submit': 'Hledat',
+            # 'kitx': 'ano'
+        }
+        encoded_params = urlencode(params)
+
+        for i in itertools.count(start=0, step=20):
+            yield f"{url}{i}/?{encoded_params}"
+
+    @staticmethod
+    def create_url_general(query: Query) -> Iterator[str]:
+        url: str = SETTINGS.BAZOS_URL
+
+        price_lower = '' if query.price_range[0] == 0 else query.price_range[0]
+        price_upper = '' if query.price_range[1] == 0 else query.price_range[1]
+
+        params = {
+            'hledat': query.text,
+            # 'rubriky': 'elektro',
+            'hlokalita': query.location[0],
+            'humkreis': query.location[1],
+            'cenaod': price_lower,
+            'cenado': price_upper,
+            'Submit': 'Hledat',
+            'crz': 20
             # 'kitx': 'ano'
         }
         encoded_params = urlencode(params)
