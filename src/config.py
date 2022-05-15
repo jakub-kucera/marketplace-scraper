@@ -3,25 +3,10 @@ from typing import List
 from settings import SETTINGS
 from src.intervals.random_interval import RandomInterval
 from src.notifiers.bazos.bazos_notifier import BazosNotifier
+from src.notifiers.bazos.categories import *
 from src.notifiers.notifier import Notifier
 from src.query import Query
-from src.senders.calendar_api.calendar_condition_sender import CalendarConditionSender
 from src.senders.discord_sender import DiscordSender
-from src.senders.email_sender import EmailSender
-from src.senders.multi_sender import MultiSender
-
-pc_bazos = "https://pc.bazos.cz/pc/"  # TODO move elsewhere
-laptop_bazos = "https://pc.bazos.cz/notebook/"
-gpu_bazos = "https://pc.bazos.cz/graficka/"
-cpu_bazos = "https://pc.bazos.cz/procesor/"
-monitors_bazos = "https://pc.bazos.cz/monitor/"
-mouse_keyboard_bazos = "https://pc.bazos.cz/mys/"
-headphones_bazos = "https://elektro.bazos.cz/sluchatka/"
-amplifiers_bazos = "https://elektro.bazos.cz/zesilovace/"
-apple_phones_bazos = "https://mobil.bazos.cz/apple/"
-
-fridge_bazos = "https://elektro.bazos.cz/lednicky/"
-chairs_bazos = "https://nabytek.bazos.cz/zidle/"
 
 
 def get_new_config() -> List[Notifier]:
