@@ -13,12 +13,12 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 from settings import SETTINGS
-from src.notifiers.bazos.scraper import Scraper
+from src.notifiers.bazos.bazos_scraper import BazosScraper
 from src.sendables.product import Product
 from src.query import Query
 
 
-class BazosScraperSelUrl(Scraper):
+class BazosBazosScraperSelUrl(BazosScraper):
     def __init__(self, load_images: bool = True):
         self.driver_service = Service(ChromeDriverManager().install())
         self.driver_chrome_options = webdriver.ChromeOptions()
@@ -107,7 +107,7 @@ class BazosScraperSelUrl(Scraper):
 
         name = name_div.text
         link = name_div.find_element_by_css_selector('[href]').get_attribute('href')
-        date = BazosScraperSelUrl.convert_date(date_raw)
+        date = BazosBazosScraperSelUrl.convert_date(date_raw)
         ignore_date = 'TOP' in date_raw
         description = header_tmp.find_element_by_class_name('popis').text
         price = product_raw.find_element_by_class_name('inzeratycena').text

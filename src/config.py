@@ -2,7 +2,7 @@ from typing import List
 
 from settings import SETTINGS
 from src.intervals.random_interval import RandomInterval
-from src.notifiers.bazos.bazos_notifier import BazosNotifier
+from src.notifiers.bazos_notifier import BazosNotifier
 from src.notifiers.bazos.categories import *
 from src.notifiers.notifier import Notifier
 from src.query import Query
