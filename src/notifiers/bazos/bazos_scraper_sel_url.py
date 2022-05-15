@@ -13,11 +13,12 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 from settings import SETTINGS
+from src.notifiers.bazos.scraper import Scraper
 from src.sendables.product import Product
 from src.query import Query
 
 
-class BazosScraperUrl:
+class BazosScraperSelUrl(Scraper):
     def __init__(self, load_images: bool = True):
         self.driver_service = Service(ChromeDriverManager().install())
         self.driver_chrome_options = webdriver.ChromeOptions()
@@ -26,6 +27,13 @@ class BazosScraperUrl:
             self.driver_chrome_options.add_experimental_option("prefs", prefs)
         # self.driver_chrome_options.headless = True
         self.driver: Optional[WebDriver] = None
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.driver is not None:
+            try:
+                self.driver.quit()
+            except WebDriverException:
+                pass
 
     def create_driver(self):
         if self.driver is not None:
@@ -99,7 +107,7 @@ class BazosScraperUrl:
 
         name = name_div.text
         link = name_div.find_element_by_css_selector('[href]').get_attribute('href')
-        date = BazosScraperUrl.convert_date(date_raw)
+        date = BazosScraperSelUrl.convert_date(date_raw)
         ignore_date = 'TOP' in date_raw
         description = header_tmp.find_element_by_class_name('popis').text
         price = product_raw.find_element_by_class_name('inzeratycena').text
@@ -115,7 +123,7 @@ class BazosScraperUrl:
         for product in product_elements:
             yield self.extract_product(product)
 
-    def query(self, query: Query) -> Iterator[Product]:
+    def run_query(self, query: Query) -> Iterator[Product]:
         self.create_driver()
 
         if len(query.category) > 0:

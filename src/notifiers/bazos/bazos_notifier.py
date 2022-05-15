@@ -3,7 +3,8 @@ from typing import List
 
 from settings import SETTINGS
 from src.intervals.interval import Interval
-from src.notifiers.bazos.bazos_scraper_url import BazosScraperUrl
+from src.notifiers.bazos.bazos_scraper_click import BazosScraperClick
+from src.notifiers.bazos.bazos_scraper_sel_url import BazosScraperSelUrl
 from src.notifiers.notifier import Notifier
 from src.query import Query
 from src.sendables.product import Product
@@ -42,7 +43,7 @@ class BazosNotifier(Notifier):
         while not self.shutdown:
             for query in self.queries:
                 new_products: List[Product] = []
-                for product in self.scraper.query(query):
+                for product in self.scraper.run_query(query):
                     if self.database.add_if_not_present(product, query):
                         new_products.append(product)
                         self.log(f"Found new product named: {product.name}")  # TODO maybe delete

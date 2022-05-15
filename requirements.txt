@@ -5,6 +5,8 @@ yagmail
 selenium
 webdriver-manager
 requests
+requests-random-user-agent
+
 keyring
 google-api-python-client
 google-auth-httplib2
