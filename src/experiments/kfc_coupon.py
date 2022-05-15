@@ -80,7 +80,7 @@ class Kfc:
 
 
 def main():
-    with open("../../codes.txt", "a") as f:
+    with open("codes.txt", "a") as f:
         f.write(f"{COUPON_CODE}, ")
 
         for i in range(1, 100):
