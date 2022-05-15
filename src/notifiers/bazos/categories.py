@@ -1,0 +1,12 @@
+pc_bazos = "https://pc.bazos.cz/pc/"
+laptop_bazos = "https://pc.bazos.cz/notebook/"
+gpu_bazos = "https://pc.bazos.cz/graficka/"
+cpu_bazos = "https://pc.bazos.cz/procesor/"
+monitors_bazos = "https://pc.bazos.cz/monitor/"
+mouse_keyboard_bazos = "https://pc.bazos.cz/mys/"
+headphones_bazos = "https://elektro.bazos.cz/sluchatka/"
+amplifiers_bazos = "https://elektro.bazos.cz/zesilovace/"
+apple_phones_bazos = "https://mobil.bazos.cz/apple/"
+
+fridge_bazos = "https://elektro.bazos.cz/lednicky/"
+chairs_bazos = "https://nabytek.bazos.cz/zidle/"
