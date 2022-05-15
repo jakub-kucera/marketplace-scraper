@@ -34,6 +34,17 @@ class Product(BaseModel, Sendable):
     def link(self):
         return self.url
 
+    def compare_custom(self, other) -> bool:
+        """
+        Compare two products. Description is not compare, because of different formatting.
+        """
+        return self.name == other.name and \
+               self.price == other.price and \
+               self.url == other.url and \
+               self.location == other.location and \
+               self.date == other.date and \
+               self.ignore_date == other.ignore_date
+
     # @validator('url')
     # def url_valid(cls, value: str):
     #     try:
