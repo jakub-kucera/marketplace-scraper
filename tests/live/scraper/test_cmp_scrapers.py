@@ -4,7 +4,7 @@ from src.notifiers.bazos.bazos_scraper_bs4_url import BazosBazosScraperBS4Url
 from src.notifiers.bazos.bazos_scraper_click import BazosBazosScraperClick
 from src.notifiers.bazos.bazos_scraper_sel_url import BazosBazosScraperSelUrl
 from src.notifiers.bazos.categories import *
-from src.notifiers.bazos.bazosscraper import BazosScraper
+from src.notifiers.bazos.bazos_scraper import BazosScraper
 from src.query import Query
 from src.sendables.product import Product
 

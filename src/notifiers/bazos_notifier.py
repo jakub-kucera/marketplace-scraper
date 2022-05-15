@@ -3,8 +3,8 @@ from typing import List
 
 from settings import SETTINGS
 from src.intervals.interval import Interval
-from src.notifiers.bazos.bazos_scraper_click import BazosScraperClick
-from src.notifiers.bazos.bazos_scraper_sel_url import BazosScraperSelUrl
+from src.notifiers.bazos.bazos_scraper_click import BazosBazosScraperClick
+from src.notifiers.bazos.bazos_scraper_sel_url import BazosBazosScraperSelUrl
 from src.notifiers.notifier import Notifier
 from src.query import Query
 from src.sendables.product import Product
@@ -29,7 +29,7 @@ class BazosNotifier(Notifier):
         for query in queries:
             if query.can_skip_first_round():
                 counter = 0
-                for product in self.scraper.query(query):
+                for product in self.scraper.run_query(query):
                     self.database.add_if_not_present(product, query)
                     if not product.ignore_date:
                         counter += 1

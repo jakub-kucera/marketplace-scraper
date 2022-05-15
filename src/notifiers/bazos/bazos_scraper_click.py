@@ -13,12 +13,12 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 from settings import SETTINGS
-from src.notifiers.bazos.scraper import Scraper
+from src.notifiers.bazos.bazos_scraper import BazosScraper
 from src.sendables.product import Product
 from src.query import Query
 
 
-class BazosScraperClick(Scraper):
+class BazosBazosScraperClick(BazosScraper):
     def __init__(self, load_images: bool = True):
         self.driver_service = Service(ChromeDriverManager().install())
         self.driver_chrome_options = webdriver.ChromeOptions()

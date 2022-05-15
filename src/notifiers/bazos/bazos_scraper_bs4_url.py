@@ -11,14 +11,14 @@ import requests_random_user_agent
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
 
 from settings import SETTINGS
-from src.notifiers.bazos.scraper import Scraper
+from src.notifiers.bazos.bazos_scraper import BazosScraper
 from src.sendables.product import Product
 from src.query import Query
 
 BAZOS_BASE_URL = 'https'
 
 
-class BazosScraperBS4Url(Scraper):
+class BazosBazosScraperBS4Url(BazosScraper):
     @staticmethod
     def create_url_category(query: Query) -> Iterator[str]:
         url: str = query.category
@@ -82,7 +82,7 @@ class BazosScraperBS4Url(Scraper):
         name = ' '.join(name.split())
         url = name_div.select_one('a[href]').get('href')
         # link = urljoin(BAZOS_BASE_URL, link)
-        date = BazosScraperBS4Url.convert_date(date_raw)
+        date = BazosBazosScraperBS4Url.convert_date(date_raw)
         ignore_date = 'TOP' in date_raw
         description = header_tmp.find(class_='popis').text
         price = product_raw.find(class_='inzeratycena').text.strip()
