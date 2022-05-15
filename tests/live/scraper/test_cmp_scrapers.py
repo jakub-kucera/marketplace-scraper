@@ -1,10 +1,10 @@
 import pytest
 
-from src.notifiers.bazos.bazos_scraper_bs4_url import BazosScraperBS4Url
-from src.notifiers.bazos.bazos_scraper_click import BazosScraperClick
-from src.notifiers.bazos.bazos_scraper_sel_url import BazosScraperSelUrl
+from src.notifiers.bazos.bazos_scraper_bs4_url import BazosBazosScraperBS4Url
+from src.notifiers.bazos.bazos_scraper_click import BazosBazosScraperClick
+from src.notifiers.bazos.bazos_scraper_sel_url import BazosBazosScraperSelUrl
 from src.notifiers.bazos.categories import *
-from src.notifiers.bazos.scraper import Scraper
+from src.notifiers.bazos.bazosscraper import BazosScraper
 from src.query import Query
 from src.sendables.product import Product
 
@@ -21,7 +21,7 @@ def check_if_all_None(products: list[Product]):
     return all(p is None for p in products)
 
 
-def compare_scrapers_output(scrapers: list[Scraper], query: Query):
+def compare_scrapers_output(scrapers: list[BazosScraper], query: Query):
     scrapers_iterators = [scraper.run_query(query) for scraper in scrapers]
     for i in range(MAX_PRODUCTS_PER_QUERY):
         print("==========================================================")
@@ -50,7 +50,7 @@ def compare_scrapers_output(scrapers: list[Scraper], query: Query):
     Query(text='lednicka', price_range=(0, 0), skip_round=True, category=fridge_bazos),
 ])
 def test_cmp_scrapers(query: Query):
-    scrapers = [BazosScraperClick(), BazosScraperBS4Url()]
+    scrapers = [BazosBazosScraperClick(), BazosBazosScraperBS4Url()]
     assert compare_scrapers_output(scrapers, query)
 
 
