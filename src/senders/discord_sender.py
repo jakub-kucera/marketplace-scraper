@@ -1,7 +1,7 @@
 import traceback
 from time import sleep
 from typing import List, Any
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from random import uniform
 
 import discord_notify as dn
@@ -31,6 +31,8 @@ class DiscordSender(Sender):
             except HTTPError as e:
                 print("DiscordSender: Rate limit reached")
                 sleep(uniform(1, 5))
+            except URLError as e:
+                print("DiscordSender: Connection error")
 
     def send_sendable(self, sendables: List[Sendable]):
         # todo maybe run in parallel
