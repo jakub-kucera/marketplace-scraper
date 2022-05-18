@@ -3,6 +3,7 @@ from typing import List
 
 from settings import SETTINGS
 from src.intervals.interval import Interval
+from src.notifiers.bazos.bazos_scraper_bs4_url import BazosBazosScraperBS4Url
 from src.notifiers.bazos.bazos_scraper_click import BazosBazosScraperClick
 from src.notifiers.bazos.bazos_scraper_sel_url import BazosBazosScraperSelUrl
 from src.notifiers.notifier import Notifier
@@ -15,7 +16,9 @@ from src.senders.sender import Sender
 class BazosNotifier(Notifier):
     def __init__(self, sender: Sender, logger: Sender, name: str, queries: List[Query], interval: Interval):
         super().__init__(sender, logger, name)
-        self.scraper = BazosScraperUrl()
+        # self.scraper = BazosBazosScraperSelUrl()
+        self.scraper = BazosBazosScraperBS4Url()
+        # self.scraper = BazosBazosScraperClick()
         self.log("@here\nStarting")  # TODO move @here elsewhere
         self.queries: List[Query] = queries
         self.interval: Interval = interval
