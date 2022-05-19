@@ -1,6 +1,6 @@
 import itertools
 from datetime import datetime
-from typing import List, Iterator, Optional
+from typing import List, Iterator, Optional, Any
 from urllib.error import URLError
 from urllib.parse import urlencode, urljoin
 
@@ -12,6 +12,7 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException,
 
 from settings import SETTINGS
 from src.notifiers.bazos.bazos_scraper import BazosScraper
+from src.notifiers.bazos.exceptions import BazosBlacklistedError
 from src.sendables.product import Product
 from src.query import Query
 
@@ -106,24 +107,35 @@ class BazosBazosScraperBS4Url(BazosScraper):
             product.url = urljoin(response.url, product.url)
             yield product
 
+    def run_request(self, url: str, extra_args: dict[Any, Any] = dict()) -> Response:
+        response: Response | None = None
+        for _ in range(1, SETTINGS.MAX_ATTEMPTS + 1):
+            try:
+                # self.driver.get(url)
+                response = requests.get(url, **extra_args)
+                break
+            except (TimeoutException, URLError):  # todo correct exception
+                pass
+        return response
+
+    def check_blacklisted(self) -> bool:
+        response = self.run_request(SETTINGS.BAZOS_URL)
+        return not response.ok
+
     def run_query(self, query: Query) -> Iterator[Product]:
+        if self.check_blacklisted():
+            raise BazosBlacklistedError()
+
         if len(query.category) > 0:
             url_iter = self.create_url_category(query)
         else:
             url_iter = self.create_url_general(query)
-        response: Response | None = None
+
         # list through multiple pages
         for url in url_iter:  # todo rename, smth get_product_page
             print(f"{url=}")
             # try to load page, if not possible, repeat SETTINGS.MAX_ATTEMPTS
-            for _ in range(1, SETTINGS.MAX_ATTEMPTS + 1):
-                try:
-                    # self.driver.get(url)
-                    response = requests.get(url)
-                    break
-                except (TimeoutException, URLError):  # todo correct exception
-                    pass
-
+            response = self.run_request(url)
             # extract products from 1 page
             count = 0
             for count, product in enumerate(self.get_page_products(response), start=1):
