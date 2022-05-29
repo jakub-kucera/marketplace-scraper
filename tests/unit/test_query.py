@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from src.query import Query
+from src.query_old import QueryOLD
 
 
 @pytest.mark.parametrize(
@@ -18,7 +18,7 @@ from src.query import Query
     ),
 )
 def test_query_create_valid(text: str, low: int, high: int, skip_round: bool):
-    query = Query(text=text, price_range=(low, high), skip_round=skip_round)
+    query = QueryOLD(text=text, price_range=(low, high), skip_round=skip_round)
     assert query.price_range == (low, high)
     assert query.text == text
     assert query.skip_round is skip_round
@@ -41,7 +41,7 @@ def test_query_create_valid(text: str, low: int, high: int, skip_round: bool):
 )
 def test_query_create_invalid(text: str, low: int, high: int, skip_round: bool) -> None:
     with pytest.raises(ValidationError):
-        Query(text=text, price_range=(low, high), skip_round=skip_round)
+        QueryOLD(text=text, price_range=(low, high), skip_round=skip_round)
 
 
 @pytest.mark.parametrize(
@@ -52,7 +52,7 @@ def test_query_create_invalid(text: str, low: int, high: int, skip_round: bool) 
     ),
 )
 def test_query_skip(text: str, low: int, high: int, skip_round: bool):
-    query = Query(text=text, price_range=(low, high), skip_round=skip_round)
+    query = QueryOLD(text=text, price_range=(low, high), skip_round=skip_round)
     assert query.skip_round is skip_round
     assert query.can_skip_first_round() is skip_round
     assert query.skip_round is False

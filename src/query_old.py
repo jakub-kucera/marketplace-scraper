@@ -3,7 +3,7 @@ from typing import Tuple
 from pydantic import BaseModel, validator
 
 
-class Query(BaseModel):
+class QueryOLD(BaseModel):
     text: str
     price_range: Tuple[int, int]
     skip_round: bool = False

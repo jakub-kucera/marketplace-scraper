@@ -5,7 +5,7 @@ from src.intervals.random_interval import RandomInterval
 from src.notifiers.bazos_notifier import BazosNotifier
 from src.notifiers.bazos.categories import *
 from src.notifiers.notifier import Notifier
-from src.query import Query
+from src.query_old import QueryOLD
 from src.senders.discord_sender import DiscordSender
 
 
@@ -57,7 +57,7 @@ def get_new_config() -> List[Notifier]:
                 queries=
                 [
                     # headphones
-                    Query(text='Audeze', price_range=(0, 0), skip_round=False, category=headphones_bazos),
+                    QueryOLD(text='Audeze', price_range=(0, 0), skip_round=False, category=headphones_bazos),
                     # Query(text='AirPods Max', price_range=(1000, 0), skip_round=False, category=headphones_bazos),
                     # Query(text='Focal', price_range=(0, 0), skip_round=False, category=headphones_bazos),
                     # Query(text='Dan Clark', price_range=(0, 0), skip_round=False, category=headphones_bazos),
@@ -70,7 +70,7 @@ def get_new_config() -> List[Notifier]:
                     # Query(text='Bose', price_range=(1000, 0), skip_round=True, category=headphones_bazos, location=('11000', '50')),
 
                     # amplifiers
-                    Query(text='Chord Mojo', price_range=(2000, 0), skip_round=True, location=('11000', '50')),
+                    QueryOLD(text='Chord Mojo', price_range=(2000, 0), skip_round=True, location=('11000', '50')),
                     # Query(text='schiit', price_range=(2000, 0), skip_round=True, location=('11000', '30')),
 
                     # mouse
@@ -78,17 +78,17 @@ def get_new_config() -> List[Notifier]:
                     # Query(text='apple magic trackpad', price_range=(0, 0), skip_round=True, category=mouse_keyboard_bazos, location=('11000', '20')),
 
                     # Apple Watch
-                    Query(text='apple watch 6', price_range=(2000, 7000), skip_round=False, location=('11000', '20')),
-                    Query(text='apple watch 7', price_range=(4000, 9000), skip_round=False, location=('11000', '20')),
+                    QueryOLD(text='apple watch 6', price_range=(2000, 7000), skip_round=False, location=('11000', '20')),
+                    QueryOLD(text='apple watch 7', price_range=(4000, 9000), skip_round=False, location=('11000', '20')),
 
                     # office chairs
-                    Query(text='herman miller', price_range=(0, 0), skip_round=False, category=chairs_bazos),
+                    QueryOLD(text='herman miller', price_range=(0, 0), skip_round=False, category=chairs_bazos),
 
                     # monitors
-                    Query(text='', price_range=(4000, 0), skip_round=False, category=monitors_bazos, location=('11000', '50')),
+                    QueryOLD(text='', price_range=(4000, 0), skip_round=True, category=monitors_bazos, location=('11000', '70')),
 
                     # egpu
-                    Query(text='egpu', price_range=(5000, 0), skip_round=False, category=gpu_bazos, location=('11000', '30')),
+                    QueryOLD(text='egpu', price_range=(5000, 0), skip_round=False, category=gpu_bazos, location=('11000', '30')),
 
                     # raspberry pi
                     # Query(text='raspberry pi', price_range=(0, 0), skip_round=True, category=pc_bazos, location=('11000', '20')),

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from src.sendables.sendable import Sendable
 
 
-class Product(BaseModel, Sendable):
+class ProductOLD(BaseModel, Sendable):
     name: str
     price: str  # todo change to Optional[int]
     url: str

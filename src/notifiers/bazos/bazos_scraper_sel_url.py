@@ -14,8 +14,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 from settings import SETTINGS
 from src.notifiers.bazos.bazos_scraper import BazosScraper
-from src.sendables.product import Product
-from src.query import Query
+from src.sendables.product_old import ProductOLD
+from src.query_old import QueryOLD
 
 
 class BazosBazosScraperSelUrl(BazosScraper):
@@ -47,7 +47,7 @@ class BazosBazosScraperSelUrl(BazosScraper):
         # self.driver = webdriver.Remote("http://localhost:4444/wd/hub", options=self.driver_chrome_options)
 
     @staticmethod
-    def create_url_category(query: Query) -> Iterator[str]:
+    def create_url_category(query: QueryOLD) -> Iterator[str]:
         url: str = query.category
 
         price_lower = '' if query.price_range[0] == 0 else query.price_range[0]
@@ -69,7 +69,7 @@ class BazosBazosScraperSelUrl(BazosScraper):
             yield f"{url}{i}/?{encoded_params}"
 
     @staticmethod
-    def create_url_general(query: Query) -> Iterator[str]:
+    def create_url_general(query: QueryOLD) -> Iterator[str]:
         url: str = SETTINGS.BAZOS_URL
 
         price_lower = '' if query.price_range[0] == 0 else query.price_range[0]
@@ -100,7 +100,7 @@ class BazosBazosScraperSelUrl(BazosScraper):
         return date_formatted
 
     @staticmethod
-    def extract_product(product_raw: WebElement) -> Product:
+    def extract_product(product_raw: WebElement) -> ProductOLD:
         header_tmp = product_raw.find_element_by_class_name('inzeratynadpis')
         name_div = header_tmp.find_element_by_class_name('nadpis')
         date_raw = header_tmp.find_element_by_class_name('velikost10').text
@@ -113,17 +113,17 @@ class BazosBazosScraperSelUrl(BazosScraper):
         price = product_raw.find_element_by_class_name('inzeratycena').text
         location = product_raw.find_element_by_class_name('inzeratylok').text.replace('\n', ', ')
 
-        return Product(name=name, description=description, price=price, url=link, date=date,
-                       ignore_date=ignore_date, location=location)
+        return ProductOLD(name=name, description=description, price=price, url=link, date=date,
+                          ignore_date=ignore_date, location=location)
 
-    def get_page_products(self) -> Iterator[Product]:
+    def get_page_products(self) -> Iterator[ProductOLD]:
         # product_elements = self.driver.find_elements(By.CLASS_NAME ,"inzeraty")
         product_elements = self.driver.find_elements_by_class_name("inzeraty")
 
         for product in product_elements:
             yield self.extract_product(product)
 
-    def run_query(self, query: Query) -> Iterator[Product]:
+    def run_query(self, query: QueryOLD) -> Iterator[ProductOLD]:
         self.create_driver()
 
         if len(query.category) > 0:

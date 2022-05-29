@@ -1,6 +1,6 @@
 import pytest
 
-from src.sendables.product import Product
+from src.sendables.product_old import ProductOLD
 
 
 @pytest.mark.parametrize(
@@ -17,7 +17,7 @@ from src.sendables.product import Product
     ),
 )
 def test_product_create_valid(name: str, description: str, price: str, url: str, location: str):
-    product = Product(name=name, description=description, price=price, url=url, location=location)
+    product = ProductOLD(name=name, description=description, price=price, url=url, location=location)
     assert product.name == name
     assert product.description == description
     assert product.price == price
@@ -44,7 +44,7 @@ def test_product_create_valid(name: str, description: str, price: str, url: str,
     ),
 )
 def test_product_price_converter_valid(original, desirable):
-    assert Product.convert_price(original) == desirable
+    assert ProductOLD.convert_price(original) == desirable
 
 
 @pytest.mark.parametrize(
@@ -59,4 +59,4 @@ def test_product_price_converter_valid(original, desirable):
     ),
 )
 def test_product_price_converter_invalid(original):
-    assert Product.convert_price(original) is None
+    assert ProductOLD.convert_price(original) is None

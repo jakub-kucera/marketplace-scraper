@@ -7,20 +7,20 @@ from src.notifiers.bazos.bazos_scraper_bs4_url import BazosBazosScraperBS4Url
 from src.notifiers.bazos.bazos_scraper_click import BazosBazosScraperClick
 from src.notifiers.bazos.bazos_scraper_sel_url import BazosBazosScraperSelUrl
 from src.notifiers.notifier import Notifier
-from src.query import Query
-from src.sendables.product import Product
+from src.query_old import QueryOLD
+from src.sendables.product_old import ProductOLD
 from src.sendables.product_database import ProductDatabase
 from src.senders.sender import Sender
 
 
 class BazosNotifier(Notifier):
-    def __init__(self, sender: Sender, logger: Sender, name: str, queries: List[Query], interval: Interval):
+    def __init__(self, sender: Sender, logger: Sender, name: str, queries: List[QueryOLD], interval: Interval):
         super().__init__(sender, logger, name)
         # self.scraper = BazosBazosScraperSelUrl()
         self.scraper = BazosBazosScraperBS4Url()
         # self.scraper = BazosBazosScraperClick()
         self.log("@here\nStarting")  # TODO move @here elsewhere
-        self.queries: List[Query] = queries
+        self.queries: List[QueryOLD] = queries
         self.interval: Interval = interval
         self.shutdown: bool = False
         self.database: ProductDatabase = ProductDatabase()
@@ -28,7 +28,7 @@ class BazosNotifier(Notifier):
     def stop(self):
         self.shutdown = True
 
-    def first_run_queries(self, queries: List[Query]):
+    def first_run_queries(self, queries: List[QueryOLD]):
         for query in queries:
             if query.can_skip_first_round():
                 counter = 0
@@ -45,7 +45,7 @@ class BazosNotifier(Notifier):
         self.shutdown = False
         while not self.shutdown:
             for query in self.queries:
-                new_products: List[Product] = []
+                new_products: List[ProductOLD] = []
                 for product in self.scraper.run_query(query):
                     if self.database.add_if_not_present(product, query):
                         new_products.append(product)
