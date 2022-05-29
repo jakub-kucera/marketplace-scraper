@@ -14,8 +14,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 from settings import SETTINGS
 from src.notifiers.bazos.bazos_scraper import BazosScraper
-from src.sendables.product import Product
-from src.query import Query
+from src.sendables.product_old import ProductOLD
+from src.query_old import QueryOLD
 
 
 class BazosBazosScraperClick(BazosScraper):
@@ -48,7 +48,7 @@ class BazosBazosScraperClick(BazosScraper):
                 pass
         self.driver = webdriver.Chrome(service=self.driver_service, options=self.driver_chrome_options)
 
-    def send_query(self, query: Query):
+    def send_query(self, query: QueryOLD):
         query_textbox = self.driver.find_element_by_id('hledat')
         query_textbox.send_keys(query.text)
 
@@ -91,7 +91,7 @@ class BazosBazosScraperClick(BazosScraper):
         return date_formatted
 
     @classmethod
-    def extract_product(cls, product_raw: WebElement) -> Product:
+    def extract_product(cls, product_raw: WebElement) -> ProductOLD:
         header_tmp = product_raw.find_element_by_class_name('inzeratynadpis')
         name_div = header_tmp.find_element_by_class_name('nadpis')
         date_raw = header_tmp.find_element_by_class_name('velikost10').text
@@ -104,17 +104,17 @@ class BazosBazosScraperClick(BazosScraper):
         price = product_raw.find_element_by_class_name('inzeratycena').text
         location = product_raw.find_element_by_class_name('inzeratylok').text.replace('\n', ', ')
 
-        return Product(name=name, description=description, price=price, url=link, date=date,
-                       ignore_date=ignore_date, location=location)
+        return ProductOLD(name=name, description=description, price=price, url=link, date=date,
+                          ignore_date=ignore_date, location=location)
 
-    def get_page_products(self) -> Iterator[Product]:
+    def get_page_products(self) -> Iterator[ProductOLD]:
         product_elements = self.driver.find_elements_by_class_name("inzeraty")
 
         for product in product_elements:
             loaded_product = self.extract_product(product)
             yield loaded_product
 
-    def run_query(self, query: Query) -> Iterator[Product]:
+    def run_query(self, query: QueryOLD) -> Iterator[ProductOLD]:
 
         # self.driver.quit()
         self.create_driver()

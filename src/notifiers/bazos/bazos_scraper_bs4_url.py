@@ -1,27 +1,26 @@
 import itertools
 from datetime import datetime
-from typing import List, Iterator, Optional, Any
+from typing import Iterator, Any
 from urllib.error import URLError
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 import requests
 from requests import Response
-import requests_random_user_agent
-from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
+from selenium.common.exceptions import TimeoutException
 
 from settings import SETTINGS
+from src.models import ProductDB
 from src.notifiers.bazos.bazos_scraper import BazosScraper
 from src.notifiers.bazos.exceptions import BazosBlacklistedError
-from src.sendables.product import Product
-from src.query import Query
+from src.query_old import QueryOLD
 
 BAZOS_BASE_URL = 'https'
 
 
 class BazosBazosScraperBS4Url(BazosScraper):
     @staticmethod
-    def create_url_category(query: Query) -> Iterator[str]:
+    def create_url_category(query: QueryOLD) -> Iterator[str]:
         url: str = query.category
 
         price_lower = '' if query.price_range[0] == 0 else query.price_range[0]
@@ -43,7 +42,7 @@ class BazosBazosScraperBS4Url(BazosScraper):
             yield f"{url}{i}/?{encoded_params}"
 
     @staticmethod
-    def create_url_general(query: Query) -> Iterator[str]:
+    def create_url_general(query: QueryOLD) -> Iterator[str]:
         url: str = SETTINGS.BAZOS_URL
 
         price_lower = '' if query.price_range[0] == 0 else query.price_range[0]
@@ -74,7 +73,8 @@ class BazosBazosScraperBS4Url(BazosScraper):
         return date_formatted
 
     @staticmethod
-    def extract_product(product_raw) -> Product:
+    # def extract_product(product_raw) -> Product:
+    def extract_product(product_raw) -> ProductDB:
         header_tmp = product_raw.find(class_="inzeratynadpis")
         name_div = header_tmp.find(class_='nadpis')
         date_raw = header_tmp.find(class_='velikost10').text
@@ -82,6 +82,8 @@ class BazosBazosScraperBS4Url(BazosScraper):
         name = name_div.text
         name = ' '.join(name.split())
         url = name_div.select_one('a[href]').get('href')
+        parsed_url_path = urlparse(url).path.split("/")
+        bazos_id = parsed_url_path[2]
         # link = urljoin(BAZOS_BASE_URL, link)
         date = BazosBazosScraperBS4Url.convert_date(date_raw)
         ignore_date = 'TOP' in date_raw
@@ -92,10 +94,14 @@ class BazosBazosScraperBS4Url(BazosScraper):
         location_tmp.br.replace_with(", ")
         location = location_tmp.text
 
-        return Product(name=name, description=description, price=price, url=url, date=date,
-                       ignore_date=ignore_date, location=location)
+        return ProductDB(bazos_id=bazos_id, name=name, price=price, url=url, location=location, publish_date=date,
+                         ignore_date=ignore_date, description=description)
 
-    def get_page_products(self, response: Response | None) -> Iterator[Product]:
+        # return Product(name=name, description=description, price=price, url=url, date=date,
+        #                ignore_date=ignore_date, location=location)
+
+    # def get_page_products(self, response: Response | None) -> Iterator[Product]:
+    def get_page_products(self, response: Response | None) -> Iterator[ProductDB]:
         # product_elements = self.driver.find_elements(By.CLASS_NAME ,"inzeraty")
         if response is None:
             return None
@@ -122,7 +128,8 @@ class BazosBazosScraperBS4Url(BazosScraper):
         response = self.run_request(SETTINGS.BAZOS_URL)
         return not response.ok
 
-    def run_query(self, query: Query) -> Iterator[Product]:
+    # def run_query(self, query: Query) -> Iterator[Product]:
+    def run_query(self, query: QueryOLD) -> Iterator[ProductDB]:
         if self.check_blacklisted():
             raise BazosBlacklistedError()
 
@@ -142,13 +149,3 @@ class BazosBazosScraperBS4Url(BazosScraper):
                 yield product
             if count == 0:  # or count < 20
                 break
-#
-# same_products=[Product(name='MacBook Pro 13" 2020 i5 256GB 8GB Touch Bar, jako nový', price='21 000 Kč', url='https://pc.bazos.cz/inzerat/152356925/macbook-pro-13-2020-i5-256gb-8gb-touch-bar-jako-novy.php', location='Praha 6, 160 00', date=datetime.datetime(2022, 5, 15, 0, 0), ignore_date=True, description='Prodám Apple MacBook Pro ročník 2020, 13" displej, stříbrný. Model A2289, MXK32CZ/A MacBook Pro 13" 2020 Intel i5 Quad Core 1,4 GHz 256 GB SSD 8 GB RAM Displej 13,3" Retina 2560x1600 Touch Bar Touch ID Baterie 201 cyklů V super stavu, ž ...'),
-#                Product(name='MacBook Pro 13" 2020 i5 256GB 8GB Touch Bar, jako nový', price='  21 000 Kč', url='/inzerat/152356925/macbook-pro-13-2020-i5-256gb-8gb-touch-bar-jako-novy.php', location='Praha 6160 00', date=datetime.datetime(2022, 5, 15, 0, 0), ignore_date=True, description='Prodám Apple MacBook Pro ročník 2020, 13" displej, stříbrný.\r\nModel A2289, MXK32CZ/A\r\n\r\nMacBook Pro 13" 2020\r\nIntel i5 Quad Core 1,4 GHz\r\n256 GB SSD\r\n8 GB RAM\r\nDisplej 13,3" Retina 2560x1600\r\nTouch Bar\r\nTouch ID\r\nBaterie 201 cyklů\r\n\r\nV super stavu, ž ...')]
-#
-# same_products=[Product(name='Hodinky APPLE Watch 6 44mm modré', price='5 800 Kč', url='https://ostatni.bazos.cz/inzerat/151963126/hodinky-apple-watch-6-44mm-modre.php', location='Praha 10, 100 00', date=datetime.datetime(2022, 5, 3, 0, 0), ignore_date=False, description='Prodám modré hodinky apple watch 6, velikost 44 mm. Zakoupené 9.6.2021. Kompletní balení.'),
-#                Product(name='Hodinky APPLE Watch 6   44mm modré', price='5 800 Kč', url='https://ostatni.bazos.cz/inzerat/151963126/hodinky-apple-watch-6-44mm-modre.php', location='Praha 10100 00', date=datetime.datetime(2022, 5, 3, 0, 0), ignore_date=False, description='Prodám modré hodinky apple watch 6, velikost 44 mm. Zakoupené 9.6.2021. Kompletní balení. \r\n')]
-
-
-# Product(name='MacBook Pro 13" 2020 i5 256GB 8GB Touch Bar, jako nový', price='21 000 Kč', url='https://pc.bazos.cz/inzerat/152356925/macbook-pro-13-2020-i5-256gb-8gb-touch-bar-jako-novy.php', location='Praha 6, 160 00', date=datetime.datetime(2022, 5, 15, 0, 0), ignore_date=True, description='Prodám Apple MacBook Pro ročník 2020, 13" displej, stříbrný. Model A2289, MXK32CZ/A MacBook Pro 13" 2020 Intel i5 Quad Core 1,4 GHz 256 GB SSD 8 GB RAM Displej 13,3" Retina 2560x1600 Touch Bar Touch ID Baterie 201 cyklů V super stavu, ž ...')
-# Product(name='MacBook Pro 13" 2020 i5 256GB 8GB Touch Bar, jako nový', price='21 000 Kč', url='https://pc.bazos.cz/inzerat/152356925/macbook-pro-13-2020-i5-256gb-8gb-touch-bar-jako-novy.php', location='Praha 6160 00', date=datetime.datetime(2022, 5, 15, 0, 0), ignore_date=True, description='Prodám Apple MacBook Pro ročník 2020, 13" displej, stříbrný.\r\nModel A2289, MXK32CZ/A\r\n\r\nMacBook Pro 13" 2020\r\nIntel i5 Quad Core 1,4 GHz\r\n256 GB SSD\r\n8 GB RAM\r\nDisplej 13,3" Retina 2560x1600\r\nTouch Bar\r\nTouch ID\r\nBaterie 201 cyklů\r\n\r\nV super stavu, ž ...')]

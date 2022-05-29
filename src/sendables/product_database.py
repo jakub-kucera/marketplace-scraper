@@ -1,14 +1,14 @@
 from typing import Dict, Set
 
-from src.sendables.product import Product
-from src.query import Query
+from src.sendables.product_old import ProductOLD
+from src.query_old import QueryOLD
 
 
 class ProductDatabase:
     def __init__(self):
         self.database: Dict[str, Set[str]] = dict()  # Query : {Products}
 
-    def add_if_not_present(self, product: Product, query: Query) -> bool:
+    def add_if_not_present(self, product: ProductOLD, query: QueryOLD) -> bool:
         if query.text not in self.database:
             self.database[query.text] = {product.url}
             return True

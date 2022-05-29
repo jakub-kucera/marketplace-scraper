@@ -1,7 +1,14 @@
-discord.py
+# Flask-SQLAlchemy
+alembic
+SQLAlchemy
+# sqlalchemy-stubs
+
+# discord.py
 discord-notify
-slack-sdk
+# slack-sdk
 yagmail
+
+beautifulsoup4
 selenium
 webdriver-manager
 requests
@@ -11,9 +18,12 @@ keyring
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
+
 python-dotenv
+
 pydantic
 validators
+
 pytest
 mypy
 pylint

@@ -2,7 +2,7 @@ from typing import List
 
 from discord.ext.commands import Context
 
-from src.sendables.product import Product
+from src.sendables.product_old import ProductOLD
 
 
 class DiscordSenderBot():
@@ -19,7 +19,7 @@ class DiscordSenderBot():
     def wrap_single(message: str) -> str:
         return "`" + message + "`"
 
-    async def send_result(self, products: List[Product]):
+    async def send_result(self, products: List[ProductOLD]):
         # todo maybe run in parallel
         if len(products) != 0:
             for product in products:
