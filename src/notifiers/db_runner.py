@@ -34,6 +34,7 @@ def run():  # TODO make class
         print(50 * "=")
         queries = session.query(QueryDB)\
             .order_by(QueryDB.next_runtime)\
+            .filter(QueryDB.enabled == True)\
             .limit(2)
         first_query = queries[0]
         print(f"first_query: {first_query}")

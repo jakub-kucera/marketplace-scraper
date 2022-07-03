@@ -19,11 +19,11 @@ class QueryDB(base):
     location_center = Column(String, nullable=False, default="")  # Integer might work as well
     location_radius = Column(Integer, nullable=False, default=25)
 
-    # enabled = Column(Boolean, nullable=False, default=True)
     next_runtime = Column(DateTime, nullable=False, default=datetime.utcnow)
     interval_lower = Column(Integer, nullable=False, default=10)  # minutes  # TODO replace by sqlalchemy.Interval
     interval_upper = Column(Integer, nullable=False, default=60)  # minutes  # TODO replace by sqlalchemy.Interval
 
+    enabled = Column(Boolean, nullable=True, default=True)
     new_query = Column(Boolean, nullable=False, default=True)
     ignore_first_run = Column(Boolean, nullable=False, default=True)
     # load_full_description = Column(Boolean, nullable=False, default=False)

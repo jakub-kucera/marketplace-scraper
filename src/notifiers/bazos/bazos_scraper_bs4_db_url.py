@@ -2,7 +2,7 @@ import itertools
 from datetime import datetime
 from typing import Iterator, Any
 from urllib.error import URLError
-from urllib.parse import urlencode, urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse, parse_qs
 
 from bs4 import BeautifulSoup
 import requests
@@ -93,8 +93,29 @@ class BazosBazosScraperBS4DBUrl(BazosScraper):
         location_tmp.br.replace_with(", ")
         location = location_tmp.text
 
+        view_count_tmp = product_raw.find(class_='inzeratyview')
+        view_count = view_count_tmp.text.split(' ')[0]
+
+        actions = product_raw.find(class_='inzeratyakce')
+
+        def get_url_query_dict_from_element_text(element_text: str) -> dict[bytes, list[bytes]]:
+            return parse_qs(urlparse(actions.find('a', string=element_text).attrs['href']).query)
+
+        # product_id_raw = parse_qs(urlparse(actions.find('a', string='Označit špatný inzerát').attrs['href']).query)
+        product_id_raw = get_url_query_dict_from_element_text('Označit špatný inzerát')
+        product_id = int(product_id_raw['idad'][0])
+
+        assert int(bazos_id) == product_id
+
+        # publisher_info = parse_qs(urlparse(actions.find('a', string='Ohodnotit uživatele').attrs['href']).query)
+        publisher_info = get_url_query_dict_from_element_text('Ohodnotit uživatele')
+        publisher_email = int(publisher_info['idmail'][0])
+        publisher_phone = int(publisher_info['idphone'][0])
+        publisher_name = publisher_info['jmeno'][0]
+
         return ProductDB(bazos_id=bazos_id, name=name, price=price, url=url, location=location, publish_date=date,
-                         ignore_date=ignore_date, description=description)
+                         ignore_date=ignore_date, description=description, publisher_email_id=publisher_email,
+                         publisher_phone_id=publisher_phone, publisher_name=publisher_name, view_count=view_count)
 
         # return Product(name=name, description=description, price=price, url=url, date=date,
         #                ignore_date=ignore_date, location=location)
