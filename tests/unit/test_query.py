@@ -4,6 +4,8 @@ from pydantic import ValidationError
 from src.query_old import QueryOLD
 
 
+# TODO some of this could be used on the new ProductDB class
+
 @pytest.mark.parametrize(
     "text, low, high, skip_round",
     (
