@@ -11,13 +11,10 @@ from selenium.common.exceptions import TimeoutException
 
 from settings import SETTINGS
 from src.models import ProductDB, QueryDB
-from src.notifiers.bazos.bazos_scraper import BazosScraper
 from src.notifiers.bazos.exceptions import BazosBlacklistedError
 
-BAZOS_BASE_URL = 'https'
 
-
-class BazosBazosScraperBS4DBUrl(BazosScraper):
+class BazosBazosScraperBS4DBUrl:
     @staticmethod
     def create_url_category(query: QueryDB) -> Iterator[str]:
         url: str = query.category
@@ -83,7 +80,7 @@ class BazosBazosScraperBS4DBUrl(BazosScraper):
         url = name_div.select_one('a[href]').get('href')
         parsed_url_path = urlparse(url).path.split("/")
         bazos_id = parsed_url_path[2]
-        # link = urljoin(BAZOS_BASE_URL, link)
+        # link = urljoin('https', link)
         date = BazosBazosScraperBS4DBUrl.convert_date(date_raw)
         ignore_date = 'TOP' in date_raw
         description = header_tmp.find(class_='popis').text
@@ -98,13 +95,12 @@ class BazosBazosScraperBS4DBUrl(BazosScraper):
 
         actions = product_raw.find(class_='inzeratyakce')
 
-        def get_url_query_dict_from_element_text(element_text: str) -> dict[bytes, list[bytes]]:
+        def get_url_query_dict_from_element_text(element_text: str) -> dict[bytes, list[bytes]]:  # TODO change
             return parse_qs(urlparse(actions.find('a', string=element_text).attrs['href']).query)
 
         # product_id_raw = parse_qs(urlparse(actions.find('a', string='Označit špatný inzerát').attrs['href']).query)
         product_id_raw = get_url_query_dict_from_element_text('Označit špatný inzerát')
         product_id = int(product_id_raw['idad'][0])
-
         assert int(bazos_id) == product_id
 
         # publisher_info = parse_qs(urlparse(actions.find('a', string='Ohodnotit uživatele').attrs['href']).query)
