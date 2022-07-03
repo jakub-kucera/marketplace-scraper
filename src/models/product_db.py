@@ -11,16 +11,22 @@ class ProductDB(base):
 
     id = Column(Integer, primary_key=True)
     bazos_id = Column(Integer, unique=False, nullable=False, index=True)
+    url = Column(String(1024), unique=False, nullable=False)
+
     name = Column(String(100), nullable=False)
     price = Column(String(30), nullable=True)  # TODO make int and add column for alternatives (Nabídněte, V textu, Dohodou)
-    url = Column(String(1024), unique=False, nullable=False)
     location = Column(String(128), nullable=False)
+    view_count = Column(Integer, nullable=True)
     publish_date = Column(DateTime, nullable=False)  # , default=datetime.utcnow)
     discover_date = Column(DateTime, nullable=False, default=datetime.utcnow)
     ignore_date = Column(Boolean, nullable=False, default=False)
     description = Column(String(300), nullable=False)  # Real max lenght might be 254
     # full_description = Column(String(300), nullable=False)
-    # author
+
+    # # author  # phone_id and email_id not tied together, would cause problems if used in 1 model
+    publisher_email_id = Column(Integer, nullable=True)
+    publisher_phone_id = Column(Integer, nullable=True)
+    publisher_name = Column(String(100), nullable=True)
 
     do_send = Column(Boolean, nullable=False, default=True)
     # m:n relationship with senders or Query
