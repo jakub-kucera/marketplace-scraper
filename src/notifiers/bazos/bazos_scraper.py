@@ -1,6 +1,6 @@
 import itertools
 from datetime import datetime
-from typing import Iterator, Any
+from typing import Iterator, Any, Final
 from urllib.error import URLError
 from urllib.parse import urlencode, urljoin, urlparse, parse_qs
 
@@ -13,34 +13,34 @@ from settings import SETTINGS
 from src.models import ProductDB, QueryDB
 from src.notifiers.bazos.exceptions import BazosBlacklistedError
 
+PAGE_SIZE: Final[int] = 20
 
-class BazosBazosScraperBS4DBUrl:
-    @staticmethod
-    def create_url_category(query: QueryDB) -> Iterator[str]:
+
+class BazosScraper:
+
+    def __init__(self):
+        self.sent_requests_count = 0
+
+    @classmethod
+    def create_url_category(cls, query: QueryDB) -> Iterator[str]:
+        params = cls.get_query_url_dict(query)
+
         url: str = query.category
-
-        price_lower = '' if query.price_lower == 0 else query.price_lower
-        price_upper = '' if query.price_upper == 0 else query.price_upper
-
-        params = {
-            'hledat': query.text,
-            # 'rubriky': 'elektro',
-            'hlokalita': query.location_center,
-            'humkreis': str(query.location_radius),
-            'cenaod': price_lower,
-            'cenado': price_upper,
-            'Submit': 'Hledat',
-            # 'kitx': 'ano'
-        }
         encoded_params = urlencode(params)
-
-        for i in itertools.count(start=0, step=20):
+        for i in itertools.count(start=0, step=PAGE_SIZE):
             yield f"{url}{i}/?{encoded_params}"
 
-    @staticmethod
-    def create_url_general(query: QueryDB) -> Iterator[str]:
-        url: str = SETTINGS.BAZOS_URL
+    @classmethod
+    def create_url_general(cls, query: QueryDB) -> Iterator[str]:
+        params = cls.get_query_url_dict(query)
 
+        url: str = SETTINGS.BAZOS_URL
+        for i in itertools.count(start=0, step=PAGE_SIZE):
+            params['crz'] = i
+            yield f"{url}?{urlencode(params)}"
+
+    @staticmethod
+    def get_query_url_dict(query: QueryDB):
         price_lower = '' if query.price_lower == 0 else query.price_lower
         price_upper = '' if query.price_upper == 0 else query.price_upper
 
@@ -52,17 +52,12 @@ class BazosBazosScraperBS4DBUrl:
             'cenaod': price_lower,
             'cenado': price_upper,
             'Submit': 'Hledat',
-            'crz': 0
             # 'kitx': 'ano'
         }
-
-        for i in itertools.count(start=0, step=20):
-            params['crz'] = i
-            encoded_params = urlencode(params)
-            yield f"{url}?{encoded_params}"
+        return params
 
     @staticmethod
-    def convert_date(date_raw: str) -> datetime:
+    def extract_date(date_raw: str) -> datetime:
         date = date_raw[date_raw.find("[") + 1:date_raw.find("]")]
         day, month, year = map(int, date.split('.'))
         date_formatted = datetime(day=day, month=month, year=year)
@@ -81,7 +76,7 @@ class BazosBazosScraperBS4DBUrl:
         parsed_url_path = urlparse(url).path.split("/")
         bazos_id = parsed_url_path[2]
         # link = urljoin('https', link)
-        date = BazosBazosScraperBS4DBUrl.convert_date(date_raw)
+        date = BazosScraper.extract_date(date_raw)
         ignore_date = 'TOP' in date_raw
         description = header_tmp.find(class_='popis').text
         price = product_raw.find(class_='inzeratycena').text.strip()
@@ -135,6 +130,7 @@ class BazosBazosScraperBS4DBUrl:
             try:
                 # self.driver.get(url)
                 response = requests.get(url, **extra_args)
+                self.sent_requests_count += 1
                 break
             except (TimeoutException, URLError):  # todo correct exception
                 pass
