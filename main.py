@@ -3,7 +3,7 @@ import traceback
 from time import strftime
 
 from settings import SETTINGS
-from src.notifiers.db_runner import run
+from src.notifiers.bazos_runner import BazosRunner
 
 
 def main():
@@ -13,7 +13,8 @@ def main():
 
     while True:
         try:
-            run()
+            runner = BazosRunner()
+            runner.run()
         except Exception as e:
             current_time = strftime("%Y%m%d-%H%M%S")
             with open(f"{SETTINGS.LOG_DIRECTORY_PATH}{current_time}", "w") as log_file:
@@ -24,6 +25,4 @@ def main():
 
 
 if __name__ == "__main__":
-        # run()
-        main()
-        # import_basic_data()
+    main()
