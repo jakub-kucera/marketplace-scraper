@@ -142,7 +142,7 @@ class BazosBazosScraperBS4DBUrl:
 
     def check_blacklisted(self) -> bool:
         response = self.run_request(SETTINGS.BAZOS_URL)
-        return not response.ok
+        return response.status_code == 403
 
     # def run_query(self, query: Query) -> Iterator[Product]:
     def run_query(self, query: QueryDB) -> Iterator[ProductDB]:
