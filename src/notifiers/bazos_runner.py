@@ -7,7 +7,7 @@ from time import sleep
 
 # from src.db.db import engine
 from src.models import QueryDB, session, DiscordSenderDB
-from src.notifiers.db_query_runner import DBQueryRunner
+from src.notifiers.bazos_query_runner import BazosQueryRunner
 from src.senders.discord_sender import DiscordSender
 
 
@@ -38,7 +38,7 @@ class BazosRunner:
             if first_query.next_runtime < current_datetime:
                 self.log(f"running query {first_query}")
                 timediff = max(timedelta(0), second_query.next_runtime - current_datetime)
-                query_runner = DBQueryRunner(first_query)
+                query_runner = BazosQueryRunner(first_query)
                 query_runner.run()
                 # for product in query_runner.run():
                 #     # if exists

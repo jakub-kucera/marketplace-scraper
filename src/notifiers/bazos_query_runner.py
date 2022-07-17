@@ -2,19 +2,16 @@ from datetime import timedelta
 
 from settings import SETTINGS
 from src.models import QueryDB, ProductDB, session
-from src.notifiers.bazos.bazos_scraper_bs4_db_url import BazosBazosScraperBS4DBUrl
-# from src.notifiers.bazos.bazos_scraper_bs4_url import BazosBazosScraperBS4Url
+from src.notifiers.bazos.bazos_scraper import BazosScraper
 from src.senders.discord_sender import DiscordSender
 
-# MAX_SLEEP_TIME = 60  # seconds
 
-
-class DBQueryRunner:
+class BazosQueryRunner:
     def __init__(self, query: QueryDB):
         self.query = query
         # self.senders = [DiscordSender(s.url, s.notify) for s in query.bazos_senders]
         self.senders = [DiscordSender(query.discord_sender.url, query.discord_sender.notify)]
-        self.scraper = BazosBazosScraperBS4DBUrl()
+        self.scraper = BazosScraper()
 
     def send_to_senders(self, product: ProductDB):
         for sender in self.senders:
