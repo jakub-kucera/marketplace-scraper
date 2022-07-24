@@ -11,5 +11,5 @@ session = orm.scoped_session(orm.sessionmaker(autocommit=False, autoflush=False)
 
 
 from .discord_sender_db import DiscordSenderDB  # noqa
-from .product_db import ProductDB  # noqa
-from .query_db import QueryDB  # noqa
+from .product import ProductDB  # noqa
+from .query import QueryDB  # noqa
