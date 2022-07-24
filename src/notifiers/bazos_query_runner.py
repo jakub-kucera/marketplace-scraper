@@ -10,7 +10,8 @@ class BazosQueryRunner:
     def __init__(self, query: QueryDB):
         self.query = query
         # self.senders = [DiscordSender(s.url, s.notify) for s in query.bazos_senders]
-        self.senders = [DiscordSender(query.discord_sender.url, query.discord_sender.notify)]
+        # self.senders = [DiscordSender(query.discord_sender.url, query.discord_sender.notify)]
+        self.senders = [DiscordSender.from_db(query.discord_sender)]
         self.scraper = BazosScraper()
 
     def send_to_senders(self, product: ProductDB):

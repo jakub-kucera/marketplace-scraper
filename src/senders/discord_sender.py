@@ -5,7 +5,7 @@ from random import uniform
 
 import discord_notify as dn
 
-from src.models import ProductDB
+from src.models import ProductDB, DiscordSenderDB
 from src.sendables.sendable import Sendable
 from src.senders.sender import Sender
 
@@ -15,6 +15,10 @@ class DiscordSender(Sender):
     def __init__(self, url: str, notify: bool = False):
         super().__init__(notify)
         self.notifier = dn.Notifier(url)
+
+    @classmethod
+    def from_db(cls, sender: DiscordSenderDB):
+        return cls(sender.url, sender.notify)
 
     def _format_product_message(self, sendable: Sendable) -> str:
         message = "@here \n" if self.notify else ""

@@ -26,7 +26,7 @@ class QueryDB(base):
     enabled = Column(Boolean, nullable=True, default=True)
     new_query = Column(Boolean, nullable=False, default=True)
     ignore_first_run = Column(Boolean, nullable=False, default=True)
-    # load_full_description = Column(Boolean, nullable=False, default=False)
+    load_full_description = Column(Boolean, nullable=True, default=True)  # TODO make nullable=False
     # last_top_count = Column(Integer, nullable=False, default=0)
 
     discord_sender_id = Column(Integer, ForeignKey('discord_sender.id'), nullable=False)

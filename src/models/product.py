@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
 
 # from src.db.db import Base
 from src.models import base
@@ -21,7 +21,7 @@ class ProductDB(base):
     discover_date = Column(DateTime, nullable=False, default=datetime.utcnow)
     ignore_date = Column(Boolean, nullable=False, default=False)
     description = Column(String(300), nullable=False)  # Real max lenght might be 254
-    # full_description = Column(String(300), nullable=False)
+    full_description = Column(Text, nullable=True)
 
     # # author  # phone_id and email_id not tied together, would cause problems if used in 1 model
     publisher_email_id = Column(Integer, nullable=True)

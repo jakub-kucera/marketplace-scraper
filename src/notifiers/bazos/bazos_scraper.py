@@ -140,9 +140,16 @@ class BazosScraper:
         response = self.run_request(SETTINGS.BAZOS_URL)
         return response.status_code == 403
 
-    # def run_query(self, query: Query) -> Iterator[Product]:
+    def load_full_description(self, product: ProductDB) -> ProductDB:
+        response = self.run_request(product.url)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        full_description = soup.find(class_='popisdetail').text
+        # full_description = unidecode(full_description)
+        product.full_description = full_description
+        return product
+
     def run_query(self, query: QueryDB) -> Iterator[ProductDB]:
-        if self.check_blacklisted():  # TODO only check for the single HTTP code
+        if self.check_blacklisted():
             raise BazosBlacklistedError()
 
         if len(query.category) > 0:
@@ -165,6 +172,8 @@ class BazosScraper:
             # extract products from 1 page
             count = 0
             for count, product in enumerate(self.get_page_products(response), start=1):
+                if query.load_full_description:
+                    product = self.load_full_description(product)
                 yield product
             if count == 0:  # or count < 20
                 break
