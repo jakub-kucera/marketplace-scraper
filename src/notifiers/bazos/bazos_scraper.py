@@ -1,5 +1,7 @@
 import itertools
 from datetime import datetime
+from random import uniform
+from time import sleep
 from typing import Iterator, Any, Final
 from urllib.error import URLError
 from urllib.parse import urlencode, urljoin, urlparse, parse_qs
@@ -162,11 +164,14 @@ class BazosScraper:
 
         # list through multiple pages
         for url in url_iter:
-
+            print(f"{url=}")
             # if True: # if page contains TOP posts
             #     query.last_top_count += 1
 
-            print(f"{url=}")
+            page_sleep_time = uniform(*SETTINGS.BAZOS_PAGE_WAIT_TIME)
+            print(f"Sleeping between pages for {page_sleep_time} seconds")
+            sleep(page_sleep_time)
+
             # try to load page, if not possible, repeat SETTINGS.MAX_ATTEMPTS
             response = self.run_request(url)
             # extract products from 1 page
