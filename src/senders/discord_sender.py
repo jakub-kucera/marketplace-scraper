@@ -12,24 +12,31 @@ from src.senders.sender import Sender
 
 class DiscordSender(Sender):
 
-    def __init__(self, url: str, notify: bool = False):
+    def __init__(self, url: str, notify: bool = False, preview_link: str = False):
         super().__init__(notify)
         self.notifier = dn.Notifier(url)
+        self.preview_link = preview_link
 
     @classmethod
     def from_db(cls, sender: DiscordSenderDB):
         return cls(sender.url, sender.notify)
 
+    def _format_link(self, link: str):
+        if self.preview_link:
+            return link
+        else:
+            return f"<{link}>"
+
     def _format_product_message(self, sendable: Sendable) -> str:
         message = "@here \n" if self.notify else ""
         message += self.wrap_multi_line(sendable.message)
-        message += sendable.link
+        message += self._format_link(sendable.link)
         return message
 
     def _format_product_message_db(self, product: ProductDB) -> str:
         message = "@here \n" if self.notify else ""
         message += self.wrap_multi_line(product.message)
-        message += product.link
+        message += self._format_link(product.link)
         return message
 
     def _send(self, message: str):  # TODO make thread safe
