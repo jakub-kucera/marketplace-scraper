@@ -34,7 +34,7 @@ class QueryDB(base):
     products = relationship('ProductDB', backref='query', lazy=True)
 
     def __repr__(self):
-        return f"<Query(id='{self.id}', text='{self.text}', price='{self.price_lower}-{self.price_upper}', category='{self.category}, next_runtime={self.next_runtime}')>"
+        return f"<Query(id='{self.id}', text='{self.text}', price='{self.price_lower}-{self.price_upper}', category=<{self.category}>, next_runtime={self.next_runtime}')>"
 
     def get_next_interval(self):
         return uniform(self.interval_lower, self.interval_upper)
