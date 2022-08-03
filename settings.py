@@ -20,5 +20,7 @@ class Settings:
 
     LOG_DIRECTORY_PATH: Final[str] = "logs/"
 
+    BAZOS_PAGE_WAIT_TIME: Final[tuple[int, int]] = (2, 5)
+
 
 SETTINGS = Settings()
