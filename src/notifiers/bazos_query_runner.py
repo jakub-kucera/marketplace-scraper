@@ -3,6 +3,7 @@ from datetime import timedelta
 from settings import SETTINGS
 from src.models import QueryDB, ProductDB, session
 from src.notifiers.bazos.bazos_scraper import BazosScraper
+from src.notifiers.interval_multiplier import NightMultiplier
 from src.senders.discord_sender import DiscordSender
 
 
@@ -13,6 +14,10 @@ class BazosQueryRunner:
         # self.senders = [DiscordSender(query.discord_sender.url, query.discord_sender.notify)]
         self.senders = [DiscordSender.from_db(query.discord_sender)]
         self.scraper = BazosScraper()
+        self.interval_multiplier = NightMultiplier()
+
+    def multiply_interval(self, interval: float) -> float:
+        return self.interval_multiplier.multiply(interval)
 
     def send_to_senders(self, product: ProductDB):
         for sender in self.senders:
@@ -73,12 +78,12 @@ class BazosQueryRunner:
     def run(self):
         # self.query.set_next_runtime(timedelta(minutes=10))
         interval = self.query.get_next_interval()
-        print(f"next interval will be: {interval}")
-        self.query.set_next_runtime(timedelta(minutes=interval))
+        new_interval = self.multiply_interval(interval)
+        print(f"next interval will be: {new_interval}m (multiplied from {interval}m)")
+        self.query.set_next_runtime(timedelta(minutes=new_interval))
         if self.query.new_query:
             print(f"Running NEW query {self.query}")
-            return self.run_new_query()
+            self.run_new_query()
         else:
             print(f"Running EXISTING query {self.query}")
-            return self.run_existing_query()
-
+            self.run_existing_query()
