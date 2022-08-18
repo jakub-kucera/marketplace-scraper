@@ -9,6 +9,7 @@ from urllib.parse import urlencode, urljoin, urlparse, parse_qs
 from bs4 import BeautifulSoup
 import requests
 from requests import Response
+import requests_random_user_agent
 from selenium.common.exceptions import TimeoutException
 
 from settings import SETTINGS
@@ -22,6 +23,7 @@ class BazosScraper:
 
     def __init__(self):
         self.sent_requests_count = 0
+        self.session = requests.Session()
 
     @classmethod
     def create_url_category(cls, query: QueryDB) -> Iterator[str]:
@@ -130,8 +132,7 @@ class BazosScraper:
         response: Response | None = None
         for _ in range(1, SETTINGS.MAX_ATTEMPTS + 1):
             try:
-                # self.driver.get(url)
-                response = requests.get(url, **extra_args)
+                response = self.session.get(url, **extra_args)
                 self.sent_requests_count += 1
                 break
             except (TimeoutException, URLError):  # todo correct exception
