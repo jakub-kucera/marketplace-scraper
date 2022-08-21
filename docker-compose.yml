@@ -1,19 +1,32 @@
 version: "3.3"
 services:
-  selenium_chromedriver:
-    image: selenium/standalone-chrome
-    shm_size: "2gb"
-    ports:
-    - "4444:4444"
-    - "7900:7900"
+#  selenium_chromedriver:
+#    image: selenium/standalone-chrome
+#    shm_size: "2gb"
+#    ports:
+#    - "4444:4444"
+#    - "7900:7900"
   marketplace_scraper:
     build: .
     restart: always
     depends_on:
-      - selenium_chromedriver
+      - tor_proxy
+#      - selenium_chromedriver
 #    ports:
 #      - "4444:4444"
-#    environment:
-#      URL: blalba
+    environment:
+      TOR_PROXY_IP: tor_proxy
+  tor_proxy:
+    image: dperson/torproxy
+    restart: always
+    ports:
+      - "9050:9050"
+      - "9051:9051"
+      - "8118:8118"
+    environment:
+      TORUSER: root
+      PASSWORD: root
+#      LOCATION: CZE
+#      TOR_NewCircuitPeriod: 10
 
 
