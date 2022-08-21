@@ -22,5 +22,10 @@ class Settings:
 
     BAZOS_PAGE_WAIT_TIME: Final[tuple[int, int]] = (2, 5)
 
+    TOR_PROXY_IP = environ.get("TOR_PROXY_IP", "localhost")
+    TOR_PROXY_PASSWORD = environ.get("TOR_PROXY_PASSWORD", "root")
+
+    LOCAL_IP_SUBNET = environ.get("LOCAL_IP_SUBNET", "146.70.111.0/24")
+
 
 SETTINGS = Settings()

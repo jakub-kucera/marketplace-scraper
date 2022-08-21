@@ -15,6 +15,7 @@ from selenium.common.exceptions import TimeoutException
 from settings import SETTINGS
 from src.models import ProductDB, QueryDB
 from src.notifiers.bazos.exceptions import BazosBlacklistedError
+from src.tor import PROXIES
 
 PAGE_SIZE: Final[int] = 20
 
@@ -24,6 +25,7 @@ class BazosScraper:
     def __init__(self):
         self.sent_requests_count = 0
         self.session = requests.Session()
+        self.session.proxies = PROXIES
 
     @classmethod
     def create_url_category(cls, query: QueryDB) -> Iterator[str]:
@@ -146,7 +148,7 @@ class BazosScraper:
     def load_full_description(self, product: ProductDB) -> ProductDB:
         response = self.run_request(product.url)
         soup = BeautifulSoup(response.text, 'html.parser')
-        full_description = soup.find(class_='popisdetail').text
+        full_description = soup.find(class_='popisdetail').text  # TODO FIX, CAN BE NONE?
         # full_description = unidecode(full_description)
         product.full_description = full_description
         return product
