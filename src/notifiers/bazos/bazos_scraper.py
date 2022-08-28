@@ -25,7 +25,7 @@ class BazosScraper:
     def __init__(self):
         self.sent_requests_count = 0
         self.session = requests.Session()
-        self.session.proxies = PROXIES
+        # self.session.proxies = PROXIES
 
     @classmethod
     def create_url_category(cls, query: QueryDB) -> Iterator[str]:
@@ -84,7 +84,7 @@ class BazosScraper:
         # link = urljoin('https', link)
         date = BazosScraper.extract_date(date_raw)
         ignore_date = 'TOP' in date_raw
-        description = header_tmp.find(class_='popis').text
+        description = header_tmp.find(class_='popis').text.strip()
         price = product_raw.find(class_='inzeratycena').text.strip()
 
         location_tmp = product_raw.find(class_='inzeratylok')
