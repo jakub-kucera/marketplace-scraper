@@ -54,5 +54,5 @@ class ProductDB(base):
                self.url == other.url and \
                self.location == other.location and \
                self.publish_date == other.publish_date and \
-               self.ignore_date == other.ignore_date and \
-               self.description == other.description
+               self.ignore_date == other.ignore_date #and \
+               # self.description == other.description
