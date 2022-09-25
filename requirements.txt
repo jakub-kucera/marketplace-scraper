@@ -23,6 +23,7 @@ python-dotenv
 
 pydantic
 validators
+pytz
 
 pytest
 mypy
