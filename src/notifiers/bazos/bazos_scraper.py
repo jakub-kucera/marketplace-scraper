@@ -15,7 +15,6 @@ from selenium.common.exceptions import TimeoutException
 from settings import SETTINGS
 from src.models import ProductDB, QueryDB
 from src.notifiers.bazos.exceptions import BazosBlacklistedError
-from src.tor import PROXIES
 
 PAGE_SIZE: Final[int] = 20
 
@@ -24,7 +23,8 @@ class BazosScraper:
 
     def __init__(self):
         self.sent_requests_count = 0
-        self.session = requests.Session()
+        # self.session = requests.Session()  # TODO pass session from outside
+        raise self.session
         # self.session.proxies = PROXIES
 
     @classmethod
