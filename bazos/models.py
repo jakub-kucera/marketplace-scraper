@@ -65,3 +65,51 @@ class Query(TimeStampedModel):
     # def is_found_product(self, product: ProductDB):
     # #     idk what I wanted to do here
     #     return
+
+
+class Ad(TimeStampedModel):
+    # bazos_id = Column(Integer, unique=False, nullable=False, index=True)
+    bazos_id = models.IntegerField(db_index=True)
+    # url = Column(String(1024), unique=False, nullable=False)
+    url = models.URLField(max_length=1024) # TODO unique=True
+
+    # name = Column(String(100), nullable=False)
+    name = models.CharField(max_length=120)
+    # price = Column(String(30),
+    #                nullable=True)  # TODO make int and add column for alternatives (Nabídněte, V textu, Dohodou)
+    price_raw = models.CharField(max_length=30)  # TODO make int and add column for alternatives (Nabídněte, V textu, Dohodou)
+    # location = Column(String(128), nullable=False)
+    location = models.CharField(max_length=128)
+    # view_count = Column(Integer, nullable=True)
+    view_count = models.IntegerField(help_text="View count at the time of discovery")
+    # publish_date = Column(DateTime, nullable=False)  # , default=datetime.utcnow)
+    publish_date = models.DateTimeField()
+    # ignore_date = Column(Boolean, nullable=False, default=False)
+    # TODO add topped count
+    topped = models.BooleanField(default=False, help_text="Topped ad, publish date is not accurate")
+    # description = Column(String(300), nullable=False)  # Real max lenght might be 254
+    short_description = models.CharField(max_length=300)
+    # full_description = Column(Text, nullable=True)
+    full_description = models.TextField(null=True, blank=True)
+
+    # # author  # phone_id and email_id not tied together, would cause problems if used in 1 model
+    # publisher_email_id = Column(Integer, nullable=True)
+    publisher_email_id = models.IntegerField()
+    # publisher_phone_id = Column(Integer, nullable=True)
+    publisher_phone_id = models.IntegerField()
+    # publisher_name = Column(String(100), nullable=True)
+    publisher_name = models.CharField(max_length=100)
+
+    # do_send = Column(Boolean, nullable=False, default=True)  # not used
+
+    # TODO m:n relationship with Query (+ senders)
+    # query_id = Column(Integer, ForeignKey('query.id'), nullable=False)
+    query = models.ForeignKey(Query, on_delete=models.PROTECT, related_name='ads')
+
+    def __str__(self):
+        return f"{self.name} | {self.price_raw} | {self.location}"
+
+    class Meta:
+        verbose_name = "Ad"
+        verbose_name_plural = "Ads"
+        constraints = []
