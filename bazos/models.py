@@ -7,7 +7,7 @@ from django_extensions.db.models import TimeStampedModel
 
 class Query(TimeStampedModel):
     text = models.CharField(max_length=120, help_text="Querying text", blank=True)
-    category = models.CharField(max_length=120, help_text="Category url", blank=True)
+    category = models.URLField(max_length=120, help_text="Category url", blank=True)
     # price_lower = Column(Integer, nullable=False, default=0)
     price_lower = models.IntegerField(default=0)
     # price_upper = Column(Integer, nullable=False, default=0)
@@ -47,6 +47,13 @@ class Query(TimeStampedModel):
     class Meta:
         verbose_name = "Query"
         verbose_name_plural = "Queries"
+
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(price_lower__lte=models.F("price_upper")),
+                name="price_lower_lte_price_upper",
+            ),
+        ]
 
     # def get_next_interval(self):
     #     return uniform(self.interval_lower, self.interval_upper)
