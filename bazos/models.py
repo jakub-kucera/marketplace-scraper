@@ -4,6 +4,8 @@ from random import uniform
 from django.db import models
 from django_extensions.db.models import TimeStampedModel
 
+from bazos.mixins import SendableMixin
+
 
 class Query(TimeStampedModel):
     text = models.CharField(max_length=120, help_text="Querying text", blank=True)
@@ -67,7 +69,7 @@ class Query(TimeStampedModel):
     #     return
 
 
-class Ad(TimeStampedModel):
+class Ad(TimeStampedModel, SendableMixin):
     # bazos_id = Column(Integer, unique=False, nullable=False, index=True)
     bazos_id = models.IntegerField(db_index=True)
     # url = Column(String(1024), unique=False, nullable=False)
@@ -113,3 +115,17 @@ class Ad(TimeStampedModel):
         verbose_name = "Ad"
         verbose_name_plural = "Ads"
         constraints = []
+
+    @property
+    def message(self):
+        return self.name + '\n' + \
+            self.price + '\n' + \
+            self.location + '\n' + \
+            self.description
+
+    @property
+    def link(self):
+        return self.url
+
+
+
