@@ -33,7 +33,7 @@ class DiscordSender(Sender):
         message += self._format_link(sendable.link)
         return message
 
-    def _format_product_message_db(self, product: ProductDB) -> str:
+    def _format_product_message_db(self, product: ProductDB) -> str:  # TODO DE-DUPE
         message = "@here \n" if self.notify else ""
         message += self.wrap_multi_line(product.message)
         message += self._format_link(product.link)
