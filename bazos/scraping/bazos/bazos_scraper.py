@@ -9,14 +9,9 @@ from urllib.parse import urlencode, urljoin, urlparse, parse_qs
 from bs4 import BeautifulSoup
 import requests
 from requests import Response
-import requests_random_user_agent
 from selenium.common.exceptions import TimeoutException
 
-from settings import SETTINGS
-from src.models import ProductDB, QueryDB
-from src.notifiers.bazos.exceptions import BazosBlacklistedError
 
-PAGE_SIZE: Final[int] = 20
 
 
 class BazosScraper:

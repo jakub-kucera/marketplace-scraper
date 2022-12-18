@@ -73,13 +73,3 @@ class CalendarConditionSender(Sender):
 
     def _format_product_message(self, sendable: Sendable) -> str:
         pass
-
-
-def main1():
-    calendar_sender = CalendarConditionSender(ConsoleSender(), ["WORK", "test"])
-    for i in range(1000):
-        calendar_sender.send_plain(f"testicek #{i}")
-
-
-if __name__ == '__main__':
-    main1()
