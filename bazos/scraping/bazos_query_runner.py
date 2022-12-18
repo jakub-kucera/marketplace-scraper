@@ -1,11 +1,5 @@
 from datetime import timedelta
 
-from settings import SETTINGS
-from src.models import QueryDB, ProductDB, session
-from src.notifiers.bazos.bazos_scraper import BazosScraper
-from src.notifiers.interval_multiplier import NightMultiplier
-from src.senders.discord_sender import DiscordSender
-
 
 class BazosQueryRunner:
     def __init__(self, query: QueryDB):
@@ -14,6 +8,7 @@ class BazosQueryRunner:
         # self.senders = [DiscordSender(query.discord_sender.url, query.discord_sender.notify)]
         self.senders = [DiscordSender.from_db(query.discord_sender)]
         self.scraper = BazosScraper()
+        # self.scraper = BazosScraperClick()
         self.interval_multiplier = NightMultiplier()
 
     def multiply_interval(self, interval: float) -> float:

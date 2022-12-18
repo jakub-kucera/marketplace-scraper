@@ -9,8 +9,9 @@ https://docs.djangoproject.com/en/4.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.1/ref/settings/
 """
-
 from pathlib import Path
+
+import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -121,3 +122,14 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/4.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+
+# my settings
+
+LOG_DIRECTORY_PATH: Final[str] = "logs/"
+
+TOR_PROXY_IP = environ.get("TOR_PROXY_IP", default="")
+TOR_PROXY_PASSWORD = environ.get("TOR_PROXY_PASSWORD", default="")
+
+# TODO delete from GIT history
+LOCAL_IP_SUBNET = environ.get("LOCAL_IP_SUBNET", default="0.0.0.0/24")
