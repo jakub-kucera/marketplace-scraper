@@ -11,7 +11,9 @@ import requests
 from requests import Response
 from selenium.common.exceptions import TimeoutException
 
-
+from bazos.const import BAZOS_PAGE_WAIT_TIME, BAZOS_URL, MAX_ATTEMPTS, PAGE_SIZE
+from bazos.exceptions import BazosBlacklistedError
+from bazos.models import Ad, Query
 
 
 class BazosScraper:
@@ -23,7 +25,7 @@ class BazosScraper:
         # self.session.proxies = PROXIES
 
     @classmethod
-    def create_url_category(cls, query: QueryDB) -> Iterator[str]:
+    def create_url_category(cls, query: Query) -> Iterator[str]:
         params = cls.get_query_url_dict(query)
 
         url: str = query.category
@@ -32,16 +34,16 @@ class BazosScraper:
             yield f"{url}{i}/?{encoded_params}"
 
     @classmethod
-    def create_url_general(cls, query: QueryDB) -> Iterator[str]:
+    def create_url_general(cls, query: Query) -> Iterator[str]:
         params = cls.get_query_url_dict(query)
 
-        url: str = SETTINGS.BAZOS_URL
+        url: str = BAZOS_URL
         for i in itertools.count(start=0, step=PAGE_SIZE):
             params['crz'] = i
             yield f"{url}?{urlencode(params)}"
 
     @staticmethod
-    def get_query_url_dict(query: QueryDB):
+    def get_query_url_dict(query: Query):
         price_lower = '' if query.price_lower == 0 else query.price_lower
         price_upper = '' if query.price_upper == 0 else query.price_upper
 
@@ -66,7 +68,7 @@ class BazosScraper:
 
     @staticmethod
     # def extract_product(product_raw) -> Product:
-    def extract_product(product_raw) -> ProductDB:
+    def extract_product(product_raw) -> Ad:
         header_tmp = product_raw.find(class_="inzeratynadpis")
         name_div = header_tmp.find(class_='nadpis')
         date_raw = header_tmp.find(class_='velikost10').text
@@ -105,7 +107,8 @@ class BazosScraper:
         publisher_phone = int(publisher_info['idphone'][0])
         publisher_name = publisher_info['jmeno'][0]
 
-        return ProductDB(bazos_id=bazos_id, name=name, price=price, url=url, location=location, publish_date=date,
+        # TODO check creation
+        return Ad(bazos_id=bazos_id, name=name, price=price, url=url, location=location, publish_date=date,
                          ignore_date=ignore_date, description=description, publisher_email_id=publisher_email,
                          publisher_phone_id=publisher_phone, publisher_name=publisher_name, view_count=view_count)
 
@@ -113,7 +116,7 @@ class BazosScraper:
         #                ignore_date=ignore_date, location=location)
 
     # def get_page_products(self, response: Response | None) -> Iterator[Product]:
-    def get_page_products(self, response: Response | None) -> Iterator[ProductDB]:
+    def get_page_products(self, response: Response | None) -> Iterator[Ad]:
         # product_elements = self.driver.find_elements(By.CLASS_NAME ,"inzeraty")
         if response is None:
             return None
@@ -127,7 +130,7 @@ class BazosScraper:
 
     def run_request(self, url: str, extra_args: dict[Any, Any] = dict()) -> Response:
         response: Response | None = None
-        for _ in range(1, SETTINGS.MAX_ATTEMPTS + 1):
+        for _ in range(1, MAX_ATTEMPTS + 1):
             try:
                 response = self.session.get(url, **extra_args)
                 self.sent_requests_count += 1
@@ -137,10 +140,10 @@ class BazosScraper:
         return response
 
     def check_blacklisted(self) -> bool:
-        response = self.run_request(SETTINGS.BAZOS_URL)
+        response = self.run_request(BAZOS_URL)
         return response.status_code == 403
 
-    def load_full_description(self, product: ProductDB) -> ProductDB:
+    def load_full_description(self, product: Ad) -> Ad:
         response = self.run_request(product.url)
         soup = BeautifulSoup(response.text, 'html.parser')
         full_description = soup.find(class_='popisdetail').text  # TODO FIX, CAN BE NONE?
@@ -148,7 +151,7 @@ class BazosScraper:
         product.full_description = full_description
         return product
 
-    def run_query(self, query: QueryDB) -> Iterator[ProductDB]:
+    def run_query(self, query: Query) -> Iterator[Ad]:
         if self.check_blacklisted():
             raise BazosBlacklistedError()
 
@@ -166,7 +169,7 @@ class BazosScraper:
             # if True: # if page contains TOP posts
             #     query.last_top_count += 1
 
-            page_sleep_time = uniform(*SETTINGS.BAZOS_PAGE_WAIT_TIME)
+            page_sleep_time = uniform(*BAZOS_PAGE_WAIT_TIME)
             print(f"Sleeping between pages for {page_sleep_time} seconds")
             sleep(page_sleep_time)
 

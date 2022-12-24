@@ -1,14 +1,17 @@
 import os
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
+
+from bazos.scraping.bazos_runner import BazosRunner
 
 
 class Command(BaseCommand):
     help = "Runs Bazos scraper in a loop"
 
     def handle(self, *args, **options):
-        if not os.path.exists(SETTINGS.LOG_DIRECTORY_PATH):
-            os.makedirs(SETTINGS.LOG_DIRECTORY_PATH)
+        if not os.path.exists(settings.LOG_DIRECTORY_PATH):
+            os.makedirs(settings.LOG_DIRECTORY_PATH)
 
         runner = BazosRunner()
         runner.run()
