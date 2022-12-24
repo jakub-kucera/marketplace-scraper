@@ -1,26 +1,31 @@
 from datetime import timedelta
 
+from bazos.const import NEW_PRODUCT_LOAD_MAX
+from bazos.models import Ad, Query
+from bazos.scraping.bazos.bazos_scraper import BazosScraper
+from senders.services.discord_sender import DiscordSender
+
 
 class BazosQueryRunner:
-    def __init__(self, query: QueryDB):
+    def __init__(self, query: Query):
         self.query = query
         # self.senders = [DiscordSender(s.url, s.notify) for s in query.bazos_senders]
         # self.senders = [DiscordSender(query.discord_sender.url, query.discord_sender.notify)]
-        self.senders = [DiscordSender.from_db(query.discord_sender)]
+        self.senders = [DiscordSender.from_model(query.discord_sender)]
         self.scraper = BazosScraper()
         # self.scraper = BazosScraperClick()
-        self.interval_multiplier = NightMultiplier()
+        # self.interval_multiplier = NightMultiplier()
 
-    def multiply_interval(self, interval: float) -> float:
-        return self.interval_multiplier.multiply(interval)
+    # def multiply_interval(self, interval: float) -> float:
+    #     return self.interval_multiplier.multiply(interval)
 
-    def send_to_senders(self, product: ProductDB):
+    def send_to_senders(self, product: Ad):
         for sender in self.senders:
             sender.send_product([product])
             # sender.send_sendable(product)
 
-    def get_sleep_length(self, query: QueryDB):
-        pass
+    # def get_sleep_length(self, query: QueryDB):
+    #     pass
 
     def run_new_query(self):
         self.query.new_query = False
@@ -29,9 +34,9 @@ class BazosQueryRunner:
         for product in self.scraper.run_query(self.query):
 
             # only load limited amount of products, to prevent hitting limits with broad queries
-            if not product.ignore_date:
+            if not product.topped:  # ignore_date:
                 counter += 1
-                if counter >= SETTINGS.NEW_PRODUCT_LOAD_MAX:
+                if counter >= NEW_PRODUCT_LOAD_MAX:
                     break
 
             # if product.do_send:
@@ -41,26 +46,32 @@ class BazosQueryRunner:
                 print(f"New product {product}")
                 self.send_to_senders(product)
 
-            self.query.products.append(product)
-            session.add(product)
+            # self.query.products.append(product)
+            product.query = self.query
+            # session.add(product)
+            product.save()
 
         pass
 
     def run_existing_query(self):
         for product in self.scraper.run_query(self.query):
             # matching_products = db.execute(select(ProductDB).filter(ProductDB.query_id == product.query_id).filter(ProductDB.bazos_id == product.bazos_id))
-            matching_products = session.query(ProductDB)\
-                .filter(ProductDB.query_id == self.query.id)\
-                .filter(ProductDB.bazos_id == product.bazos_id)\
-                .count()
+            matching_products = Ad.objects.filter(query=self.query).filter(bazos_id=product.bazos_id).count()
+            # matching_products = session.query(ProductDB)\
+            #     .filter(ProductDB.query_id == self.query.id)\
+            #     .filter(ProductDB.bazos_id == product.bazos_id)\
+            #     .count()
             if matching_products == 0:  # is new
                 print(f"New product {product}")
-                self.query.products.append(product)
+                # self.query.products.append(product)
+                product.query = self.query
                 self.send_to_senders(product)
-                session.add(product)
+                # session.add(product)
+                product.save()
             else:
                 print(f"Product already exists {product}")
-                if product.ignore_date:
+                # if product.ignore_date:
+                if product.topped:
                     print(f"TOP product")
                 else:
                     print(f"regular product, BREAKING")
@@ -71,11 +82,11 @@ class BazosQueryRunner:
             #     self.send_to_senders(product)
 
     def run(self):
-        # self.query.set_next_runtime(timedelta(minutes=10))
-        interval = self.query.get_next_interval()
-        new_interval = self.multiply_interval(interval)
-        print(f"next interval will be: {new_interval}m (multiplied from {interval}m)")
-        self.query.set_next_runtime(timedelta(minutes=new_interval))
+        # # self.query.set_next_runtime(timedelta(minutes=10))
+        # interval = self.query.get_next_interval()
+        # new_interval = self.multiply_interval(interval)
+        # print(f"next interval will be: {new_interval}m (multiplied from {interval}m)")
+        # self.query.set_next_runtime(timedelta(minutes=new_interval))
         if self.query.new_query:
             print(f"Running NEW query {self.query}")
             self.run_new_query()
