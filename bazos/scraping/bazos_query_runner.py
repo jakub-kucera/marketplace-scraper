@@ -11,7 +11,7 @@ class BazosQueryRunner:
         self.query = query
         # self.senders = [DiscordSender(s.url, s.notify) for s in query.bazos_senders]
         # self.senders = [DiscordSender(query.discord_sender.url, query.discord_sender.notify)]
-        self.senders = [DiscordSender.from_model(query.discord_sender)]
+        self.senders = [DiscordSender.from_model(query.sender)]
         self.scraper = BazosScraper()
         # self.scraper = BazosScraperClick()
         # self.interval_multiplier = NightMultiplier()
