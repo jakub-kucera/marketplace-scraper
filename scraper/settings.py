@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.1/ref/settings/
 """
 from pathlib import Path
+from typing import Final
 
 import environ
 
@@ -133,3 +134,7 @@ TOR_PROXY_PASSWORD = environ.get("TOR_PROXY_PASSWORD", default="")
 
 # TODO delete from GIT history
 LOCAL_IP_SUBNET = environ.get("LOCAL_IP_SUBNET", default="0.0.0.0/24")
+
+
+INTERVAL_LOWER = environ.get("INTERVAL_LOWER", default="0")
+INTERVAL_UPPER = environ.get("INTERVAL_UPPER", default="0")
