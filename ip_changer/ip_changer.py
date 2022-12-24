@@ -3,13 +3,13 @@ from ipaddress import ip_address, ip_network
 
 import requests
 
-from settings import SETTINGS
+from django.conf import settings
 
 
 class IPChanger(ABC):
     def __init__(self, skip_1st_renew=False):
         self.skip_1st_renew = skip_1st_renew
-        self.local_network = ip_network(SETTINGS.LOCAL_IP_SUBNET)
+        self.local_network = ip_network(settings.LOCAL_IP_SUBNET)
         self.session: requests.Session | None = None
         self.renew_session()
 
@@ -31,7 +31,9 @@ class IPChanger(ABC):
         return r.text.strip()
 
     def check_bazos_blacklisted(self) -> bool:
-        r = self.session.get("https://bazos.cz")
+        # r = self.session.get("https://bazos.cz")
+        r = self.session.get("https://mobil.bazos.cz/apple/")
+
         return r.status_code == 403
 
     def check_ip_local(self) -> bool:

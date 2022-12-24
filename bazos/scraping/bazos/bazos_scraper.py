@@ -14,15 +14,17 @@ from selenium.common.exceptions import TimeoutException
 from bazos.const import BAZOS_PAGE_WAIT_TIME, BAZOS_URL, MAX_ATTEMPTS, PAGE_SIZE
 from bazos.exceptions import BazosBlacklistedError
 from bazos.models import Ad, Query
+from ip_changer.tor import PROXIES
 
 
 class BazosScraper:
 
     def __init__(self):
         self.sent_requests_count = 0
-        # self.session = requests.Session()  # TODO pass session from outside
-        raise self.session
-        # self.session.proxies = PROXIES
+        self.session = requests.Session()  # TODO pass session from outside
+        # raise self.session
+        # raise self.session
+        self.session.proxies = PROXIES
 
     @classmethod
     def create_url_category(cls, query: Query) -> Iterator[str]:

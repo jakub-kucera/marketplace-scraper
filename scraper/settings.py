@@ -17,6 +17,17 @@ import environ
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+env = environ.Env(
+    # SECRET_KEY=(
+    #     str,
+    #     "django-insecure-REDACTED",
+    # ),
+    # DEBUG=(bool, True),
+    # POSTGRES_DB=(str, "postgres"),
+    # POSTGRES_USER=(str, "postgres"),
+    # POSTGRES_PASSWORD=(str, "postgres"),
+)
+environ.Env.read_env(".env")
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
@@ -129,12 +140,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 LOG_DIRECTORY_PATH: Final[str] = "logs/"
 
-TOR_PROXY_IP = environ.get("TOR_PROXY_IP", default="")
-TOR_PROXY_PASSWORD = environ.get("TOR_PROXY_PASSWORD", default="")
+TOR_PROXY_IP = env("TOR_PROXY_IP", default="")
+TOR_PROXY_PASSWORD = env("TOR_PROXY_PASSWORD", default="")
 
 # TODO delete from GIT history
-LOCAL_IP_SUBNET = environ.get("LOCAL_IP_SUBNET", default="0.0.0.0/24")
+LOCAL_IP_SUBNET = env("LOCAL_IP_SUBNET", default="0.0.0.0/24")
 
 
-INTERVAL_LOWER = environ.get("INTERVAL_LOWER", default="0")
-INTERVAL_UPPER = environ.get("INTERVAL_UPPER", default="0")
+INTERVAL_LOWER = env("INTERVAL_LOWER", default="0")
+INTERVAL_UPPER = env("INTERVAL_UPPER", default="0")
