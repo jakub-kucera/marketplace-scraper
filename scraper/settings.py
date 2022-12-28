@@ -54,8 +54,9 @@ INSTALLED_APPS = [
     "django_extensions",
     # my apps
     "bazos",
-    "senders",
+    "facebook",
     "ip_changer",
+    "senders",
 ]
 
 MIDDLEWARE = [
