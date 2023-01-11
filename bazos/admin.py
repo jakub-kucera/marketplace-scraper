@@ -1,6 +1,31 @@
 from django.contrib import admin
 
-from bazos.models import Query, Ad
+from bazos.models import Query, Ad, Section, Category
+
+
+class CategoryInline(admin.TabularInline):
+    model = Category
+    extra = 0
+    readonly_fields = [
+        "name",
+        "url",
+        "bazos_id",
+    ]
+
+
+@admin.register(Section)
+class SectionAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "url",
+        "bazos_id",
+    )
+    readonly_fields = [
+        "name",
+        "url",
+        "bazos_id",
+    ]
+    inlines = (CategoryInline,)
 
 
 @admin.register(Query)
