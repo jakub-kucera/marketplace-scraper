@@ -96,9 +96,13 @@ class Ad(TimeStampedModel, SendableMixin):
 
     # # author  # phone_id and email_id not tied together, would cause problems if used in 1 model
     # publisher_email_id = Column(Integer, nullable=True)
-    publisher_email_id = models.IntegerField()
+    # publisher_email_id = models.IntegerField()
+    # https://stackoverflow.com/questions/8766222/create-if-doesnt-exist
+    email_publisher = models.ForeignKey('EmailPublisher', on_delete=models.PROTECT, null=True, related_name='ads')
     # publisher_phone_id = Column(Integer, nullable=True)
-    publisher_phone_id = models.IntegerField()
+    # publisher_phone_id = models.IntegerField()
+    phone_publisher = models.ForeignKey('PhonePublisher', on_delete=models.PROTECT, null=True, related_name='ads')
+
     # publisher_name = Column(String(100), nullable=True)
     publisher_name = models.CharField(max_length=100)
 
@@ -128,4 +132,14 @@ class Ad(TimeStampedModel, SendableMixin):
         return self.url
 
 
+class PhonePublisher(TimeStampedModel):
+    bazos_id = models.IntegerField(db_index=True, unique=True)
+    # Todo use phone number field. Have some conversion with prefix, so it matches FB DB. Has to be valid ob Bazos?
+    phone = models.CharField(max_length=30, unique=True)
+    fb_user = models.ForeignKey('facebook.FBUser', on_delete=models.PROTECT, related_name='phone_publishers')
 
+
+class EmailPublisher(TimeStampedModel):
+    bazos_id = models.IntegerField(db_index=True, unique=True)
+    # Todo use email field
+    email = models.CharField(max_length=30, unique=True)  # Is really unique?
