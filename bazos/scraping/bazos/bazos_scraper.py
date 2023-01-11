@@ -13,7 +13,7 @@ from selenium.common.exceptions import TimeoutException
 
 from bazos.const import BAZOS_PAGE_WAIT_TIME, BAZOS_URL, MAX_ATTEMPTS, PAGE_SIZE
 from bazos.exceptions import BazosBlacklistedError
-from bazos.models import Ad, Query
+from bazos.models import Ad, Query, EmailPublisher, PhonePublisher
 from ip_changer.tor import PROXIES
 
 
@@ -108,6 +108,14 @@ class BazosScraper:
         publisher_email = int(publisher_info['idmail'][0])
         publisher_phone = int(publisher_info['idphone'][0])
         publisher_name = publisher_info['jmeno'][0]
+
+        email_publisher = EmailPublisher.objects.get_or_create(
+            bazos_id=publisher_email,
+        )
+
+        phone_publisher = PhonePublisher.objects.get_or_create(
+            bazos_id=publisher_phone,
+        )
 
         # TODO check creation
         return Ad(bazos_id=bazos_id, name=name, price=price, url=url, location=location, publish_date=date,
