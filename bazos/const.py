@@ -15,6 +15,7 @@ CHAIRS_BAZOS = "https://nabytek.bazos.cz/zidle/"
 
 PAGE_SIZE: Final[int] = 20
 
+BAZOS_BASE_URL: Final[str] = "https://bazos.cz"
 BAZOS_URL: Final[str] = "https://bazos.cz/search.php"
 
 NEW_PRODUCT_LOAD_MAX: Final[int] = 50

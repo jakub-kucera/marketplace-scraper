@@ -34,10 +34,11 @@ class QueryAdmin(admin.ModelAdmin):
         "pk",
         "text",
         "category",
+        "section",
         "enabled",
         "sender",
     )
-    list_filter = ("enabled", "category")
+    list_filter = ("enabled", "category", "section")
 
 
 @admin.register(Ad)

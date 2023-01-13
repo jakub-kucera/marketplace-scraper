@@ -6,6 +6,7 @@ from django.db import models
 
 from bazos.mixins import SendableMixin
 
+
 class Section(models.Model):
     bazos_id = models.CharField(unique=True, max_length=2)
     name = models.CharField(max_length=20, unique=True)
@@ -13,6 +14,7 @@ class Section(models.Model):
 
     def __str__(self):
         return self.name
+
 
 class Category(models.Model):
     bazos_id = models.IntegerField(unique=True)
@@ -25,7 +27,10 @@ class Category(models.Model):
 
 class Query(TimeStampedModel):
     text = models.CharField(max_length=120, help_text="Querying text", blank=True)
-    category = models.URLField(max_length=120, help_text="Category url", blank=True)
+    # TODO QUERY OR SECTION OR NONE. DB constraint for this?
+    section = models.ForeignKey(Section, on_delete=models.PROTECT, blank=True, null=True)
+    category = models.ForeignKey(Category, on_delete=models.PROTECT, blank=True, null=True)
+    # category = models.URLField(max_length=120, help_text="Category url", blank=True)
     # price_lower = Column(Integer, nullable=False, default=0)
     price_lower = models.IntegerField(default=0)
     # price_upper = Column(Integer, nullable=False, default=0)
@@ -70,6 +75,12 @@ class Query(TimeStampedModel):
             models.CheckConstraint(
                 check=models.Q(price_lower__lte=models.F("price_upper")),
                 name="price_lower_lte_price_upper",
+            ),
+            #
+            # # TODO add not category or not section
+            models.CheckConstraint(
+                check=models.Q(section__isnull=True) | models.Q(category__isnull=True),
+                name="not_section_or_not_category",
             ),
         ]
 
