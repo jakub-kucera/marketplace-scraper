@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from random import uniform
+from urllib.parse import urljoin, urlparse
 
 from django_extensions.db.models import TimeStampedModel
 from django.db import models
 
+from bazos.const import BAZOS_BASE_URL
 from bazos.mixins import SendableMixin
 
 
@@ -15,6 +17,12 @@ class Section(models.Model):
     def __str__(self):
         return self.name
 
+    @property
+    def full_url(self):
+        parsed_url = urlparse(BAZOS_BASE_URL)
+        updated_netloc = f"{self.url}.{parsed_url.netloc}"
+        return parsed_url._replace(netloc=updated_netloc).geturl()
+
 
 class Category(models.Model):
     bazos_id = models.IntegerField(unique=True)
@@ -24,6 +32,12 @@ class Category(models.Model):
 
     def __str__(self):
         return f"{self.name} | {self.section}"
+
+    @property
+    def full_url(self):
+        # TODO check if `/` is needed at the end
+        return urljoin(self.section.full_url, self.url)
+
 
 class Query(TimeStampedModel):
     text = models.CharField(max_length=120, help_text="Querying text", blank=True)
@@ -83,6 +97,19 @@ class Query(TimeStampedModel):
                 name="not_section_or_not_category",
             ),
         ]
+
+    @property
+    def url(self):
+        if self.section:
+            return self.section.full_url
+        elif self.category:
+            return self.category.full_url
+        return BAZOS_BASE_URL
+
+    # @classmethod
+    # def generate_random_query(cls):
+    #     # TODO
+    #     pass
 
     # def get_next_interval(self):
     #     return uniform(self.interval_lower, self.interval_upper)
