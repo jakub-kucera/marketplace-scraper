@@ -9,8 +9,6 @@ from senders.services.discord_sender import DiscordSender
 class BazosQueryRunner:
     def __init__(self, query: Query):
         self.query = query
-        # self.senders = [DiscordSender(s.url, s.notify) for s in query.bazos_senders]
-        # self.senders = [DiscordSender(query.discord_sender.url, query.discord_sender.notify)]
         self.senders = [DiscordSender.from_model(query.sender)]
         self.scraper = BazosScraper()
         # self.scraper = BazosScraperClick()
@@ -21,7 +19,7 @@ class BazosQueryRunner:
 
     def send_to_senders(self, product: Ad):
         for sender in self.senders:
-            sender.send_product([product])
+            sender.send_sendable([product])
             # sender.send_sendable(product)
 
     # def get_sleep_length(self, query: QueryDB):

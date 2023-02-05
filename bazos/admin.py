@@ -36,9 +36,10 @@ class QueryAdmin(admin.ModelAdmin):
         "category",
         "section",
         "enabled",
+        "randomly_generated",
         "sender",
     )
-    list_filter = ("enabled", "category", "section")
+    list_filter = ("enabled", "randomly_generated", "section", "category")
 
 
 @admin.register(Ad)

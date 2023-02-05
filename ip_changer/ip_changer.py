@@ -5,6 +5,8 @@ import requests
 
 from django.conf import settings
 
+from bazos.const import BAZOS_BLACKLIST_CHECK_URL
+
 
 class IPChanger(ABC):
     def __init__(self, skip_1st_renew=False):
@@ -32,7 +34,7 @@ class IPChanger(ABC):
 
     def check_bazos_blacklisted(self) -> bool:
         # r = self.session.get("https://bazos.cz")
-        r = self.session.get("https://mobil.bazos.cz/apple/")
+        r = self.session.get(BAZOS_BLACKLIST_CHECK_URL)
 
         return r.status_code == 403
 

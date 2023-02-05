@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from random import uniform
+from random import uniform, randint
 from urllib.parse import urljoin, urlparse
 
 from django_extensions.db.models import TimeStampedModel
@@ -49,14 +49,14 @@ class Query(TimeStampedModel):
     price_upper = models.IntegerField(default=0)
 
     location_center = models.CharField(max_length=10, help_text="Location center PSC")
-    location_radius = models.IntegerField(default=25)
+    location_radius = models.IntegerField(default=20)
 
     enabled = models.BooleanField(default=True)
     new_query = models.BooleanField(default=True, help_text="Is this a new query? Needed for first run, to only load limited count.")
     ignore_first_run = models.BooleanField(default=True, help_text="Do not send Ads from first run.")
     load_full_description = models.BooleanField(default=False)
     # last_top_count = Column(Integer, nullable=False, default=0)
-    # randomly_generated = models.BooleanField(default=False)
+    randomly_generated = models.BooleanField(default=False)
 
     sender = models.ForeignKey('senders.Discord', on_delete=models.SET_NULL, null=True, related_name='queries')
     # logger_id
@@ -75,8 +75,6 @@ class Query(TimeStampedModel):
                 check=models.Q(price_lower__lte=models.F("price_upper")),
                 name="price_lower_lte_price_upper",
             ),
-            #
-            # # TODO add not category or not section
             models.CheckConstraint(
                 check=models.Q(section__isnull=True) | models.Q(category__isnull=True),
                 name="not_section_or_not_category",
@@ -91,10 +89,28 @@ class Query(TimeStampedModel):
             return self.category.full_url
         return BAZOS_BASE_URL
 
-    # @classmethod
-    # def generate_random_query(cls):
-    #     # TODO
-    #     pass
+    @staticmethod
+    def generate_random_queries(count: int = 1) -> list["Query"]:
+        queries: list[Query] = []
+        for _ in range(count):
+            # TODO log this
+            # could be improved to sometimes pick section, or even no section
+            category = Category.objects.order_by('?').first()
+            # the query name could be better generated. (If no FK to category, then use name of random category/section)
+            query_text = category.name
+            queries.append(Query.objects.create(
+                text=query_text,
+                category=category,
+                # price_lower=0,
+                # price_upper=100,
+                # TODO check if can be used?
+                location_center=randint(10000, 99999),
+                # location_center="12345",
+                # location_radius=25,
+                randomly_generated=True,
+                new_query=True,  # TODO modify query_runner
+            ))
+        return queries
 
     # def is_found_product(self, product: ProductDB):
     # #     idk what I wanted to do here
@@ -138,9 +154,9 @@ class Ad(TimeStampedModel, SendableMixin):
     @property
     def message(self):
         return self.name + '\n' + \
-            self.price + '\n' + \
+            self.price_raw + '\n' + \
             self.location + '\n' + \
-            self.description
+            self.short_description
 
     @property
     def link(self):
@@ -150,11 +166,11 @@ class Ad(TimeStampedModel, SendableMixin):
 class PhonePublisher(TimeStampedModel):
     bazos_id = models.IntegerField(db_index=True, unique=True)
     # Todo use phone number field. Have some conversion with prefix, so it matches FB DB. Has to be valid ob Bazos?
-    phone = models.CharField(max_length=30, unique=True)
-    fb_user = models.ForeignKey('facebook.FBUser', on_delete=models.PROTECT, related_name='phone_publishers')
+    phone = models.CharField(max_length=30, null=True, blank=True)
+    fb_user = models.ForeignKey('facebook.FBUser', on_delete=models.PROTECT, related_name='phone_publishers', null=True, blank=True)
 
 
 class EmailPublisher(TimeStampedModel):
     bazos_id = models.IntegerField(db_index=True, unique=True)
     # Todo use email field
-    email = models.CharField(max_length=30, unique=True)  # Is really unique?
+    email = models.CharField(max_length=30, null=True, blank=True)  # Is really unique?

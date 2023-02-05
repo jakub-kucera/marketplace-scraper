@@ -4,6 +4,7 @@ import pytest
 
 from bazos.models import Section, Category, Query
 
+# TODO use baker to create objects
 
 @pytest.mark.django_db
 def test_gen_url():
@@ -13,4 +14,3 @@ def test_gen_url():
     assert urlparse(query.url) == urlparse("https://pc.bazos.cz/notebook/")
     # assert query.url == "https://pc.bazos.cz/notebook/"
     # assert query.url == "https://www.bazos.cz/pc/notebook/?hledani=macbook&hledani=12345&hledani=25&hledani=0&hledani=100"
-    assert 1 == 1
