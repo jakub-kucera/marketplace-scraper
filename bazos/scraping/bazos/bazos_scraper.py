@@ -11,7 +11,7 @@ import requests
 from requests import Response
 from selenium.common.exceptions import TimeoutException
 
-from bazos.const import BAZOS_PAGE_WAIT_TIME, BAZOS_URL, MAX_ATTEMPTS, PAGE_SIZE
+from bazos.const import BAZOS_PAGE_WAIT_TIME, BAZOS_URL, MAX_ATTEMPTS, PAGE_SIZE, BAZOS_BLACKLIST_CHECK_URL
 from bazos.exceptions import BazosBlacklistedError
 from bazos.models import Ad, Query, EmailPublisher, PhonePublisher
 from ip_changer.tor import PROXIES
@@ -82,9 +82,9 @@ class BazosScraper:
         bazos_id = parsed_url_path[2]
         # link = urljoin('https', link)
         date = BazosScraper.extract_date(date_raw)
-        ignore_date = 'TOP' in date_raw
-        description = header_tmp.find(class_='popis').text.strip()
-        price = product_raw.find(class_='inzeratycena').text.strip()
+        topped = 'TOP' in date_raw
+        short_description = header_tmp.find(class_='popis').text.strip()
+        price_raw = product_raw.find(class_='inzeratycena').text.strip()
 
         location_tmp = product_raw.find(class_='inzeratylok')
         location_tmp.br.replace_with(", ")
@@ -109,18 +109,21 @@ class BazosScraper:
         publisher_phone = int(publisher_info['idphone'][0])
         publisher_name = publisher_info['jmeno'][0]
 
-        email_publisher = EmailPublisher.objects.get_or_create(
+        email_publisher, _ = EmailPublisher.objects.get_or_create(
             bazos_id=publisher_email,
         )
 
-        phone_publisher = PhonePublisher.objects.get_or_create(
+        phone_publisher, _ = PhonePublisher.objects.get_or_create(
             bazos_id=publisher_phone,
         )
 
         # TODO check creation
-        return Ad(bazos_id=bazos_id, name=name, price=price, url=url, location=location, publish_date=date,
-                         ignore_date=ignore_date, description=description, publisher_email_id=publisher_email,
-                         publisher_phone_id=publisher_phone, publisher_name=publisher_name, view_count=view_count)
+        # return Ad(bazos_id=bazos_id, name=name, price=price, url=url, location=location, publish_date=date,
+        #                  ignore_date=ignore_date, description=description, publisher_email_id=publisher_email,
+        #                  publisher_phone_id=publisher_phone, publisher_name=publisher_name, view_count=view_count)
+        return Ad(bazos_id=bazos_id, name=name, price_raw=price_raw, url=url, location=location, publish_date=date,
+                  topped=topped, short_description=short_description, email_publisher=email_publisher,
+                  phone_publisher=phone_publisher, publisher_name=publisher_name, view_count=view_count)
 
         # return Product(name=name, description=description, price=price, url=url, date=date,
         #                ignore_date=ignore_date, location=location)
@@ -150,7 +153,7 @@ class BazosScraper:
         return response
 
     def check_blacklisted(self) -> bool:
-        response = self.run_request(BAZOS_URL)
+        response = self.run_request(BAZOS_BLACKLIST_CHECK_URL)
         return response.status_code == 403
 
     def load_full_description(self, product: Ad) -> Ad:
@@ -165,7 +168,7 @@ class BazosScraper:
         if self.check_blacklisted():
             raise BazosBlacklistedError()
 
-        if len(query.category) > 0:
+        if query.category:
             url_iter = self.create_url_category(query)
         else:
             url_iter = self.create_url_general(query)

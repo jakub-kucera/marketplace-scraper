@@ -29,7 +29,10 @@ class BazosRunner:
 
         while True:
             self.log(f"Waking up at {datetime.utcnow()} UTC")
+            # disable old random queries
+            Query.objects.filter(randomly_generated=True).update(enabled=False)
             queries = Query.objects.filter(enabled=True).order_by('?')
+            # rnd_queries = Query.generate_random_queries(2)
             # self.change_ip()
 
             # change IP if blacklisted
@@ -73,7 +76,6 @@ class BazosRunner:
             self.log(f"sleeping for {sleep_interval}")
             # sleep(timedelta.total_seconds(timediff))
             sleep(sleep_interval)
-
     def get_next_interval(self):
         multiplier = self.interval_multiplier.get_current_multiplier()
         return multiplier * uniform(settings.INTERVAL_LOWER, settings.INTERVAL_UPPER)
