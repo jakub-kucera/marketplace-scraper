@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from bazos.models import Query, Ad, Section, Category
+from bazos.models import Query, Ad, Section, Category, EmailPublisher, PhonePublisher
 
 
 class CategoryInline(admin.TabularInline):
@@ -51,3 +51,19 @@ class AdAdmin(admin.ModelAdmin):
         "topped"
     )
     # list_filter = ("enabled", "category")
+
+
+@admin.register(EmailPublisher)
+class EmailPublisherAdmin(admin.ModelAdmin):
+    list_display = (
+        "bazos_id",
+        "email",
+    )
+
+
+@admin.register(PhonePublisher)
+class PhonePublisherAdmin(admin.ModelAdmin):
+    list_display = (
+        "bazos_id",
+        "phone",
+    )

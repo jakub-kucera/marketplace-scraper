@@ -23,14 +23,13 @@ class BazosScraper:
         self.sent_requests_count = 0
         self.session = requests.Session()  # TODO pass session from outside
         # raise self.session
-        # raise self.session
         self.session.proxies = PROXIES
 
     @classmethod
     def create_url_category(cls, query: Query) -> Iterator[str]:
         params = cls.get_query_url_dict(query)
 
-        url: str = query.category
+        url: str = query.url
         encoded_params = urlencode(params)
         for i in itertools.count(start=0, step=PAGE_SIZE):
             yield f"{url}{i}/?{encoded_params}"
@@ -39,7 +38,7 @@ class BazosScraper:
     def create_url_general(cls, query: Query) -> Iterator[str]:
         params = cls.get_query_url_dict(query)
 
-        url: str = BAZOS_URL
+        url: str = query.url
         for i in itertools.count(start=0, step=PAGE_SIZE):
             params['crz'] = i
             yield f"{url}?{urlencode(params)}"
@@ -118,17 +117,10 @@ class BazosScraper:
         )
 
         # TODO check creation
-        # return Ad(bazos_id=bazos_id, name=name, price=price, url=url, location=location, publish_date=date,
-        #                  ignore_date=ignore_date, description=description, publisher_email_id=publisher_email,
-        #                  publisher_phone_id=publisher_phone, publisher_name=publisher_name, view_count=view_count)
         return Ad(bazos_id=bazos_id, name=name, price_raw=price_raw, url=url, location=location, publish_date=date,
                   topped=topped, short_description=short_description, email_publisher=email_publisher,
                   phone_publisher=phone_publisher, publisher_name=publisher_name, view_count=view_count)
 
-        # return Product(name=name, description=description, price=price, url=url, date=date,
-        #                ignore_date=ignore_date, location=location)
-
-    # def get_page_products(self, response: Response | None) -> Iterator[Product]:
     def get_page_products(self, response: Response | None) -> Iterator[Ad]:
         # product_elements = self.driver.find_elements(By.CLASS_NAME ,"inzeraty")
         if response is None:
