@@ -18,14 +18,11 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env(
-    # SECRET_KEY=(
-    #     str,
-    #     "django-insecure-REDACTED",
-    # ),
-    # DEBUG=(bool, True),
-    # POSTGRES_DB=(str, "postgres"),
-    # POSTGRES_USER=(str, "postgres"),
-    # POSTGRES_PASSWORD=(str, "postgres"),
+    # SECRET_KEY= # TODO delete original key from REPO. Force push?
+    DEBUG=(bool, True),
+    POSTGRES_DB=(str, "postgres"),
+    POSTGRES_USER=(str, "postgres"),
+    POSTGRES_PASSWORD=(str, "postgres"),
 )
 environ.Env.read_env(".env")
 
@@ -33,9 +30,9 @@ environ.Env.read_env(".env")
 # See https://docs.djangoproject.com/en/4.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-REDACTED"
+SECRET_KEY = env("SECRET_KEY")
 
-# SECURITY WARNING: don't run with debug turned on in production!
+# # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
 ALLOWED_HOSTS = []
@@ -95,9 +92,18 @@ WSGI_APPLICATION = "scraper.wsgi.application"
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": env("POSTGRES_DB"),
+        "USER": env("POSTGRES_USER"),
+        "PASSWORD": env("POSTGRES_PASSWORD"),
+        "HOST": env("POSTGRES_HOST", default="localhost"),
+        "PORT": env.int("POSTGRES_PORT", default=5432),
+        "OPTIONS": {"connect_timeout": 5},
     }
+    # "default": {
+    #     "ENGINE": "django.db.backends.sqlite3",
+    #     "NAME": BASE_DIR / "db.sqlite3",
+    # }
 }
 
 

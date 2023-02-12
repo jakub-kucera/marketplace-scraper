@@ -48,7 +48,7 @@ class Query(TimeStampedModel):
     price_lower = models.IntegerField(default=0)
     price_upper = models.IntegerField(default=0)
 
-    location_center = models.CharField(max_length=10, help_text="Location center PSC")
+    location_center = models.CharField(max_length=10, blank=True, help_text="Location center PSC")
     location_radius = models.IntegerField(default=20)
 
     enabled = models.BooleanField(default=True)

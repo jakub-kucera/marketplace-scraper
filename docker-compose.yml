@@ -6,16 +6,23 @@ services:
 #    ports:
 #    - "4444:4444"
 #    - "7900:7900"
-  marketplace_scraper:
-    build: .
-    restart: always
-    depends_on:
-      - tor_proxy
-#      - selenium_chromedriver
-#    ports:
-#      - "4444:4444"
-    environment:
-      TOR_PROXY_IP: tor_proxy
+#  marketplace_scraper:
+#    build: .
+#    restart: always
+#    depends_on:
+#      - tor_proxy
+##      - selenium_chromedriver
+##    ports:
+##      - "4444:4444"
+#    environment:
+#      TOR_PROXY_IP: tor_proxy
+  postgres:
+    image: postgres:15.2
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    env_file: .env
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
   tor_proxy:
     image: dperson/torproxy
     restart: always
