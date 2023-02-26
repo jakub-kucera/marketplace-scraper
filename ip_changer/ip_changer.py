@@ -41,10 +41,10 @@ class IPChanger(ABC):
     def check_ip_local(self) -> bool:
         return ip_address(self.get_current_ip()) in self.local_network
 
-    def renew_ip_bazos_ok(self) -> str:
+    def renew_ip_bazos_ok(self, url) -> str:
         while True:
             new_ip = self.renew_ip_and_check_new()
-            if not self.check_bazos_blacklisted():
+            if not self.check_bazos_blacklisted(url):
                 print(f"BAZOS OK: New IP: {new_ip}")
                 return new_ip
             print(f"BAZOS BLACKLISTED: New IP: {new_ip}")
