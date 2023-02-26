@@ -35,7 +35,7 @@ class Category(models.Model):
 
     @property
     def full_url(self):
-        # TODO check if `/` is needed at the end
+        # TODO check if `/` is needed at the end - looks like it is not
         return urljoin(self.section.full_url, self.url)
 
 

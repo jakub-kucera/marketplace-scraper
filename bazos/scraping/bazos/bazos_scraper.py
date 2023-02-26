@@ -19,11 +19,13 @@ from ip_changer.tor import PROXIES
 
 class BazosScraper:
 
-    def __init__(self):
+    def __init__(self, session: requests.Session):
         self.sent_requests_count = 0
-        self.session = requests.Session()  # TODO pass session from outside
-        # raise self.session
-        self.session.proxies = PROXIES
+        if session:
+            self.session = session
+        else:
+            self.session = requests.Session()
+            self.session.proxies = PROXIES
 
     @classmethod
     def create_url_category(cls, query: Query) -> Iterator[str]:
@@ -144,8 +146,8 @@ class BazosScraper:
                 pass
         return response
 
-    def check_blacklisted(self) -> bool:
-        response = self.run_request(BAZOS_BLACKLIST_CHECK_URL)
+    def check_blacklisted(self, url: str = BAZOS_BLACKLIST_CHECK_URL) -> bool:
+        response = self.run_request(url)
         return response.status_code == 403
 
     def load_full_description(self, product: Ad) -> Ad:
@@ -157,7 +159,7 @@ class BazosScraper:
         return product
 
     def run_query(self, query: Query) -> Iterator[Ad]:
-        if self.check_blacklisted():
+        if self.check_blacklisted(query.url):
             raise BazosBlacklistedError()
 
         if query.category:

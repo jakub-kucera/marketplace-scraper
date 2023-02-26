@@ -34,6 +34,4 @@ services:
       TORUSER: root
       PASSWORD: root
 #      LOCATION: CZE
-#      TOR_NewCircuitPeriod: 10
-
-
+      TOR_NewCircuitPeriod: 9999999
