@@ -52,7 +52,7 @@ class BazosRunner:
                 # change IP if blacklisted
                 if self.ip_changer.check_bazos_blacklisted(query.url):
                     self.log("IP got BLACKLISTED, attempting to change")
-                    self.change_ip()
+                    self.change_ip(query.url)
 
                 if self.ip_changer.check_ip_local():
                     self.log("WARNING: IP IS LOCAL")
@@ -87,7 +87,7 @@ class BazosRunner:
         for logger in self.loggers:
             logger.send_plain(message)
 
-    def change_ip(self):
+    def change_ip(self, url):
         self.log(f"Changing IP, current={self.ip_changer.get_current_ip()}")
-        new_ip = self.ip_changer.renew_ip_bazos_ok()
+        new_ip = self.ip_changer.renew_ip_bazos_ok(url)
         self.log(f"NEW IP={new_ip}")
