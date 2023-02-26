@@ -32,9 +32,9 @@ class IPChanger(ABC):
         # return ip_address(r.text.strip())
         return r.text.strip()
 
-    def check_bazos_blacklisted(self) -> bool:
+    def check_bazos_blacklisted(self, url: str = BAZOS_BLACKLIST_CHECK_URL) -> bool:
         # r = self.session.get("https://bazos.cz")
-        r = self.session.get(BAZOS_BLACKLIST_CHECK_URL)
+        r = self.session.get(url)
 
         return r.status_code == 403
 

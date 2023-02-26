@@ -42,6 +42,8 @@ class TorIPChanger(IPChanger):
             if old_ip != new_ip:
                 print(f"New IP: {new_ip}")
                 return new_ip
+            else:
+                print(f"DID NOT CHANGE IP: {new_ip}")
             sleep(1)
 
     # def renew_ip_bazos_ok(self):
