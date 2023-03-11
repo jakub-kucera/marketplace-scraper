@@ -34,7 +34,7 @@ class BazosScraper:
         url: str = query.url
         encoded_params = urlencode(params)
         for i in itertools.count(start=0, step=PAGE_SIZE):
-            yield f"{url}{i}/?{encoded_params}"
+            yield f"{url}/{i}/?{encoded_params}"
 
     @classmethod
     def create_url_general(cls, query: Query) -> Iterator[str]:
@@ -162,7 +162,7 @@ class BazosScraper:
         if self.check_blacklisted(query.url):
             raise BazosBlacklistedError()
 
-        if query.category:
+        if query.category or query.section:
             url_iter = self.create_url_category(query)
         else:
             url_iter = self.create_url_general(query)
