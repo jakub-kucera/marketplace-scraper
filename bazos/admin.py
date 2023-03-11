@@ -46,11 +46,13 @@ class QueryAdmin(admin.ModelAdmin):
 class AdAdmin(admin.ModelAdmin):
     list_display = (
         "name",
+        "topped",
         "price_raw",
         "url",
-        "topped"
+        "query",
+        "created",
     )
-    # list_filter = ("enabled", "category")
+    list_filter = ("query", )
 
 
 @admin.register(EmailPublisher)
