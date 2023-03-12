@@ -23,7 +23,12 @@ class Command(BaseCommand):
         if not os.path.exists(settings.LOG_DIRECTORY_PATH):
             os.makedirs(settings.LOG_DIRECTORY_PATH)
 
-        while not options["unsafe"]:
+        if options["unsafe"]:
+            runner = BazosRunner()
+            runner.run()
+            return
+
+        while True:
             try:
                 runner = BazosRunner()
                 runner.run()
