@@ -118,6 +118,11 @@ class BazosScraper:
             bazos_id=publisher_phone,
         )
 
+        name = name.encode(encoding='UTF-8', errors='strict')
+        short_description = short_description.encode(encoding='UTF-8', errors='strict')
+        # publisher_name = publisher_name.encode(encoding='UTF-8', errors='strict')
+        location = location.encode(encoding='UTF-8', errors='strict')
+
         # TODO check creation
         return Ad(bazos_id=bazos_id, name=name, price_raw=price_raw, url=url, location=location, publish_date=date,
                   topped=topped, short_description=short_description, email_publisher=email_publisher,
@@ -127,7 +132,9 @@ class BazosScraper:
         # product_elements = self.driver.find_elements(By.CLASS_NAME ,"inzeraty")
         if response is None:
             return None
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # soup = BeautifulSoup(response.text, 'html.parser', from_encoding="Windows-1250")
+        soup = BeautifulSoup(response.text, 'html.parser', from_encoding="UTF-8")
+        # soup = BeautifulSoup(response.text, 'html.parser')
         product_elements = soup.find_all(class_='inzeraty')
 
         for product_raw in product_elements:
