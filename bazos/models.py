@@ -64,7 +64,8 @@ class Query(TimeStampedModel):
     # products = relationship('ProductDB', backref='query', lazy=True)
 
     def __str__(self):
-        return f"{self.text} | {self.category or self.section} | {self.price_lower}-{self.price_upper}"
+        return f"{self.text or self.category or self.section} | {self.price_lower}-{self.price_upper}"
+        # return f"{self.text} | {self.category or self.section} | {self.price_lower}-{self.price_upper}"
 
     class Meta:
         verbose_name = "Query"
