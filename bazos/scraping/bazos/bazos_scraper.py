@@ -97,18 +97,26 @@ class BazosScraper:
         actions = product_raw.find(class_='inzeratyakce')
 
         def get_url_query_dict_from_element_text(element_text: str) -> dict[bytes, list[bytes]]:  # TODO change
-            return parse_qs(urlparse(actions.find('a', string=element_text).attrs['href']).query)
+            s = actions.find('span', string=element_text).attrs['onclick']
+            contents = s[s.find("(") + 1:s.find(")")]
+            contents = contents.replace('\'', '')
+            args = contents.split(',')
+            return args[1:]
+            # return actions.find('span', string=element_text).attrs['onclick']
+            # return parse_qs(urlparse(actions.find('a', string=element_text).attrs['href']).query)
 
         # product_id_raw = parse_qs(urlparse(actions.find('a', string='Označit špatný inzerát').attrs['href']).query)
         product_id_raw = get_url_query_dict_from_element_text('Označit špatný inzerát')
-        product_id = int(product_id_raw['idad'][0])
+        product_id = int(product_id_raw[0])
+        # product_id = int(product_id_raw['idad'][0])
         assert int(bazos_id) == product_id
 
         # publisher_info = parse_qs(urlparse(actions.find('a', string='Ohodnotit uživatele').attrs['href']).query)
         publisher_info = get_url_query_dict_from_element_text('Ohodnotit uživatele')
-        publisher_email = int(publisher_info['idmail'][0])
-        publisher_phone = int(publisher_info['idphone'][0])
-        publisher_name = publisher_info['jmeno'][0]
+        publisher_email = int(publisher_info[0])
+        # publisher_email = int(publisher_info['idmail'][0])
+        publisher_phone = int(publisher_info[1])
+        publisher_name = str(publisher_info[2])
 
         email_publisher, _ = EmailPublisher.objects.get_or_create(
             bazos_id=publisher_email,
@@ -118,10 +126,10 @@ class BazosScraper:
             bazos_id=publisher_phone,
         )
 
-        name = name.encode(encoding='UTF-8', errors='strict')
-        short_description = short_description.encode(encoding='UTF-8', errors='strict')
+        # name = name.encode(encoding='UTF-8', errors='strict')
+        # short_description = short_description.encode(encoding='UTF-8', errors='strict')
         # publisher_name = publisher_name.encode(encoding='UTF-8', errors='strict')
-        location = location.encode(encoding='UTF-8', errors='strict')
+        # location = location.encode(encoding='UTF-8', errors='strict')
 
         # TODO check creation
         return Ad(bazos_id=bazos_id, name=name, price_raw=price_raw, url=url, location=location, publish_date=date,
@@ -133,8 +141,8 @@ class BazosScraper:
         if response is None:
             return None
         # soup = BeautifulSoup(response.text, 'html.parser', from_encoding="Windows-1250")
-        soup = BeautifulSoup(response.text, 'html.parser', from_encoding="UTF-8")
-        # soup = BeautifulSoup(response.text, 'html.parser')
+        # soup = BeautifulSoup(response.text, 'html.parser', from_encoding="UTF-8")
+        soup = BeautifulSoup(response.text, 'html.parser')
         product_elements = soup.find_all(class_='inzeraty')
 
         for product_raw in product_elements:
@@ -195,5 +203,6 @@ class BazosScraper:
                 if query.load_full_description:
                     product = self.load_full_description(product)
                 yield product
+            # TODO take a look at this, it looks like that it is no working. (have to create a new query with few Ads to repl)
             if count == 0:  # or count < 20
                 break
