@@ -42,7 +42,7 @@ class DiscordSender(Sender):
     def _send(self, message: str):  # TODO make thread safe
         while True:
             try:
-                self.notifier.send(message)
+                self.notifier.send(message, print_message=False)
                 sleep(uniform(0.5, 2))
                 break
             except HTTPError as e:

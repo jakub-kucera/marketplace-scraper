@@ -44,7 +44,7 @@ class BazosQueryRunner:
             #     product.do_send = False
             #     self.send_to_senders(product)
             if not self.query.ignore_first_run:
-                print(f"New product {product}")
+                print(f"New product {product}".encode("ascii", errors="ignore").decode())
                 self.send_to_senders(product)
 
             # self.query.products.append(product)
@@ -63,14 +63,14 @@ class BazosQueryRunner:
             #     .filter(ProductDB.bazos_id == product.bazos_id)\
             #     .count()
             if matching_products == 0:  # is new
-                print(f"New product {product}")
+                print(f"New product {product}".encode("ascii", errors="ignore").decode())
                 # self.query.products.append(product)
                 product.query = self.query
                 self.send_to_senders(product)
                 # session.add(product)
                 product.save()
             else:
-                print(f"Product already exists {product}")
+                print(f"Product already exists {product}".encode("ascii", errors="ignore").decode())
                 # if product.ignore_date:
                 if product.topped:
                     print(f"TOP product")
