@@ -37,26 +37,27 @@ class BazosRunner:
 
             # # TODO change so that on 1st run, it will force change_ip
             # # change IP if blacklisted
-            # if self.ip_changer.check_bazos_blacklisted():
-            #     self.log("IP got BLACKLISTED, attempting to change")
-            #     self.change_ip()
-            #
-            # if self.ip_changer.check_ip_local():
-            #     self.log("WARNING: IP IS LOCAL")
-            #     continue
+            if self.ip_changer.check_bazos_blacklisted(queries[0].url):
+                self.log("IP got BLACKLISTED, attempting to change")
+                self.change_ip(queries[0].url)
+
+            if self.ip_changer.check_ip_local():
+                self.log("WARNING: IP IS LOCAL")
+                continue
 
             start = datetime.now(timezone.utc)
             for query in queries:
                 self.log(f"running query {query}")
 
-                # change IP if blacklisted
-                if self.ip_changer.check_bazos_blacklisted(query.url):
-                    self.log("IP got BLACKLISTED, attempting to change")
-                    self.change_ip(query.url)
-
-                if self.ip_changer.check_ip_local():
-                    self.log("WARNING: IP IS LOCAL")
-                    continue
+                # # change IP if blacklisted
+                # if self.ip_changer.check_bazos_blacklisted(query.url):
+                #     self.log("IP got BLACKLISTED, attempting to change")
+                #     self.change_ip(query.url)
+                #
+                # if self.ip_changer.check_ip_local():
+                #     self.log("WARNING: IP IS LOCAL")
+                #     # TODO handle better
+                #     continue
 
                 # timediff = max(timedelta(0), second_query.next_runtime - current_datetime)
                 query_runner = BazosQueryRunner(query, self.ip_changer.session)
