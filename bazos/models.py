@@ -118,6 +118,13 @@ class Query(TimeStampedModel):
     #     return
 
 
+class QueryRun(models.Model):
+    query = models.ForeignKey(Query, on_delete=models.CASCADE, related_name='runs')
+    run_start = models.DateTimeField()
+    run_end = models.DateTimeField(null=True, blank=True)
+    new_ads_count = models.IntegerField(null=True)
+
+
 class Ad(TimeStampedModel, SendableMixin):
     bazos_id = models.IntegerField(db_index=True)  # TODO unique=True (requires M:N to queries)
     url = models.URLField(max_length=1024)  # TODO unique=True

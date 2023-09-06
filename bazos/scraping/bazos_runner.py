@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from random import uniform
 from time import sleep
 
-from bazos.models import Query
+from bazos.models import Query, QueryRun
 from bazos.scraping.bazos_query_runner import BazosQueryRunner
 from bazos.scraping.interval_multiplier import NightMultiplier
 from django.conf import settings
@@ -59,9 +59,19 @@ class BazosRunner:
                     continue
 
                 # timediff = max(timedelta(0), second_query.next_runtime - current_datetime)
+                query_run = QueryRun(
+                    query=query,
+                    run_start=datetime.now(timezone.utc),
+                    # run_end=end,
+                    # new_ads_count=new_products_count,
+                )
                 query_runner = BazosQueryRunner(query, self.ip_changer.session)
-                query_runner.run()
+                new_products_count = query_runner.run()
                 query.save()
+                query_run.run_end = datetime.now(timezone.utc)
+                query_run.new_ads_count = new_products_count
+                query_run.save()
+                print(f"Found {new_products_count} new products for query {query}")
                 # for product in query_runner.run():
                 #     # if exists
                 #     pass
