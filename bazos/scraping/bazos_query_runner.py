@@ -93,10 +93,10 @@ class BazosQueryRunner:
         # print(f"next interval will be: {new_interval}m (multiplied from {interval}m)")
         # self.query.set_next_runtime(timedelta(minutes=new_interval))
         if self.query.new_query:
-            print(f"Running NEW query {self.query}")
+            print(f"Running NEW query {self.query}".encode('ascii', 'ignore').decode('ascii'))
             self.run_new_query()
         else:
-            print(f"Running EXISTING query {self.query}")
+            print(f"Running EXISTING query {self.query}".encode('ascii', 'ignore').decode('ascii'))
             self.run_existing_query()
 
         # BazosQueryLog(query=self.query, runtime=auto, found_new_products)

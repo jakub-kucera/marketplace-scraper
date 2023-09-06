@@ -47,7 +47,7 @@ class BazosRunner:
 
             start = datetime.now(timezone.utc)
             for query in queries:
-                self.log(f"running query {query}")
+                self.log(f"running query {query}".encode('ascii', 'ignore').decode('ascii'))
 
                 # change IP if blacklisted
                 if self.ip_changer.check_bazos_blacklisted(query.url):
@@ -71,7 +71,7 @@ class BazosRunner:
                 query_run.run_end = datetime.now(timezone.utc)
                 query_run.new_ads_count = new_products_count
                 query_run.save()
-                print(f"Found {new_products_count} new products for query {query}")
+                print(f"Found {new_products_count} new products for query {query}".encode('ascii', 'ignore').decode('ascii'))
                 # for product in query_runner.run():
                 #     # if exists
                 #     pass
