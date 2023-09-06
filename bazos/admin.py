@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from bazos.models import Query, Ad, Section, Category, EmailPublisher, PhonePublisher
+from bazos.models import Query, Ad, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
 class CategoryInline(admin.TabularInline):
@@ -40,6 +40,17 @@ class QueryAdmin(admin.ModelAdmin):
         "sender",
     )
     list_filter = ("enabled", "randomly_generated", "section", "category")
+
+
+@admin.register(QueryRun)
+class QueryRunAdmin(admin.ModelAdmin):
+    list_display = (
+        "query",
+        "run_start",
+        "run_end",
+        "new_ads_count",
+    )
+    list_filter = ("query", )
 
 
 @admin.register(Ad)

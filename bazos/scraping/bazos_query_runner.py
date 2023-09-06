@@ -14,6 +14,7 @@ class BazosQueryRunner:
         self.senders = [DiscordSender.from_model(query.sender)]
         self.session = session
         self.scraper = BazosScraper(session)
+        self.new_product_counter = 0
         # self.scraper = BazosScraperClick()
         # self.interval_multiplier = NightMultiplier()
 
@@ -29,6 +30,7 @@ class BazosQueryRunner:
     #     pass
 
     def run_new_query(self):
+        # TODO modify for randomly_generated_queries
         self.query.new_query = False
 
         counter = 0
@@ -45,6 +47,7 @@ class BazosQueryRunner:
             #     self.send_to_senders(product)
             if not self.query.ignore_first_run:
                 print(f"New product {product}".encode("ascii", errors="ignore").decode())
+                self.new_product_counter += 1
                 self.send_to_senders(product)
 
             # self.query.products.append(product)
@@ -65,6 +68,7 @@ class BazosQueryRunner:
             if matching_products == 0:  # is new
                 print(f"New product {product}".encode("ascii", errors="ignore").decode())
                 # self.query.products.append(product)
+                self.new_product_counter += 1
                 product.query = self.query
                 self.send_to_senders(product)
                 # session.add(product)
@@ -82,7 +86,7 @@ class BazosQueryRunner:
             #     product.do_send = False
             #     self.send_to_senders(product)
 
-    def run(self):
+    def run(self) -> int:
         # # self.query.set_next_runtime(timedelta(minutes=10))
         # interval = self.query.get_next_interval()
         # new_interval = self.multiply_interval(interval)
@@ -94,3 +98,7 @@ class BazosQueryRunner:
         else:
             print(f"Running EXISTING query {self.query}")
             self.run_existing_query()
+
+        # BazosQueryLog(query=self.query, runtime=auto, found_new_products)
+        # # TODO log every product (re)discovery
+        return self.new_product_counter
