@@ -93,7 +93,9 @@ class BazosRunner:
         return multiplier * uniform(settings.INTERVAL_LOWER, settings.INTERVAL_UPPER)
 
     def log(self, message: str):
-        print(f"BazosRunner: {message}")
+        # print message without special characters
+        print(message.encode('ascii', 'ignore').decode('ascii'))
+
         for logger in self.loggers:
             logger.send_plain(message)
 
