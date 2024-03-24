@@ -73,6 +73,10 @@ class BazosQueryRunner:
                 self.send_to_senders(product)
                 # session.add(product)
                 product.save()
+                if self.query.load_full_description:
+                    # TODO improve by putting into some kind of queue
+                    self.scraper.load_full_description(product)
+                    product.save()
             else:
                 print(f"Product already exists {product}".encode("ascii", errors="ignore").decode())
                 # if product.ignore_date:

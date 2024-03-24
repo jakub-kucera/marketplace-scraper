@@ -166,6 +166,7 @@ class BazosScraper:
         return response.status_code == 403
 
     def load_full_description(self, product: Ad) -> Ad:
+        print(f"Loading full description for {product.url}")
         response = self.run_request(product.url)
         soup = BeautifulSoup(response.text, 'html.parser')
         full_description = soup.find(class_='popisdetail').text  # TODO FIX, CAN BE NONE?
@@ -200,8 +201,8 @@ class BazosScraper:
             # extract products from 1 page
             count = 0
             for count, product in enumerate(self.get_page_products(response), start=1):
-                if query.load_full_description:
-                    product = self.load_full_description(product)
+                # if query.load_full_description:
+                #     product = self.load_full_description(product)
                 yield product
             # TODO take a look at this, it looks like that it is no working. (have to create a new query with few Ads to repl)
             if count == 0:  # or count < 20
