@@ -40,6 +40,17 @@ class QueryAdmin(admin.ModelAdmin):
         "sender",
     )
     list_filter = ("enabled", "randomly_generated", "section", "category")
+    actions = ["enable_queries", "disable_queries"]
+
+    @admin.action(description="Enable selected queries")
+    def enable_queries(self, request, queryset):
+        updated = queryset.update(enabled=True)
+        self.message_user(request, f"{updated} query(ies) enabled successfully.")
+
+    @admin.action(description="Disable selected queries")
+    def disable_queries(self, request, queryset):
+        updated = queryset.update(enabled=False)
+        self.message_user(request, f"{updated} query(ies) disabled successfully.")
 
 
 @admin.register(QueryRun)
