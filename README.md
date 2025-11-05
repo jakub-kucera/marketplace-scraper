@@ -25,3 +25,7 @@
 
     pylint .
     mypy -p .# chip-facebook-post-maker
+
+
+    python manage.py runserver
+    python manage.py run_scraper

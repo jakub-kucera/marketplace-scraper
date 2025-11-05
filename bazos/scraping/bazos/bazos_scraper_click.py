@@ -5,6 +5,7 @@ from typing import List, Iterator, Optional
 from urllib.error import URLError
 from urllib.parse import urlencode, urlparse, parse_qs
 
+from django.utils import timezone
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
 from selenium.webdriver.common.by import By
@@ -12,7 +13,6 @@ from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-
 
 
 class BazosScraperClick(BazosScraper):
@@ -82,7 +82,7 @@ class BazosScraperClick(BazosScraper):
     def convert_date(date_raw: str) -> datetime:
         date = date_raw[date_raw.find("[") + 1:date_raw.find("]")]
         day, month, year = map(int, date.split('.'))
-        date_formatted = datetime(day=day, month=month, year=year)
+        date_formatted = timezone.make_aware(datetime(day=day, month=month, year=year))
         return date_formatted
 
     @classmethod
