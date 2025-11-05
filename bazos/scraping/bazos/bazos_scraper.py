@@ -66,7 +66,7 @@ class BazosScraper:
     def extract_date(date_raw: str) -> datetime:
         date = date_raw[date_raw.find("[") + 1:date_raw.find("]")]
         day, month, year = map(int, date.split('.'))
-        date_formatted = datetime(day=day, month=month, year=year)
+        date_formatted = timezone.make_aware(datetime(day=day, month=month, year=year))
         return date_formatted
 
     @staticmethod
@@ -163,6 +163,7 @@ class BazosScraper:
 
     def check_blacklisted(self, url: str = BAZOS_BLACKLIST_CHECK_URL) -> bool:
         response = self.run_request(url)
+        print(f"Checking if blacklisted {response.status_code}")
         return response.status_code == 403
 
     def load_full_description(self, product: Ad) -> Ad:
