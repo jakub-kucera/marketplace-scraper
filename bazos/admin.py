@@ -13,6 +13,23 @@ class CategoryInline(admin.TabularInline):
     ]
 
 
+class HasFullDescriptionFilter(admin.SimpleListFilter):
+    title = 'has full description'
+    parameter_name = 'has_full_description'
+
+    def lookups(self, request, model_admin):
+        return (
+            ('yes', 'Has description'),
+            ('no', 'No description'),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == 'yes':
+            return queryset.exclude(full_description__isnull=True).exclude(full_description='')
+        if self.value() == 'no':
+            return queryset.filter(full_description__isnull=True) | queryset.filter(full_description='')
+
+
 @admin.register(Section)
 class SectionAdmin(admin.ModelAdmin):
     list_display = (
@@ -74,7 +91,7 @@ class AdAdmin(admin.ModelAdmin):
         "query",
         "created",
     )
-    list_filter = ("query", )
+    list_filter = ("query", HasFullDescriptionFilter)
 
 
 @admin.register(EmailPublisher)
