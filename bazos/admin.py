@@ -30,6 +30,17 @@ class HasFullDescriptionFilter(admin.SimpleListFilter):
             return queryset.filter(full_description__isnull=True) | queryset.filter(full_description='')
 
 
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "section",
+        "bazos_id",
+    )
+    list_filter = ("section",)
+    search_fields = ("name", "section__name")
+
+
 @admin.register(Section)
 class SectionAdmin(admin.ModelAdmin):
     list_display = (
@@ -42,6 +53,7 @@ class SectionAdmin(admin.ModelAdmin):
         "url",
         "bazos_id",
     ]
+    search_fields = ("name",)
     inlines = (CategoryInline,)
 
 
@@ -58,6 +70,7 @@ class QueryAdmin(admin.ModelAdmin):
     )
     list_filter = ("enabled", "randomly_generated", "section", "category")
     actions = ["enable_queries", "disable_queries"]
+    autocomplete_fields = ["category", "section", "sender"]
 
     @admin.action(description="Enable selected queries")
     def enable_queries(self, request, queryset):

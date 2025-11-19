@@ -11,3 +11,4 @@ class SenderAdmin(admin.ModelAdmin):
         "for_logging",
     )
     list_filter = ("notify", "for_logging")
+    search_fields = ("channel_name",)
