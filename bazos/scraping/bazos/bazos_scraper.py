@@ -7,6 +7,7 @@ from urllib.error import URLError
 from urllib.parse import urlencode, urljoin, urlparse, parse_qs
 
 from bs4 import BeautifulSoup
+from django.utils import timezone
 import requests
 from requests import Response
 from selenium.common.exceptions import TimeoutException
