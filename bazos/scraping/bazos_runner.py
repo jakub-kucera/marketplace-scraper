@@ -7,6 +7,7 @@ from bazos.scraping.bazos_query_runner import BazosQueryRunner
 from bazos.scraping.interval_multiplier import NightMultiplier
 from django.conf import settings
 
+from ip_changer.dummy import DummyIPChanger
 from ip_changer.tor import TorIPChanger
 from senders.models import Discord
 from senders.services.discord_sender import DiscordSender
@@ -15,6 +16,8 @@ from senders.services.discord_sender import DiscordSender
 class BazosRunner:
     interval_multiplier_class = NightMultiplier
     ip_changer_class = TorIPChanger
+    if settings.IP_CHANGER_TYPE == "DUMMY":
+        ip_changer_class = DummyIPChanger
 
     def __init__(self):
         loggers = Discord.objects.filter(for_logging=True)

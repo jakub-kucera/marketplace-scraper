@@ -1,4 +1,4 @@
-from src.ip_changer.ip_changer import IPChanger
+from ip_changer.ip_changer import IPChanger
 
 
 class DummyIPChanger(IPChanger):

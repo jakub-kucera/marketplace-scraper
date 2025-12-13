@@ -150,6 +150,8 @@ LOG_DIRECTORY_PATH: Final[str] = "logs/"
 TOR_PROXY_IP = env("TOR_PROXY_IP", default="")
 TOR_PROXY_PASSWORD = env("TOR_PROXY_PASSWORD", default="")
 
+IP_CHANGER_TYPE = env("IP_CHANGER_TYPE", default="TOR")
+
 # TODO delete from GIT history
 LOCAL_IP_SUBNET = env("LOCAL_IP_SUBNET", default="0.0.0.0/24")
 
