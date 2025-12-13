@@ -14,7 +14,7 @@ class DummyIPChanger(IPChanger):
     def renew_ip_bazos_ok(self) -> str:
         return "Dummy IP"
 
-    def check_bazos_blacklisted(self) -> bool:
+    def check_bazos_blacklisted(self, url: str) -> bool:
         return False
 
     def check_ip_local(self) -> bool:
