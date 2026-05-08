@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db.models import Max
+from django.db.models.functions import Coalesce
 
 from bazos.models import Query, Ad, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
@@ -67,10 +69,22 @@ class QueryAdmin(admin.ModelAdmin):
         "enabled",
         "randomly_generated",
         "sender",
+        "last_run",
     )
     list_filter = ("enabled", "randomly_generated", "section", "category")
     actions = ["enable_queries", "disable_queries"]
     autocomplete_fields = ["category", "section", "sender"]
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # annotate last_run as the latest run_end if present, otherwise run_start
+        return qs.annotate(last_run=Coalesce(Max('runs__run_end'), Max('runs__run_start')))
+
+    def last_run(self, obj):
+        return getattr(obj, 'last_run', None)
+
+    last_run.admin_order_field = 'last_run'
+    last_run.short_description = 'Last run'
 
     @admin.action(description="Enable selected queries")
     def enable_queries(self, request, queryset):
