@@ -24,3 +24,50 @@ gen
 
 # dotenv files
 .env
+/data_export_23_3_2024/
+
+### Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+
+### OS/IDE
+.DS_Store
+.AppleDouble
+.LSOverride
+.vscode/
+*.swp
+*.swo
+*~
+.python-version
+
+### Jupyter
+.ipynb_checkpoints/
+*.ipynb
+!experiments/*.ipynb
+
+### Databases and runtime data
+*.db
+*.sqlite3
+postgres_data/
+logs/
+
+### Local environment and secrets
+env_sp
+.env.local
+senders/services/calendar_api/credentials.json
+senders/services/calendar_api/token.json
+
+### Temporary/debug files
+pi_bad_encoding.sql
+asdfasfd.txt
+verify_ip_changer.py
+*.backup
+old_tests/
