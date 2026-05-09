@@ -11,7 +11,7 @@ from senders.services.discord_sender import DiscordSender
 class BazosQueryRunner:
     def __init__(self, query: Query, session: requests.Session):
         self.query = query
-        self.senders = [DiscordSender.from_model(query.sender)]
+        self.senders = [DiscordSender.from_model(query.sender)] if query.sender else []
         self.session = session
         self.scraper = BazosScraper(session)
         self.new_product_counter = 0

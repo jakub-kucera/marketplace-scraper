@@ -140,7 +140,7 @@ class BazosScraper:
     def get_page_products(self, response: Response | None) -> Iterator[Ad]:
         # product_elements = self.driver.find_elements(By.CLASS_NAME ,"inzeraty")
         if response is None:
-            return None
+            return
         # soup = BeautifulSoup(response.text, 'html.parser', from_encoding="Windows-1250")
         # soup = BeautifulSoup(response.text, 'html.parser', from_encoding="UTF-8")
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -164,6 +164,9 @@ class BazosScraper:
 
     def check_blacklisted(self, url: str = BAZOS_BLACKLIST_CHECK_URL) -> bool:
         response = self.run_request(url)
+        if response is None:
+            print("Checking if blacklisted: request failed, assuming OK")
+            return False
         print(f"Checking if blacklisted {response.status_code}")
         return response.status_code == 403
 
@@ -200,6 +203,9 @@ class BazosScraper:
 
             # try to load page, if not possible, repeat SETTINGS.MAX_ATTEMPTS
             response = self.run_request(url)
+            if response is None:
+                print(f"Failed to load {url} after {MAX_ATTEMPTS} attempts, stopping query")
+                break
             # extract products from 1 page
             count = 0
             for count, product in enumerate(self.get_page_products(response), start=1):
