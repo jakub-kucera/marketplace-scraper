@@ -16,26 +16,20 @@ class IPChanger(ABC):
         self.renew_session()
 
     @abstractmethod
-    def renew_session(self) -> None:
-        raise NotImplementedError
+    def renew_session(self) -> None: ...
 
     @abstractmethod
-    def renew_ip(self) -> None:
-        raise NotImplementedError
+    def renew_ip(self) -> None: ...
 
     @abstractmethod
-    def renew_ip_and_check_new(self) -> str:
-        raise NotImplementedError
+    def renew_ip_and_check_new(self) -> str: ...
 
     def get_current_ip(self) -> str:
         r = self.session.get('https://icanhazip.com')
-        # return ip_address(r.text.strip())
         return r.text.strip()
 
     def check_bazos_blacklisted(self, url: str = BAZOS_BLACKLIST_CHECK_URL) -> bool:
-        # r = self.session.get("https://bazos.cz")
         r = self.session.get(url)
-
         return r.status_code == 403
 
     def check_ip_local(self) -> bool:
