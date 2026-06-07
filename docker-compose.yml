@@ -1,21 +1,29 @@
-version: "3.3"
 services:
-#  selenium_chromedriver:
-#    image: selenium/standalone-chrome
-#    shm_size: "2gb"
-#    ports:
-#    - "4444:4444"
-#    - "7900:7900"
-#  marketplace_scraper:
-#    build: .
-#    restart: always
-#    depends_on:
-#      - tor_proxy
-##      - selenium_chromedriver
-##    ports:
-##      - "4444:4444"
-#    environment:
-#      TOR_PROXY_IP: tor_proxy
+  marketplace_scraper:
+    build: .
+    restart: always
+    env_file: .env
+    environment:
+      TOR_PROXY_IP: tor_proxy
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
+      - tor_proxy
+  marketplace_server:
+    build: .
+    restart: always
+    env_file: .env
+    environment:
+      TOR_PROXY_IP: tor_proxy
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
+      - tor_proxy
   postgres:
     image: postgres:15.2
     ports:
@@ -27,7 +35,7 @@ services:
     image: adminer
     restart: always
     ports:
-      - 8080:8080
+      - 8081:8080
   tor_proxy:
     image: dperson/torproxy
     restart: always
