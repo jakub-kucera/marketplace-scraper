@@ -45,11 +45,3 @@ class TorIPChanger(IPChanger):
             else:
                 print(f"DID NOT CHANGE IP: {new_ip}")
             sleep(1)
-
-    # def renew_ip_bazos_ok(self):
-    #     while True:
-    #         new_ip = self.renew_ip_and_check_new()
-    #         if not self.check_bazos_blacklisted():
-    #             print(f"BAZOS OK: New IP: {new_ip}")
-    #             return new_ip
-    #         print(f"BAZOS BLACKLISTED: New IP: {new_ip}")
