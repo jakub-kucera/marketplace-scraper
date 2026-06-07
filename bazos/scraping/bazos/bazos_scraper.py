@@ -2,9 +2,9 @@ import itertools
 from datetime import datetime
 from random import uniform
 from time import sleep
-from typing import Iterator, Any, Final
+from typing import Iterator, Any
 from urllib.error import URLError
-from urllib.parse import urlencode, urljoin, urlparse, parse_qs
+from urllib.parse import urlencode, urljoin, urlparse
 
 from bs4 import BeautifulSoup
 from django.utils import timezone
@@ -31,7 +31,6 @@ class BazosScraper:
     @classmethod
     def create_url_category(cls, query: Query) -> Iterator[str]:
         params = cls.get_query_url_dict(query)
-
         url: str = query.url
         encoded_params = urlencode(params)
         for i in itertools.count(start=0, step=PAGE_SIZE):
@@ -40,7 +39,6 @@ class BazosScraper:
     @classmethod
     def create_url_general(cls, query: Query) -> Iterator[str]:
         params = cls.get_query_url_dict(query)
-
         url: str = query.url
         for i in itertools.count(start=0, step=PAGE_SIZE):
             params['crz'] = i
@@ -71,7 +69,13 @@ class BazosScraper:
         return date_formatted
 
     @staticmethod
-    # def extract_product(product_raw) -> Product:
+    def _parse_action_args(actions, element_text: str) -> list:
+        s = actions.find('span', string=element_text).attrs['onclick']
+        contents = s[s.find("(") + 1:s.find(")")]
+        contents = contents.replace('\'', '')
+        return contents.split(',')[1:]
+
+    @staticmethod
     def extract_product(product_raw) -> Ad:
         header_tmp = product_raw.find(class_="inzeratynadpis")
         name_div = header_tmp.find(class_='nadpis')
@@ -82,7 +86,6 @@ class BazosScraper:
         url = name_div.select_one('a[href]').get('href')
         parsed_url_path = urlparse(url).path.split("/")
         bazos_id = parsed_url_path[2]
-        # link = urljoin('https', link)
         date = BazosScraper.extract_date(date_raw)
         topped = 'TOP' in date_raw
         short_description = header_tmp.find(class_='popis').text.strip()
@@ -97,52 +100,25 @@ class BazosScraper:
 
         actions = product_raw.find(class_='inzeratyakce')
 
-        def get_url_query_dict_from_element_text(element_text: str) -> dict[bytes, list[bytes]]:  # TODO change
-            s = actions.find('span', string=element_text).attrs['onclick']
-            contents = s[s.find("(") + 1:s.find(")")]
-            contents = contents.replace('\'', '')
-            args = contents.split(',')
-            return args[1:]
-            # return actions.find('span', string=element_text).attrs['onclick']
-            # return parse_qs(urlparse(actions.find('a', string=element_text).attrs['href']).query)
-
-        # product_id_raw = parse_qs(urlparse(actions.find('a', string='Označit špatný inzerát').attrs['href']).query)
-        product_id_raw = get_url_query_dict_from_element_text('Označit špatný inzerát')
+        product_id_raw = BazosScraper._parse_action_args(actions, 'Označit špatný inzerát')
         product_id = int(product_id_raw[0])
-        # product_id = int(product_id_raw['idad'][0])
         assert int(bazos_id) == product_id
 
-        # publisher_info = parse_qs(urlparse(actions.find('a', string='Ohodnotit uživatele').attrs['href']).query)
-        publisher_info = get_url_query_dict_from_element_text('Ohodnotit uživatele')
+        publisher_info = BazosScraper._parse_action_args(actions, 'Ohodnotit uživatele')
         publisher_email = int(publisher_info[0])
-        # publisher_email = int(publisher_info['idmail'][0])
         publisher_phone = int(publisher_info[1])
         publisher_name = str(publisher_info[2])
 
-        email_publisher, _ = EmailPublisher.objects.get_or_create(
-            bazos_id=publisher_email,
-        )
+        email_publisher, _ = EmailPublisher.objects.get_or_create(bazos_id=publisher_email)
+        phone_publisher, _ = PhonePublisher.objects.get_or_create(bazos_id=publisher_phone)
 
-        phone_publisher, _ = PhonePublisher.objects.get_or_create(
-            bazos_id=publisher_phone,
-        )
-
-        # name = name.encode(encoding='UTF-8', errors='strict')
-        # short_description = short_description.encode(encoding='UTF-8', errors='strict')
-        # publisher_name = publisher_name.encode(encoding='UTF-8', errors='strict')
-        # location = location.encode(encoding='UTF-8', errors='strict')
-
-        # TODO check creation
         return Ad(bazos_id=bazos_id, name=name, price_raw=price_raw, url=url, location=location, publish_date=date,
                   topped=topped, short_description=short_description, email_publisher=email_publisher,
                   phone_publisher=phone_publisher, publisher_name=publisher_name, view_count=view_count)
 
     def get_page_products(self, response: Response | None) -> Iterator[Ad]:
-        # product_elements = self.driver.find_elements(By.CLASS_NAME ,"inzeraty")
         if response is None:
             return
-        # soup = BeautifulSoup(response.text, 'html.parser', from_encoding="Windows-1250")
-        # soup = BeautifulSoup(response.text, 'html.parser', from_encoding="UTF-8")
         soup = BeautifulSoup(response.text, 'html.parser')
         product_elements = soup.find_all(class_='inzeraty')
 
@@ -151,7 +127,8 @@ class BazosScraper:
             product.url = urljoin(response.url, product.url)
             yield product
 
-    def run_request(self, url: str, extra_args: dict[Any, Any] = dict()) -> Response:
+    def run_request(self, url: str, extra_args: dict | None = None) -> Response:
+        extra_args = extra_args or {}
         response: Response | None = None
         for _ in range(1, MAX_ATTEMPTS + 1):
             try:
@@ -175,7 +152,6 @@ class BazosScraper:
         response = self.run_request(product.url)
         soup = BeautifulSoup(response.text, 'html.parser')
         full_description = soup.find(class_='popisdetail').text  # TODO FIX, CAN BE NONE?
-        # full_description = unidecode(full_description)
         product.full_description = full_description
         return product
 
@@ -188,30 +164,20 @@ class BazosScraper:
         else:
             url_iter = self.create_url_general(query)
 
-        # last_top_count = query.last_top_count
-        # query.last_top_count = 0
-
-        # list through multiple pages
         for url in url_iter:
             print(f"{url=}")
-            # if True: # if page contains TOP posts
-            #     query.last_top_count += 1
 
             page_sleep_time = uniform(*BAZOS_PAGE_WAIT_TIME)
             print(f"Sleeping between pages for {page_sleep_time} seconds")
             sleep(page_sleep_time)
 
-            # try to load page, if not possible, repeat SETTINGS.MAX_ATTEMPTS
             response = self.run_request(url)
             if response is None:
                 print(f"Failed to load {url} after {MAX_ATTEMPTS} attempts, stopping query")
                 break
-            # extract products from 1 page
-            count = 0
-            for count, product in enumerate(self.get_page_products(response), start=1):
-                # if query.load_full_description:
-                #     product = self.load_full_description(product)
-                yield product
+
+            products = list(self.get_page_products(response))
+            yield from products
             # TODO take a look at this, it looks like that it is no working. (have to create a new query with few Ads to repl)
-            if count == 0:  # or count < 20
+            if not products:
                 break

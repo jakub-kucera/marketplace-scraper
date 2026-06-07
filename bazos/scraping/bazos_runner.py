@@ -1,10 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from random import uniform
 from time import sleep
 
 from bazos.models import Query, QueryRun
 from bazos.scraping.bazos_query_runner import BazosQueryRunner
 from bazos.scraping.interval_multiplier import NightMultiplier
+from bazos.utils import ascii_safe
 from django.conf import settings
 
 from ip_changer.dummy import DummyIPChanger
@@ -14,45 +15,24 @@ from senders.services.discord_sender import DiscordSender
 
 
 class BazosRunner:
-    interval_multiplier_class = NightMultiplier
-    ip_changer_class = TorIPChanger
-    if settings.IP_CHANGER_TYPE == "DUMMY":
-        ip_changer_class = DummyIPChanger
 
     def __init__(self):
         loggers = Discord.objects.filter(for_logging=True)
-        self.interval_multiplier = self.interval_multiplier_class()
-        # loggers = session.query(Discord) \
-        #     .filter(DiscordSenderDB.for_logging == True) \
-        #     .all()  # TODO move elsewhere, controller?
+        self.interval_multiplier = NightMultiplier()
         self.loggers = [DiscordSender.from_model(s) for s in loggers]
-        self.ip_changer = self.ip_changer_class(skip_1st_renew=False)
+        ip_changer_class = DummyIPChanger if settings.IP_CHANGER_TYPE == "DUMMY" else TorIPChanger
+        self.ip_changer = ip_changer_class(skip_1st_renew=False)
 
     def run(self):
-
         while True:
             self.log(f"Waking up at {datetime.utcnow()} UTC")
-            # disable old random queries
             Query.objects.filter(randomly_generated=True).update(enabled=False)
             queries = Query.objects.filter(enabled=True).order_by('?')
-            # rnd_queries = Query.generate_random_queries(2)
-            # self.change_ip()
-
-            # # TODO change so that on 1st run, it will force change_ip
-            # # change IP if blacklisted
-            # if self.ip_changer.check_bazos_blacklisted():
-            #     self.log("IP got BLACKLISTED, attempting to change")
-            #     self.change_ip()
-            #
-            # if self.ip_changer.check_ip_local():
-            #     self.log("WARNING: IP IS LOCAL")
-            #     continue
 
             start = datetime.now(timezone.utc)
             for query in queries:
-                self.log(f"running query {query}".encode('ascii', 'ignore').decode('ascii'))
+                self.log(ascii_safe(f"running query {query}"))
 
-                # change IP if blacklisted
                 if self.ip_changer.check_bazos_blacklisted(query.url):
                     self.log("IP got BLACKLISTED, attempting to change")
                     self.change_ip(query.url)
@@ -61,12 +41,9 @@ class BazosRunner:
                     self.log("WARNING: IP IS LOCAL")
                     continue
 
-                # timediff = max(timedelta(0), second_query.next_runtime - current_datetime)
                 query_run = QueryRun(
                     query=query,
                     run_start=datetime.now(timezone.utc),
-                    # run_end=end,
-                    # new_ads_count=new_products_count,
                 )
                 query_runner = BazosQueryRunner(query, self.ip_changer.session)
                 new_products_count = query_runner.run()
@@ -74,21 +51,12 @@ class BazosRunner:
                 query_run.run_end = datetime.now(timezone.utc)
                 query_run.new_ads_count = new_products_count
                 query_run.save()
-                print(f"Found {new_products_count} new products for query {query}".encode('ascii', 'ignore').decode('ascii'))
-                # for product in query_runner.run():
-                #     # if exists
-                #     pass
-            # else:
-            #     self.log(f"waiting for query {first_query}")
-            #     timediff = first_query.next_runtime - current_datetime
+                print(ascii_safe(f"Found {new_products_count} new products for query {query}"))
 
-            # session.commit()
             end = datetime.now(timezone.utc)
-
             self.log(f"Finished running {len(queries)} queries in {end - start}. End time: {end}")
             sleep_interval = self.get_next_interval()
             self.log(f"sleeping for {sleep_interval}")
-            # sleep(timedelta.total_seconds(timediff))
             sleep(sleep_interval)
 
     def get_next_interval(self):
@@ -96,9 +64,7 @@ class BazosRunner:
         return multiplier * uniform(settings.INTERVAL_LOWER, settings.INTERVAL_UPPER)
 
     def log(self, message: str):
-        # print message without special characters
-        print(message.encode('ascii', 'ignore').decode('ascii'))
-
+        print(ascii_safe(message))
         for logger in self.loggers:
             logger.send_plain(message)
 
