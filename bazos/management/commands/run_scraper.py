@@ -1,6 +1,6 @@
 import os
 import traceback
-from time import strftime
+from time import strftime, sleep
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -34,6 +34,9 @@ class Command(BaseCommand):
                 runner.run()
             except Exception as e:
                 current_time = strftime("%Y%m%d-%H%M%S")
+                print(f"Exception: {e}")
                 with open(f"{settings.LOG_DIRECTORY_PATH}{current_time}", "w") as log_file:
                     log_file.write(str(e))
                     log_file.write(traceback.format_exc())
+                print(f"Sleeping for 60 seconds")
+                sleep(60)
