@@ -7,8 +7,6 @@ BRANCH="main"
 cd "$APP_DIR"
 
 echo "Stopping services..."
-sudo systemctl stop marketplace-server.service
-sudo systemctl stop marketplace-scraper.service
 sudo systemctl stop marketplace-docker.service
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -25,7 +23,5 @@ git pull --rebase origin "$BRANCH"
 
 echo "Starting services..."
 sudo systemctl start marketplace-docker.service
-sudo systemctl start marketplace-server.service
-sudo systemctl start marketplace-scraper.service
 
 echo "Done."

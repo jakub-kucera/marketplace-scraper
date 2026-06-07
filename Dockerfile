@@ -1,10 +1,13 @@
-FROM python:3.10
+FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY not_requirements.txt requirements.txt
-RUN pip install -r requirements.txt
+RUN pip install poetry
+
+COPY pyproject.toml poetry.lock ./
+RUN poetry config virtualenvs.create false \
+    && poetry install --only main --no-root --no-interaction --no-ansi
 
 COPY . .
 
-CMD [ "python3.10", "main.py"]
+CMD ["python", "manage.py", "run_scraper"]
