@@ -9,6 +9,8 @@ from bazos.mixins import SendableMixin
 from senders.models import Discord
 from senders.services.sender import Sender
 
+MAX_CONNECTION_RETRIES = 10
+
 
 class DiscordSender(Sender):
 
@@ -40,6 +42,7 @@ class DiscordSender(Sender):
     #     return message
 
     def _send(self, message: str):  # TODO make thread safe
+        connection_errors = 0
         while True:
             try:
                 self.notifier.send(message, print_message=False)
@@ -49,7 +52,11 @@ class DiscordSender(Sender):
                 print("DiscordSender: Rate limit reached")
                 sleep(uniform(1, 5))
             except URLError as e:
-                print("DiscordSender: Connection error")
+                connection_errors += 1
+                print(f"DiscordSender: Connection error ({connection_errors}/{MAX_CONNECTION_RETRIES})")
+                if connection_errors >= MAX_CONNECTION_RETRIES:
+                    raise
+                sleep(uniform(2, 8))
 
     def send_sendable(self, sendables: List[SendableMixin]):
         # todo maybe run in parallel
