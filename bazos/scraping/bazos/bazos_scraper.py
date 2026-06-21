@@ -76,7 +76,10 @@ class BazosScraper:
         return contents.split(',')[1:]
 
     @staticmethod
-    def extract_product(product_raw) -> Ad:
+    def _parse_product(product_raw) -> dict:
+        """Pure HTML parsing — no DB access. Returns a dict of all Ad fields plus
+        raw publisher IDs (``publisher_email``, ``publisher_phone``, ``publisher_name``).
+        """
         header_tmp = product_raw.find(class_="inzeratynadpis")
         name_div = header_tmp.find(class_='nadpis')
         date_raw = header_tmp.find(class_='velikost10').text
@@ -109,12 +112,53 @@ class BazosScraper:
         publisher_phone = int(publisher_info[1])
         publisher_name = str(publisher_info[2])
 
+        return {
+            'bazos_id': bazos_id,
+            'name': name,
+            'price_raw': price_raw,
+            'url': url,
+            'location': location,
+            'publish_date': date,
+            'topped': topped,
+            'short_description': short_description,
+            'view_count': view_count,
+            'publisher_email': publisher_email,
+            'publisher_phone': publisher_phone,
+            'publisher_name': publisher_name,
+        }
+
+    @staticmethod
+    def _resolve_publishers(
+        publisher_email: int, publisher_phone: int
+    ) -> tuple["EmailPublisher", "PhonePublisher"]:
+        """Resolve (or create) DB publisher records. Returns ``(email_publisher, phone_publisher)``."""
         email_publisher, _ = EmailPublisher.objects.get_or_create(bazos_id=publisher_email)
         phone_publisher, _ = PhonePublisher.objects.get_or_create(bazos_id=publisher_phone)
+        return email_publisher, phone_publisher
 
-        return Ad(bazos_id=bazos_id, name=name, price_raw=price_raw, url=url, location=location, publish_date=date,
-                  topped=topped, short_description=short_description, email_publisher=email_publisher,
-                  phone_publisher=phone_publisher, publisher_name=publisher_name, view_count=view_count)
+    @staticmethod
+    def extract_product(product_raw) -> Ad:
+        """Parse an ad element and resolve its publisher records. Composes
+        :meth:`_parse_product` (pure) and :meth:`_resolve_publishers` (DB).
+        """
+        parsed = BazosScraper._parse_product(product_raw)
+        email_publisher, phone_publisher = BazosScraper._resolve_publishers(
+            parsed['publisher_email'], parsed['publisher_phone']
+        )
+        return Ad(
+            bazos_id=parsed['bazos_id'],
+            name=parsed['name'],
+            price_raw=parsed['price_raw'],
+            url=parsed['url'],
+            location=parsed['location'],
+            publish_date=parsed['publish_date'],
+            topped=parsed['topped'],
+            short_description=parsed['short_description'],
+            email_publisher=email_publisher,
+            phone_publisher=phone_publisher,
+            publisher_name=parsed['publisher_name'],
+            view_count=parsed['view_count'],
+        )
 
     def get_page_products(self, response: Response | None) -> Iterator[Ad]:
         if response is None:
