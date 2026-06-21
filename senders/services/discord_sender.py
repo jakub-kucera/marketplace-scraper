@@ -1,3 +1,4 @@
+import logging
 from time import sleep
 from typing import List
 from urllib.error import HTTPError, URLError
@@ -10,6 +11,7 @@ from senders.models import Discord
 from senders.services.sender import Sender
 
 MAX_CONNECTION_RETRIES = 10
+logger = logging.getLogger(__name__)
 
 
 class DiscordSender(Sender):
@@ -49,11 +51,14 @@ class DiscordSender(Sender):
                 sleep(uniform(0.5, 2))
                 break
             except HTTPError as e:
-                print("DiscordSender: Rate limit reached")
+                logger.warning("DiscordSender: rate limit reached, retrying")
                 sleep(uniform(1, 5))
             except URLError as e:
                 connection_errors += 1
-                print(f"DiscordSender: Connection error ({connection_errors}/{MAX_CONNECTION_RETRIES})")
+                logger.warning(
+                    "DiscordSender: connection error (%d/%d)",
+                    connection_errors, MAX_CONNECTION_RETRIES,
+                )
                 if connection_errors >= MAX_CONNECTION_RETRIES:
                     raise
                 sleep(uniform(2, 8))

@@ -1,4 +1,5 @@
 import itertools
+import logging
 from datetime import datetime
 from random import uniform
 from time import sleep
@@ -16,6 +17,8 @@ from bazos.const import BAZOS_PAGE_WAIT_TIME, BAZOS_URL, MAX_ATTEMPTS, PAGE_SIZE
 from bazos.exceptions import BazosBlacklistedError
 from bazos.models import Ad, Query, EmailPublisher, PhonePublisher
 from ip_changer.tor import PROXIES
+
+logger = logging.getLogger(__name__)
 
 
 class BazosScraper:
@@ -186,13 +189,13 @@ class BazosScraper:
     def check_blacklisted(self, url: str = BAZOS_BLACKLIST_CHECK_URL) -> bool:
         response = self.run_request(url)
         if response is None:
-            print("Checking if blacklisted: request failed, assuming OK")
+            logger.warning("check_blacklisted: request failed, assuming OK")
             return False
-        print(f"Checking if blacklisted {response.status_code}")
+        logger.debug("check_blacklisted status=%s", response.status_code)
         return response.status_code == 403
 
     def load_full_description(self, product: Ad) -> Ad:
-        print(f"Loading full description for {product.url}")
+        logger.debug("Loading full description for %s", product.url)
         response = self.run_request(product.url)
         soup = BeautifulSoup(response.text, 'html.parser')
         full_description = soup.find(class_='popisdetail').text  # TODO FIX, CAN BE NONE?
@@ -209,15 +212,15 @@ class BazosScraper:
             url_iter = self.create_url_general(query)
 
         for url in url_iter:
-            print(f"{url=}")
+            logger.debug("Fetching page url=%s", url)
 
             page_sleep_time = uniform(*BAZOS_PAGE_WAIT_TIME)
-            print(f"Sleeping between pages for {page_sleep_time} seconds")
+            logger.debug("Sleeping between pages for %.1f s", page_sleep_time)
             sleep(page_sleep_time)
 
             response = self.run_request(url)
             if response is None:
-                print(f"Failed to load {url} after {MAX_ATTEMPTS} attempts, stopping query")
+                logger.warning("Failed to load %s after %d attempts, stopping query", url, MAX_ATTEMPTS)
                 break
 
             products = list(self.get_page_products(response))
