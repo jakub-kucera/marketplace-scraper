@@ -158,3 +158,44 @@ LOCAL_IP_SUBNET = env("LOCAL_IP_SUBNET", default="0.0.0.0/24")
 
 INTERVAL_LOWER = env("INTERVAL_LOWER", default=15*60)
 INTERVAL_UPPER = env("INTERVAL_UPPER", default=45*60)
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+# Root logger: WARNING only (keeps Django internals quiet).
+# App loggers: INFO → console, so logger.info() behaves like print() did.
+# When Sentry is added (end of Phase 1) a SentryHandler is appended here.
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {
+            # e.g.  09:31:18 INFO  [bazos.scraping.bazos_runner] Running query ...
+            "format": "{asctime} {levelname:<8} [{name}] {message}",
+            "datefmt": "%H:%M:%S",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+            "formatter": "simple",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "WARNING",
+    },
+    "loggers": {
+        "bazos":      {"level": "INFO", "propagate": True},
+        "senders":    {"level": "INFO", "propagate": True},
+        "ip_changer": {"level": "INFO", "propagate": True},
+    },
+}
+
+# Sentry DSN — read here so the hookup step only needs to add the SDK init.
+# Left empty / absent in .env to disable Sentry entirely.
+SENTRY_DSN: str = env("SENTRY_DSN", default="")
