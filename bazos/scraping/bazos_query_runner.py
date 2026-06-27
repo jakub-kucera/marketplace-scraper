@@ -31,6 +31,16 @@ class BazosQueryRunner:
         product.sent_at = now()
         product.save(update_fields=["status", "sent_at"])
 
+    def _handle_new_product(self, product: Ad):
+        logger.info("New product %s", product)
+        self.new_product_counter += 1
+        product.status = AdStatus.PENDING
+        product.save()
+        self._send_and_mark_sent(product)
+        if self.query.load_full_description:
+            self.scraper.load_full_description(product)
+            product.save()
+
     def run_new_query(self):
         self.query.new_query = False
 
@@ -46,25 +56,13 @@ class BazosQueryRunner:
                 product.status = AdStatus.SUPPRESSED
                 product.save()
             else:
-                logger.info("New product %s", product)
-                self.new_product_counter += 1
-                product.status = AdStatus.PENDING
-                product.save()
-                self._send_and_mark_sent(product)
+                self._handle_new_product(product)
 
     def run_existing_query(self):
         for product in self.scraper.run_query(self.query):
             if not self._is_known(product):
-                logger.info("New product %s", product)
-                self.new_product_counter += 1
                 product.query = self.query
-                product.status = AdStatus.PENDING
-                product.save()
-                self._send_and_mark_sent(product)
-                if self.query.load_full_description:
-                    # TODO improve by putting into some kind of queue?
-                    self.scraper.load_full_description(product)
-                    product.save()
+                self._handle_new_product(product)
             else:
                 logger.debug("Product already exists %s", product)
                 if product.topped:
