@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bazos.models import Ad, Query
+from bazos.models import Ad, AdStatus, Query
 from bazos.scraping.bazos_query_runner import BazosQueryRunner
 
 
@@ -135,3 +135,107 @@ def test_new_query_topped_ads_do_not_count_toward_limit(query, make_ad, monkeypa
     assert Ad.objects.filter(query=query, bazos_id=2).exists()
     assert Ad.objects.filter(query=query, bazos_id=3).exists()
     assert not Ad.objects.filter(query=query, bazos_id=4).exists()
+
+
+# --- Stage 2: status transitions ---
+
+# run_existing_query
+
+@pytest.mark.django_db
+def test_existing_query_new_ad_is_marked_sent(query, make_ad):
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_existing_query()
+    assert Ad.objects.get(query=query, bazos_id=111).status == AdStatus.SENT
+
+
+@pytest.mark.django_db
+def test_existing_query_new_ad_has_sent_at(query, make_ad):
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_existing_query()
+    assert Ad.objects.get(query=query, bazos_id=111).sent_at is not None
+
+
+@pytest.mark.django_db
+def test_existing_query_calls_send_for_new_ad(query, make_ad):
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])), \
+         patch.object(runner, "send_to_senders") as mock_send:
+        runner.run_existing_query()
+    mock_send.assert_called_once_with(product)
+
+
+# run_new_query — ignore_first_run=True
+
+@pytest.mark.django_db
+def test_new_query_ignore_first_run_saves_as_suppressed(query, make_ad):
+    query.ignore_first_run = True
+    query.save()
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_new_query()
+    assert Ad.objects.get(query=query, bazos_id=111).status == AdStatus.SUPPRESSED
+
+
+@pytest.mark.django_db
+def test_new_query_ignore_first_run_does_not_set_sent_at(query, make_ad):
+    query.ignore_first_run = True
+    query.save()
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_new_query()
+    assert Ad.objects.get(query=query, bazos_id=111).sent_at is None
+
+
+@pytest.mark.django_db
+def test_new_query_ignore_first_run_does_not_call_send(query, make_ad):
+    query.ignore_first_run = True
+    query.save()
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])), \
+         patch.object(runner, "send_to_senders") as mock_send:
+        runner.run_new_query()
+    mock_send.assert_not_called()
+
+
+# run_new_query — ignore_first_run=False
+
+@pytest.mark.django_db
+def test_new_query_without_ignore_first_run_is_marked_sent(query, make_ad):
+    query.ignore_first_run = False
+    query.save()
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_new_query()
+    assert Ad.objects.get(query=query, bazos_id=111).status == AdStatus.SENT
+
+
+@pytest.mark.django_db
+def test_new_query_without_ignore_first_run_has_sent_at(query, make_ad):
+    query.ignore_first_run = False
+    query.save()
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_new_query()
+    assert Ad.objects.get(query=query, bazos_id=111).sent_at is not None
+
+
+@pytest.mark.django_db
+def test_new_query_without_ignore_first_run_calls_send(query, make_ad):
+    query.ignore_first_run = False
+    query.save()
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])), \
+         patch.object(runner, "send_to_senders") as mock_send:
+        runner.run_new_query()
+    mock_send.assert_called_once_with(product)
