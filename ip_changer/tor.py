@@ -1,3 +1,4 @@
+import socket
 from time import sleep
 import requests
 import requests_random_user_agent  # type: ignore
@@ -22,7 +23,8 @@ class TorIPChanger(IPChanger):
         self.session.proxies = PROXIES
 
     def renew_ip(self):
-        with Controller.from_port(address=settings.TOR_PROXY_IP, port=9051) as controller:
+        address = socket.gethostbyname(settings.TOR_PROXY_IP)
+        with Controller.from_port(address=address, port=9051) as controller:
             controller.authenticate(password=settings.TOR_PROXY_PASSWORD)
             controller.signal(Signal.NEWNYM)
 
