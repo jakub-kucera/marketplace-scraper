@@ -1,3 +1,4 @@
+import logging
 import socket
 from time import sleep
 import requests
@@ -7,6 +8,8 @@ from stem.control import Controller
 from django.conf import settings
 
 from ip_changer.ip_changer import IPChanger
+
+logger = logging.getLogger(__name__)
 
 PROXIES = {
     'http': f'socks5h://{settings.TOR_PROXY_IP}:9050',
@@ -30,11 +33,11 @@ class TorIPChanger(IPChanger):
 
     def renew_ip_and_check_new(self) -> str:
         old_ip = self.get_current_ip()
-        print(f"Old IP: {old_ip}")
+        logger.debug("Old IP: %s", old_ip)
 
         if self.skip_1st_renew:
             self.skip_1st_renew = False
-            print("Skipping 1st renew")
+            logger.debug("Skipping 1st renew")
             return old_ip
 
         self.renew_ip()
@@ -43,8 +46,7 @@ class TorIPChanger(IPChanger):
             self.renew_session()
             new_ip = self.get_current_ip()
             if old_ip != new_ip:
-                print(f"New IP: {new_ip}")
+                logger.info("New IP: %s", new_ip)
                 return new_ip
-            else:
-                print(f"DID NOT CHANGE IP: {new_ip}")
+            logger.debug("DID NOT CHANGE IP: %s", new_ip)
             sleep(5)
