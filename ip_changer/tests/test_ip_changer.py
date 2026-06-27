@@ -103,12 +103,13 @@ def tor_changer():
     return changer
 
 
-def test_tor_renew_ip_sends_newnym_signal(tor_changer, settings):
-    with patch("ip_changer.tor.Controller") as mock_controller_cls:
+def test_tor_renew_ip_sends_newnym_signal(tor_changer):
+    with patch("ip_changer.tor.socket.gethostbyname", return_value="172.18.0.5"), \
+         patch("ip_changer.tor.Controller") as mock_controller_cls:
         mock_controller = MagicMock()
         mock_controller_cls.from_port.return_value.__enter__.return_value = mock_controller
         tor_changer.renew_ip()
-    mock_controller_cls.from_port.assert_called_once_with(address=settings.TOR_PROXY_IP, port=9051)
+    mock_controller_cls.from_port.assert_called_once_with(address="172.18.0.5", port=9051)
     mock_controller.signal.assert_called_once_with(Signal.NEWNYM)
 
 
