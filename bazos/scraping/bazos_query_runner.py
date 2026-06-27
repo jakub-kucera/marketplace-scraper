@@ -1,8 +1,9 @@
 import logging
 import requests
+from django.utils.timezone import now
 
 from bazos.const import NEW_PRODUCT_LOAD_MAX
-from bazos.models import Ad, Query
+from bazos.models import Ad, AdStatus, Query
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 from senders.services.discord_sender import DiscordSender
 
@@ -24,6 +25,12 @@ class BazosQueryRunner:
     def _is_known(self, product: Ad) -> bool:
         return Ad.objects.filter(query=self.query, bazos_id=product.bazos_id).exists()
 
+    def _send_and_mark_sent(self, product: Ad):
+        self.send_to_senders(product)
+        product.status = AdStatus.SENT
+        product.sent_at = now()
+        product.save(update_fields=["status", "sent_at"])
+
     def run_new_query(self):
         self.query.new_query = False
 
@@ -34,13 +41,16 @@ class BazosQueryRunner:
                 if counter >= NEW_PRODUCT_LOAD_MAX:
                     break
 
-            if not self.query.ignore_first_run:
+            product.query = self.query
+            if self.query.ignore_first_run:
+                product.status = AdStatus.SUPPRESSED
+                product.save()
+            else:
                 logger.info("New product %s", product)
                 self.new_product_counter += 1
-                self.send_to_senders(product)
-
-            product.query = self.query
-            product.save()
+                product.status = AdStatus.PENDING
+                product.save()
+                self._send_and_mark_sent(product)
 
     def run_existing_query(self):
         for product in self.scraper.run_query(self.query):
@@ -48,8 +58,9 @@ class BazosQueryRunner:
                 logger.info("New product %s", product)
                 self.new_product_counter += 1
                 product.query = self.query
-                self.send_to_senders(product)
+                product.status = AdStatus.PENDING
                 product.save()
+                self._send_and_mark_sent(product)
                 if self.query.load_full_description:
                     # TODO improve by putting into some kind of queue?
                     self.scraper.load_full_description(product)
