@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from random import uniform
 from time import sleep
 
@@ -59,11 +60,24 @@ class BazosRunner:
             self.log(f"Finished running {len(queries)} queries in {end - start}. End time: {end}")
             sleep_interval = self.get_next_interval()
             self.log(f"sleeping for {sleep_interval}")
-            sleep(sleep_interval)
+            self._interruptible_sleep(sleep_interval)
 
     def get_next_interval(self):
         multiplier = self.interval_multiplier.get_current_multiplier()
         return multiplier * uniform(settings.INTERVAL_LOWER, settings.INTERVAL_UPPER)
+
+    def _interruptible_sleep(self, total_seconds: float) -> None:
+        """Sleep in short ticks, waking early if the force-run flag file is set."""
+        tick = 5.0  # seconds between flag checks
+        elapsed = 0.0
+        flag_path = Path(settings.FORCE_RUN_FLAG_PATH)
+        while elapsed < total_seconds:
+            sleep(min(tick, total_seconds - elapsed))
+            elapsed += tick
+            if flag_path.exists():
+                self.log("Force-run flag detected — skipping remaining sleep")
+                flag_path.unlink(missing_ok=True)
+                return
 
     def log(self, message: str, level: int = logging.INFO):
         logger.log(level, message)
