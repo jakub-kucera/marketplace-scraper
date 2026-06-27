@@ -38,6 +38,7 @@ class TorIPChanger(IPChanger):
             return old_ip
 
         self.renew_ip()
+        sleep(5)  # give Tor time to establish the new circuit before polling
         while True:
             self.renew_session()
             new_ip = self.get_current_ip()
@@ -46,4 +47,4 @@ class TorIPChanger(IPChanger):
                 return new_ip
             else:
                 print(f"DID NOT CHANGE IP: {new_ip}")
-            sleep(1)
+            sleep(5)
