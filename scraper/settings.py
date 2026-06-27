@@ -146,6 +146,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # my settings
 
 LOG_DIRECTORY_PATH: Final[str] = "logs/"
+FORCE_RUN_FLAG_PATH: Final[Path] = BASE_DIR / "force_run.flag"
 
 TOR_PROXY_IP = env("TOR_PROXY_IP", default="")
 TOR_PROXY_PASSWORD = env("TOR_PROXY_PASSWORD", default="")

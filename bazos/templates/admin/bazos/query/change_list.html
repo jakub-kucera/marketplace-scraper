@@ -1,0 +1,13 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+  <li>
+    <a href="{{ force_run_url }}"
+       class="button"
+       style="background: #ba2121; color: #fff; padding: 6px 12px; border-radius: 4px; font-weight: bold; text-decoration: none; white-space: nowrap;"
+       title="Skip the current sleep interval and trigger an immediate scraper run">
+      ⚡ Force Run Now
+    </a>
+  </li>
+{% endblock %}

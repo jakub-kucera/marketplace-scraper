@@ -1,6 +1,11 @@
-from django.contrib import admin
+from pathlib import Path
+
+from django.conf import settings
+from django.contrib import admin, messages
 from django.db.models import Max
 from django.db.models.functions import Coalesce
+from django.http import HttpResponseRedirect
+from django.urls import path
 
 from bazos.models import Query, Ad, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
@@ -95,6 +100,33 @@ class QueryAdmin(admin.ModelAdmin):
     def disable_queries(self, request, queryset):
         updated = queryset.update(enabled=False)
         self.message_user(request, f"{updated} query(ies) disabled successfully.")
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "force-run/",
+                self.admin_site.admin_view(self.force_run_now),
+                name="bazos_query_force_run",
+            )
+        ]
+        return custom + urls
+
+    def force_run_now(self, request):
+        """Touch the sentinel flag file so the runner wakes from sleep immediately."""
+        flag_path = Path(settings.FORCE_RUN_FLAG_PATH)
+        flag_path.touch()
+        self.message_user(
+            request,
+            "⚡ Force-run flag set — the runner will start a new cycle within ~5 seconds.",
+            level=messages.SUCCESS,
+        )
+        return HttpResponseRedirect(request.META.get("HTTP_REFERER", "../"))
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["force_run_url"] = "force-run/"
+        return super().changelist_view(request, extra_context=extra_context)
 
 
 @admin.register(QueryRun)
