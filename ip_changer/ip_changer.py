@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from ipaddress import ip_address, ip_network
 
@@ -6,6 +7,8 @@ import requests
 from django.conf import settings
 
 from bazos.const import BAZOS_BLACKLIST_CHECK_URL
+
+logger = logging.getLogger(__name__)
 
 
 class IPChanger(ABC):
@@ -39,6 +42,6 @@ class IPChanger(ABC):
         while True:
             new_ip = self.renew_ip_and_check_new()
             if not self.check_bazos_blacklisted(url):
-                print(f"BAZOS OK: New IP: {new_ip}")
+                logger.info("BAZOS OK: new IP %s", new_ip)
                 return new_ip
-            print(f"BAZOS BLACKLISTED: New IP: {new_ip}")
+            logger.warning("BAZOS BLACKLISTED: new IP %s, retrying", new_ip)
