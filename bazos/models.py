@@ -125,6 +125,14 @@ class QueryRun(models.Model):
     new_ads_count = models.IntegerField(null=True)
 
 
+class AdStatus(models.TextChoices):
+    PENDING  = "PENDING"   # scraped, awaiting filter
+    APPROVED = "APPROVED"  # passed filters, awaiting send
+    REJECTED = "REJECTED"  # dropped by a filter rule
+    SENT     = "SENT"      # successfully delivered
+    FAILED   = "FAILED"    # send failed after retries
+
+
 class Ad(TimeStampedModel, SendableMixin):
     bazos_id = models.IntegerField(db_index=True)  # TODO unique=True (requires M:N to queries)
     url = models.URLField(max_length=1024)  # TODO unique=True
@@ -150,6 +158,11 @@ class Ad(TimeStampedModel, SendableMixin):
     # TODO m:n relationship with Query (+ senders)
     # query_id = Column(Integer, ForeignKey('query.id'), nullable=False)
     query = models.ForeignKey(Query, on_delete=models.PROTECT, related_name='ads')
+
+    status = models.CharField(max_length=20, choices=AdStatus.choices, default=AdStatus.PENDING)
+    filter_reason = models.CharField(max_length=255, null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    send_attempts = models.IntegerField(default=0)
 
     def __str__(self):
         return f"{self.name} | {self.price_raw} | {self.location}"
