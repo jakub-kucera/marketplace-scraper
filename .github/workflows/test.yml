@@ -13,13 +13,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Poetry
-        run: pip install poetry
+      - name: Set up venv and install Poetry
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install poetry
 
       - name: Install dependencies
-        run: poetry install
+        run: .venv/bin/poetry install
 
       - name: Run tests
         env:
           SECRET_KEY: ci-secret-key-not-used-in-production
-        run: poetry run pytest
+        run: .venv/bin/poetry run pytest
