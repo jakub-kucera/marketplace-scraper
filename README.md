@@ -29,3 +29,25 @@
 
     python manage.py runserver
     python manage.py run_scraper
+
+## Deployment (Raspberry Pi via GitHub Actions)
+
+Services run in Docker Compose on the Pi: `marketplace_scraper`, `marketplace_server`, `postgres`, `tor_proxy`, `adminer`.
+
+Deploying is done by pushing a `v*` tag — the GitHub Actions workflow (`.github/workflows/deploy.yml`) runs on a self-hosted runner installed on the Pi, builds images, runs migrations, and restarts all services.
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+**One-time runner setup on the Pi:**
+
+1. Go to repo → Settings → Actions → Runners → New self-hosted runner (Linux / ARM64) and follow the install steps. Accept all defaults (work folder can be left as `_work` — the workflow operates directly on `/home/user/marketplace-scrapper` and doesn't use it).
+2. Install as a service:
+   ```bash
+   sudo ./svc.sh install && sudo ./svc.sh start
+   ```
+3. Add the runner user to the docker group:
+   ```bash
+   sudo usermod -aG docker $USER
+   ```
