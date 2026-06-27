@@ -22,7 +22,7 @@ class TorIPChanger(IPChanger):
         self.session.proxies = PROXIES
 
     def renew_ip(self):
-        with Controller.from_port(port=9051) as controller:
+        with Controller.from_port(address=settings.TOR_PROXY_IP, port=9051) as controller:
             controller.authenticate(password=settings.TOR_PROXY_PASSWORD)
             controller.signal(Signal.NEWNYM)
 
