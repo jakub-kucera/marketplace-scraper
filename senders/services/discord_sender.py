@@ -37,13 +37,7 @@ class DiscordSender(Sender):
         message += self._format_link(sendable.link)
         return message
 
-    # def _format_product_message_db(self, product: ProductDB) -> str:  # TODO DE-DUPE
-    #     message = "@here \n" if self.notify else ""
-    #     message += self.wrap_multi_line(product.message)
-    #     message += self._format_link(product.link)
-    #     return message
-
-    def _send(self, message: str):  # TODO make thread safe
+    def _send(self, message: str):
         connection_errors = 0
         while True:
             try:
@@ -64,14 +58,8 @@ class DiscordSender(Sender):
                 sleep(uniform(2, 8))
 
     def send_sendable(self, sendables: List[SendableMixin]):
-        # todo maybe run in parallel
         for s in sendables:
             self._send(self._format_product_message(s))
-
-    # def send_product(self, products: List[ProductDB]):
-    #     # todo maybe run in parallel
-    #     for p in products:
-    #         self._send(self._format_product_message(p))
 
     def send_plain(self, text: str):
         if self.notify:
