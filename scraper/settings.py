@@ -190,9 +190,10 @@ LOGGING = {
         "level": "WARNING",
     },
     "loggers": {
-        "bazos":      {"level": "INFO", "propagate": True},
-        "senders":    {"level": "INFO", "propagate": True},
-        "ip_changer": {"level": "INFO", "propagate": True},
+        "bazos":      {"level": "INFO",    "propagate": True},
+        "senders":    {"level": "INFO",    "propagate": True},
+        "ip_changer": {"level": "INFO",    "propagate": True},
+        "stem":       {"level": "WARNING", "propagate": True},
     },
 }
 
