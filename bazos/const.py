@@ -24,3 +24,14 @@ NEW_PRODUCT_LOAD_MAX: Final[int] = 50
 MAX_ATTEMPTS = 5
 
 BAZOS_PAGE_WAIT_TIME: Final[tuple[int, int]] = (2, 5)
+
+# ---------------------------------------------------------------------------
+# Pipeline process constants
+# ---------------------------------------------------------------------------
+
+FILTER_BATCH_SIZE: Final[int] = 50
+FILTER_POLL_INTERVAL: Final[int] = 30   # seconds
+
+SENDER_BATCH_SIZE: Final[int] = 50
+SENDER_POLL_INTERVAL: Final[int] = 10   # seconds
+MAX_SEND_ATTEMPTS: Final[int] = 5

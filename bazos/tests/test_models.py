@@ -94,7 +94,10 @@ def test_section_category_constraint_allows_both_null(db):
 # --- Stage 1: Ad status fields ---
 
 def test_ad_status_choices():
-    assert {c.value for c in AdStatus} == {"PENDING", "APPROVED", "REJECTED", "SUPPRESSED", "SENT", "FAILED"}
+    assert {c.value for c in AdStatus} == {
+        "PENDING", "APPROVED", "REJECTED", "SUPPRESSED",
+        "PRICE_CHANGED", "SENT", "FAILED",
+    }
 
 
 @pytest.mark.django_db

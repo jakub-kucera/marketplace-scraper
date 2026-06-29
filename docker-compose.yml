@@ -11,6 +11,31 @@ services:
     depends_on:
       - postgres
       - tor_proxy
+
+  marketplace_filter:
+    build: .
+    restart: always
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: 1
+    command: ["python", "manage.py", "run_filter"]
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
+
+  marketplace_sender:
+    build: .
+    restart: always
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: 1
+    command: ["python", "manage.py", "run_sender"]
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
+
   marketplace_server:
     build: .
     restart: always
@@ -26,6 +51,7 @@ services:
     depends_on:
       - postgres
       - tor_proxy
+
   postgres:
     image: postgres:15.2
     ports:
@@ -33,11 +59,13 @@ services:
     env_file: .env
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
+
   adminer:
     image: adminer
     restart: always
     ports:
       - 8081:8080
+
   tor_proxy:
     image: dperson/torproxy
     restart: always

@@ -137,36 +137,39 @@ def test_new_query_topped_ads_do_not_count_toward_limit(query, make_ad, monkeypa
     assert not Ad.objects.filter(query=query, bazos_id=4).exists()
 
 
-# --- Stage 2: status transitions ---
+# --- Stage 3: status transitions after cut-over ---
+# The scraper now only writes PENDING. Sending is handled by run_filter + run_sender.
 
 # run_existing_query
 
 @pytest.mark.django_db
-def test_existing_query_new_ad_is_marked_sent(query, make_ad):
+def test_existing_query_new_ad_is_marked_pending(query, make_ad):
     product = make_ad(query, bazos_id=111)
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_existing_query()
-    assert Ad.objects.get(query=query, bazos_id=111).status == AdStatus.SENT
+    assert Ad.objects.get(query=query, bazos_id=111).status == AdStatus.PENDING
 
 
 @pytest.mark.django_db
-def test_existing_query_new_ad_has_sent_at(query, make_ad):
+def test_existing_query_new_ad_has_no_sent_at(query, make_ad):
     product = make_ad(query, bazos_id=111)
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_existing_query()
-    assert Ad.objects.get(query=query, bazos_id=111).sent_at is not None
+    assert Ad.objects.get(query=query, bazos_id=111).sent_at is None
 
 
 @pytest.mark.django_db
-def test_existing_query_calls_send_for_new_ad(query, make_ad):
+def test_existing_query_does_not_instantiate_discord_sender(query, make_ad):
+    """After cut-over the scraper must not touch DiscordSender at all."""
+    from senders.services import discord_sender as ds_module
     product = make_ad(query, bazos_id=111)
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])), \
-         patch.object(runner, "send_to_senders") as mock_send:
+         patch.object(ds_module.DiscordSender, "send_sendable") as mock_send:
         runner.run_existing_query()
-    mock_send.assert_called_once_with(product)
+    mock_send.assert_not_called()
 
 
 # run_new_query — ignore_first_run=True
@@ -193,49 +196,38 @@ def test_new_query_ignore_first_run_does_not_set_sent_at(query, make_ad):
     assert Ad.objects.get(query=query, bazos_id=111).sent_at is None
 
 
-@pytest.mark.django_db
-def test_new_query_ignore_first_run_does_not_call_send(query, make_ad):
-    query.ignore_first_run = True
-    query.save()
-    product = make_ad(query, bazos_id=111)
-    runner = make_runner(query)
-    with patch.object(runner.scraper, "run_query", return_value=iter([product])), \
-         patch.object(runner, "send_to_senders") as mock_send:
-        runner.run_new_query()
-    mock_send.assert_not_called()
-
-
 # run_new_query — ignore_first_run=False
 
 @pytest.mark.django_db
-def test_new_query_without_ignore_first_run_is_marked_sent(query, make_ad):
+def test_new_query_without_ignore_first_run_is_marked_pending(query, make_ad):
     query.ignore_first_run = False
     query.save()
     product = make_ad(query, bazos_id=111)
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_new_query()
-    assert Ad.objects.get(query=query, bazos_id=111).status == AdStatus.SENT
+    assert Ad.objects.get(query=query, bazos_id=111).status == AdStatus.PENDING
 
 
 @pytest.mark.django_db
-def test_new_query_without_ignore_first_run_has_sent_at(query, make_ad):
+def test_new_query_without_ignore_first_run_has_no_sent_at(query, make_ad):
     query.ignore_first_run = False
     query.save()
     product = make_ad(query, bazos_id=111)
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_new_query()
-    assert Ad.objects.get(query=query, bazos_id=111).sent_at is not None
+    assert Ad.objects.get(query=query, bazos_id=111).sent_at is None
 
 
 @pytest.mark.django_db
-def test_new_query_without_ignore_first_run_calls_send(query, make_ad):
+def test_new_query_without_ignore_first_run_does_not_call_discord(query, make_ad):
     query.ignore_first_run = False
     query.save()
     product = make_ad(query, bazos_id=111)
     runner = make_runner(query)
+    from senders.services import discord_sender as ds_module
     with patch.object(runner.scraper, "run_query", return_value=iter([product])), \
-         patch.object(runner, "send_to_senders") as mock_send:
+         patch.object(ds_module.DiscordSender, "send_sendable") as mock_send:
         runner.run_new_query()
-    mock_send.assert_called_once_with(product)
+    mock_send.assert_not_called()
