@@ -5,6 +5,7 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 import senders.services.discord_sender as ds_module
+from senders.exceptions import RateLimitError
 from senders.services.discord_sender import DiscordSender, MAX_CONNECTION_RETRIES
 
 
@@ -29,20 +30,24 @@ def test_send_calls_notifier_once_on_success(sender):
 
 
 # ---------------------------------------------------------------------------
-# _send — rate-limit (HTTPError) retry then success
+# _send — rate-limit (HTTPError) → RateLimitError
 # ---------------------------------------------------------------------------
 
-def test_send_retries_after_http_error_and_succeeds(sender):
-    sender.notifier.send.side_effect = [HTTPError(None, 429, "Too Many Requests", {}, None), None]
+def test_send_raises_rate_limit_error_on_http_error(sender):
+    """HTTPError from Discord is immediately converted to RateLimitError."""
+    sender.notifier.send.side_effect = HTTPError(None, 429, "Too Many Requests", {}, None)
     with patch("senders.services.discord_sender.sleep"):
-        sender._send("msg")
-    assert sender.notifier.send.call_count == 2
+        with pytest.raises(RateLimitError):
+            sender._send("msg")
 
 
-def test_send_rate_limit_does_not_raise(sender):
-    sender.notifier.send.side_effect = [HTTPError(None, 429, "Too Many Requests", {}, None), None]
+def test_send_http_error_does_not_retry(sender):
+    """DiscordSender must not loop internally on rate limits — run_sender does that."""
+    sender.notifier.send.side_effect = HTTPError(None, 429, "Too Many Requests", {}, None)
     with patch("senders.services.discord_sender.sleep"):
-        sender._send("msg")  # must not raise
+        with pytest.raises(RateLimitError):
+            sender._send("msg")
+    assert sender.notifier.send.call_count == 1
 
 
 # ---------------------------------------------------------------------------

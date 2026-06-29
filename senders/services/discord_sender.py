@@ -7,10 +7,11 @@ from random import uniform
 import discord_notify as dn
 
 from bazos.mixins import SendableMixin
+from senders.exceptions import RateLimitError
 from senders.models import Discord
 from senders.services.sender import Sender
 
-MAX_CONNECTION_RETRIES = 10
+MAX_CONNECTION_RETRIES = 5
 logger = logging.getLogger(__name__)
 
 
@@ -37,7 +38,7 @@ class DiscordSender(Sender):
         message += self._format_link(sendable.link)
         return message
 
-    def _send(self, message: str):
+    def _send(self, message: str):  # TODO make thread safe
         connection_errors = 0
         while True:
             try:
@@ -45,8 +46,7 @@ class DiscordSender(Sender):
                 sleep(uniform(0.5, 2))
                 break
             except HTTPError as e:
-                logger.warning("DiscordSender: rate limit reached, retrying")
-                sleep(uniform(1, 5))
+                raise RateLimitError() from e
             except URLError as e:
                 connection_errors += 1
                 logger.warning(

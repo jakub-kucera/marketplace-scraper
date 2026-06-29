@@ -1,11 +1,9 @@
 import logging
 import requests
-from django.utils.timezone import now
 
 from bazos.const import NEW_PRODUCT_LOAD_MAX
 from bazos.models import Ad, AdStatus, Query
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
-from senders.services.discord_sender import DiscordSender
 
 logger = logging.getLogger(__name__)
 
@@ -13,30 +11,18 @@ logger = logging.getLogger(__name__)
 class BazosQueryRunner:
     def __init__(self, query: Query, session: requests.Session):
         self.query = query
-        self.senders = [DiscordSender.from_model(query.sender)] if query.sender else []
         self.session = session
         self.scraper = BazosScraper(session)
         self.new_product_counter = 0
 
-    def send_to_senders(self, product: Ad):
-        for sender in self.senders:
-            sender.send_sendable([product])
-
     def _is_known(self, product: Ad) -> bool:
         return Ad.objects.filter(query=self.query, bazos_id=product.bazos_id).exists()
-
-    def _send_and_mark_sent(self, product: Ad):
-        self.send_to_senders(product)
-        product.status = AdStatus.SENT
-        product.sent_at = now()
-        product.save(update_fields=["status", "sent_at"])
 
     def _handle_new_product(self, product: Ad):
         logger.info("New product %s", product)
         self.new_product_counter += 1
         product.status = AdStatus.PENDING
         product.save()
-        self._send_and_mark_sent(product)
         if self.query.load_full_description:
             self.scraper.load_full_description(product)
             product.save()

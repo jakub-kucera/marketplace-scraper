@@ -126,12 +126,13 @@ class QueryRun(models.Model):
 
 
 class AdStatus(models.TextChoices):
-    PENDING    = "PENDING"    # scraped, awaiting filter
-    APPROVED   = "APPROVED"   # passed filters, awaiting send
-    REJECTED   = "REJECTED"   # dropped by a filter rule
-    SUPPRESSED = "SUPPRESSED" # deliberately not sent (e.g. ignore_first_run)
-    SENT       = "SENT"       # successfully delivered
-    FAILED     = "FAILED"     # send failed after retries
+    PENDING       = "PENDING"       # scraped, awaiting filter
+    APPROVED      = "APPROVED"      # passed filters, awaiting send
+    REJECTED      = "REJECTED"      # dropped by a filter rule
+    SUPPRESSED    = "SUPPRESSED"    # deliberately not sent (e.g. ignore_first_run)
+    PRICE_CHANGED = "PRICE_CHANGED" # re-enters pipeline for price update notification
+    SENT          = "SENT"          # successfully delivered
+    FAILED        = "FAILED"        # send failed after retries
 
 
 class Ad(TimeStampedModel, SendableMixin):
