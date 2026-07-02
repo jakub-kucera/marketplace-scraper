@@ -6,7 +6,7 @@ from random import uniform
 
 import discord_notify as dn
 
-from bazos.mixins import SendableMixin
+from bazos.protocols import Sendable
 from senders.exceptions import RateLimitError
 from senders.models import Discord
 from senders.services.sender import Sender
@@ -32,7 +32,7 @@ class DiscordSender(Sender):
         else:
             return f"<{link}>"
 
-    def _format_product_message(self, sendable: SendableMixin) -> str:
+    def _format_product_message(self, sendable: Sendable) -> str:
         message = "@here \n" if self.notify else ""
         message += self.wrap_multi_line(sendable.message)
         message += self._format_link(sendable.link)
@@ -57,7 +57,7 @@ class DiscordSender(Sender):
                     raise
                 sleep(uniform(2, 8))
 
-    def send_sendable(self, sendables: List[SendableMixin]):
+    def send_sendable(self, sendables: List[Sendable]):
         for s in sendables:
             self._send(self._format_product_message(s))
 

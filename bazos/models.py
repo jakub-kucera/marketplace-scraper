@@ -6,7 +6,6 @@ from django_extensions.db.models import TimeStampedModel
 from django.db import models
 
 from bazos.const import BAZOS_BASE_URL
-from bazos.mixins import SendableMixin
 
 
 class Section(models.Model):
@@ -136,7 +135,7 @@ class AdStatus(models.TextChoices):
     FAILED        = "FAILED"        # send failed after retries
 
 
-class Ad(TimeStampedModel, SendableMixin):
+class Ad(TimeStampedModel):
     external_id = models.IntegerField(db_index=True)  # TODO unique=True (requires M:N to queries)
     marketplace = models.CharField(max_length=20, default="bazos", db_index=True)
     url = models.URLField(max_length=1024)  # TODO unique=True
