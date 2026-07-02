@@ -4,15 +4,28 @@ import requests
 from bazos.const import NEW_PRODUCT_LOAD_MAX
 from bazos.models import Ad, AdStatus, Query
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
+from bazos.scraping.marketplace import MarketplaceScraper
 
 logger = logging.getLogger(__name__)
+
+
+def _build_scrapers(session: requests.Session) -> dict[str, MarketplaceScraper]:
+    """Return the registry of available scrapers, keyed by marketplace name.
+
+    Add new entries here when new marketplaces are implemented (Stage 8+).
+    """
+    return {
+        "bazos": BazosScraper(session),
+        # "vinted": VintedScraper(session),   # Stage 8
+    }
 
 
 class BazosQueryRunner:
     def __init__(self, query: Query, session: requests.Session):
         self.query = query
         self.session = session
-        self.scraper = BazosScraper(session)
+        scrapers = _build_scrapers(session)
+        self.scraper: MarketplaceScraper = scrapers[query.marketplace]
         self.new_product_counter = 0
 
     def _is_known(self, product: Ad) -> bool:

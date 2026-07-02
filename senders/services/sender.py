@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import List, Any
+from typing import List
 
-from bazos.mixins import SendableMixin
+from bazos.protocols import Sendable
 
 
 class Sender(ABC):
@@ -17,11 +17,11 @@ class Sender(ABC):
         return "`" + message + "`"
 
     @abstractmethod
-    def _format_product_message(self, sendable: SendableMixin) -> str:
+    def _format_product_message(self, sendable: Sendable) -> str:
         pass
 
     @abstractmethod
-    def send_sendable(self, sendables: List[SendableMixin]):
+    def send_sendable(self, sendables: List[Sendable]):
         pass
 
     @abstractmethod
