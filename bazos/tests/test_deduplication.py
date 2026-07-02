@@ -18,7 +18,7 @@ def test_existing_query_saves_new_ad(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_existing_query()
-    assert Ad.objects.filter(query=query, bazos_id=111).exists()
+    assert Ad.objects.filter(query=query, external_id=111).exists()
 
 
 @pytest.mark.django_db
@@ -40,7 +40,7 @@ def test_existing_query_stops_on_known_non_topped_ad(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter(products)):
         runner.run_existing_query()
-    assert not Ad.objects.filter(query=query, bazos_id=222).exists()
+    assert not Ad.objects.filter(query=query, external_id=222).exists()
     assert runner.new_product_counter == 0
 
 
@@ -54,7 +54,7 @@ def test_existing_query_does_not_stop_on_known_topped_ad(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter(products)):
         runner.run_existing_query()
-    assert Ad.objects.filter(query=query, bazos_id=222).exists()
+    assert Ad.objects.filter(query=query, external_id=222).exists()
     assert runner.new_product_counter == 1
 
 
@@ -64,7 +64,7 @@ def test_existing_query_does_not_save_duplicate(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([make_ad(query, bazos_id=111, topped=True)])):
         runner.run_existing_query()
-    assert Ad.objects.filter(query=query, bazos_id=111).count() == 1
+    assert Ad.objects.filter(query=query, external_id=111).count() == 1
 
 
 # --- run_new_query ---
@@ -131,10 +131,10 @@ def test_new_query_topped_ads_do_not_count_toward_limit(query, make_ad, monkeypa
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter(products)):
         runner.run_new_query()
-    assert Ad.objects.filter(query=query, bazos_id=1).exists()
-    assert Ad.objects.filter(query=query, bazos_id=2).exists()
-    assert Ad.objects.filter(query=query, bazos_id=3).exists()
-    assert not Ad.objects.filter(query=query, bazos_id=4).exists()
+    assert Ad.objects.filter(query=query, external_id=1).exists()
+    assert Ad.objects.filter(query=query, external_id=2).exists()
+    assert Ad.objects.filter(query=query, external_id=3).exists()
+    assert not Ad.objects.filter(query=query, external_id=4).exists()
 
 
 # --- Stage 3: status transitions after cut-over ---
@@ -148,7 +148,7 @@ def test_existing_query_new_ad_is_marked_pending(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_existing_query()
-    assert Ad.objects.get(query=query, bazos_id=111).status == AdStatus.PENDING
+    assert Ad.objects.get(query=query, external_id=111).status == AdStatus.PENDING
 
 
 @pytest.mark.django_db
@@ -157,7 +157,7 @@ def test_existing_query_new_ad_has_no_sent_at(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_existing_query()
-    assert Ad.objects.get(query=query, bazos_id=111).sent_at is None
+    assert Ad.objects.get(query=query, external_id=111).sent_at is None
 
 
 @pytest.mark.django_db
@@ -182,7 +182,7 @@ def test_new_query_ignore_first_run_saves_as_suppressed(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_new_query()
-    assert Ad.objects.get(query=query, bazos_id=111).status == AdStatus.SUPPRESSED
+    assert Ad.objects.get(query=query, external_id=111).status == AdStatus.SUPPRESSED
 
 
 @pytest.mark.django_db
@@ -193,7 +193,7 @@ def test_new_query_ignore_first_run_does_not_set_sent_at(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_new_query()
-    assert Ad.objects.get(query=query, bazos_id=111).sent_at is None
+    assert Ad.objects.get(query=query, external_id=111).sent_at is None
 
 
 # run_new_query — ignore_first_run=False
@@ -206,7 +206,7 @@ def test_new_query_without_ignore_first_run_is_marked_pending(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_new_query()
-    assert Ad.objects.get(query=query, bazos_id=111).status == AdStatus.PENDING
+    assert Ad.objects.get(query=query, external_id=111).status == AdStatus.PENDING
 
 
 @pytest.mark.django_db
@@ -217,7 +217,7 @@ def test_new_query_without_ignore_first_run_has_no_sent_at(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_new_query()
-    assert Ad.objects.get(query=query, bazos_id=111).sent_at is None
+    assert Ad.objects.get(query=query, external_id=111).sent_at is None
 
 
 @pytest.mark.django_db

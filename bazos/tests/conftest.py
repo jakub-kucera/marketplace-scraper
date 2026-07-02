@@ -33,7 +33,8 @@ def query(category):
 def make_ad():
     def _factory(query, bazos_id, topped=False):
         return Ad(
-            bazos_id=bazos_id,
+            external_id=bazos_id,
+            marketplace="bazos",
             url=f"https://pc.bazos.cz/inzerat/{bazos_id}/test.php",
             name=f"Ad {bazos_id}",
             price_raw="1000 Kč",

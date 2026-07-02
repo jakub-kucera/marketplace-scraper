@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class BazosScraper:
+    marketplace = "bazos"
 
     def __init__(self, session: requests.Session):
         self.sent_requests_count = 0
@@ -116,7 +117,7 @@ class BazosScraper:
         publisher_name = str(publisher_info[2])
 
         return {
-            'bazos_id': bazos_id,
+            'external_id': bazos_id,
             'name': name,
             'price_raw': price_raw,
             'url': url,
@@ -149,7 +150,8 @@ class BazosScraper:
             parsed['publisher_email'], parsed['publisher_phone']
         )
         return Ad(
-            bazos_id=parsed['bazos_id'],
+            external_id=parsed['external_id'],
+            marketplace="bazos",
             name=parsed['name'],
             price_raw=parsed['price_raw'],
             url=parsed['url'],

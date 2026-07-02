@@ -16,7 +16,11 @@ class BazosQueryRunner:
         self.new_product_counter = 0
 
     def _is_known(self, product: Ad) -> bool:
-        return Ad.objects.filter(query=self.query, bazos_id=product.bazos_id).exists()
+        return Ad.objects.filter(
+            query=self.query,
+            marketplace=product.marketplace,
+            external_id=product.external_id,
+        ).exists()
 
     def _handle_new_product(self, product: Ad):
         logger.info("New product %s", product)
