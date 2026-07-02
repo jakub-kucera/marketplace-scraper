@@ -202,6 +202,12 @@ LOGGING = {
     },
 }
 
-# Sentry DSN — read here so the hookup step only needs to add the SDK init.
-# Left empty / absent in .env to disable Sentry entirely.
+# Sentry DSN — left empty in .env to disable entirely.
 SENTRY_DSN: str = env("SENTRY_DSN", default="")
+
+if SENTRY_DSN:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        traces_sample_rate=0.0,  # error tracking only, no performance tracing
+    )
