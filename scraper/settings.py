@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # third party
     "django_extensions",
+    "django_db_logger",
     # my apps
     "bazos",
     "facebook",
@@ -185,15 +186,18 @@ LOGGING = {
             "stream": "ext://sys.stdout",
             "formatter": "simple",
         },
+        "db": {
+            "class": "django_db_logger.db_log_handler.DatabaseLogHandler",
+        },
     },
     "root": {
         "handlers": ["console"],
         "level": "WARNING",
     },
     "loggers": {
-        "bazos":      {"level": "INFO",    "propagate": True},
-        "senders":    {"level": "INFO",    "propagate": True},
-        "ip_changer": {"level": "INFO",    "propagate": True},
+        "bazos":      {"level": "INFO", "handlers": ["console", "db"], "propagate": False},
+        "senders":    {"level": "INFO", "handlers": ["console", "db"], "propagate": False},
+        "ip_changer": {"level": "INFO", "handlers": ["console", "db"], "propagate": False},
         "stem":       {"level": "WARNING", "propagate": True},
     },
 }
