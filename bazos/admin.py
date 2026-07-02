@@ -71,12 +71,13 @@ class QueryAdmin(admin.ModelAdmin):
         "text",
         "category",
         "section",
+        "marketplace",
         "enabled",
         "randomly_generated",
         "sender",
         "last_run",
     )
-    list_filter = ("enabled", "randomly_generated", "section", "category")
+    list_filter = ("enabled", "randomly_generated", "marketplace", "section", "category")
     actions = ["enable_queries", "disable_queries"]
     autocomplete_fields = ["category", "section", "sender"]
 
@@ -144,13 +145,18 @@ class QueryRunAdmin(admin.ModelAdmin):
 class AdAdmin(admin.ModelAdmin):
     list_display = (
         "name",
+        "marketplace",
+        "external_id",
+        "status",
         "topped",
         "price_raw",
         "url",
         "query",
         "created",
     )
-    list_filter = ("query", HasFullDescriptionFilter)
+    list_filter = ("status", "marketplace", "query", HasFullDescriptionFilter)
+    search_fields = ("name", "external_id", "url")
+    readonly_fields = ("external_id", "marketplace", "status", "filter_reason", "sent_at", "send_attempts")
 
 
 @admin.register(EmailPublisher)

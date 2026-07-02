@@ -57,6 +57,7 @@ class Query(TimeStampedModel):
     load_full_description = models.BooleanField(default=False)
     # last_top_count = Column(Integer, nullable=False, default=0)
     randomly_generated = models.BooleanField(default=False)
+    marketplace = models.CharField(max_length=20, default="bazos")
 
     sender = models.ForeignKey('senders.Discord', on_delete=models.SET_NULL, null=True, related_name='queries')
     # logger_id
@@ -136,7 +137,8 @@ class AdStatus(models.TextChoices):
 
 
 class Ad(TimeStampedModel, SendableMixin):
-    bazos_id = models.IntegerField(db_index=True)  # TODO unique=True (requires M:N to queries)
+    external_id = models.IntegerField(db_index=True)  # TODO unique=True (requires M:N to queries)
+    marketplace = models.CharField(max_length=20, default="bazos", db_index=True)
     url = models.URLField(max_length=1024)  # TODO unique=True
 
     # TODO add relation to Category model. (some init method where from URL take category, bazos_id)

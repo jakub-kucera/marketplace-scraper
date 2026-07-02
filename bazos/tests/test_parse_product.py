@@ -72,7 +72,7 @@ class TestParseProduct:
 
     def test_bazos_id_matches_url_segment(self):
         result = self._parsed(bazos_id=12345678)
-        assert result["bazos_id"] == "12345678"
+        assert result["external_id"] == "12345678"
 
     def test_price_raw_stripped(self):
         result = self._parsed(price="  35 000 Kč  ")
