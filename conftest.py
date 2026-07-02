@@ -1,6 +1,26 @@
 import pytest
 
 
+@pytest.fixture(autouse=True, scope="session")
+def disable_db_log_handler():
+    """No-op DatabaseLogHandler.emit for the whole test session.
+
+    ``DatabaseLogHandler`` writes every log record to the DB. Pure unit tests
+    don't have DB access, so any logger.* call inside them raises
+    ``RuntimeError: Database access not allowed``.
+
+    Patching ``emit`` to a no-op is the minimal, reliable fix: it fires before
+    Django's lazy logger configuration, survives handler re-registration, and
+    doesn't affect any other part of the logging chain.
+    """
+    try:
+        from django_db_logger.db_log_handler import DatabaseLogHandler
+        DatabaseLogHandler.emit = lambda self, record: None
+    except ImportError:
+        pass
+    yield
+
+
 @pytest.fixture(scope="session")
 def django_db_setup(django_test_environment, django_db_blocker):
     from django.conf import settings
