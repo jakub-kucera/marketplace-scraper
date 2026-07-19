@@ -18,6 +18,7 @@ PAGE_SIZE: Final[int] = 20
 BAZOS_BASE_URL: Final[str] = "https://bazos.cz"
 BAZOS_URL: Final[str] = "https://bazos.cz/search.php"
 BAZOS_BLACKLIST_CHECK_URL: Final[str] = "https://www.bazos.cz/search.php?hledat=iphone&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat&kitx=ano"
+BAZOS_API_BASE_URL: Final[str] = "https://www.bazos.cz/api/v1"
 
 NEW_PRODUCT_LOAD_MAX: Final[int] = 50
 
