@@ -32,7 +32,7 @@ class Command(BaseCommand):
             with transaction.atomic():
                 ads = list(
                     Ad.objects
-                    .select_for_update(skip_locked=True)
+                    .select_for_update(skip_locked=True, of=("self",))
                     .filter(status=AdStatus.APPROVED)
                     .select_related("query__sender")
                     .order_by("created")[:SENDER_BATCH_SIZE]
