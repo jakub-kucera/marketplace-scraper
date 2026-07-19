@@ -1,12 +1,13 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from datetime import datetime
 
 import pytz
 
 
 class IntervalMultiplier(ABC):
+    @abstractmethod
     def get_current_multiplier(self) -> float:
-        pass
+        ...
 
     def multiply(self, interval_sec: float | int) -> float:
         return self.get_current_multiplier() * interval_sec

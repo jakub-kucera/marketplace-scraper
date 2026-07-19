@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class DiscordSender(Sender):
 
-    def __init__(self, url: str, notify: bool = False, preview_link: str = False):
+    def __init__(self, url: str, notify: bool = False, preview_link: bool = False):
         super().__init__(notify)
         self.notifier = dn.Notifier(url)
         self.preview_link = preview_link

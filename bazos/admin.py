@@ -89,8 +89,8 @@ class QueryAdmin(admin.ModelAdmin):
     def last_run(self, obj):
         return getattr(obj, 'last_run', None)
 
-    last_run.admin_order_field = 'last_run'
-    last_run.short_description = 'Last run'
+    last_run.admin_order_field = 'last_run'  # type: ignore[attr-defined]
+    last_run.short_description = 'Last run'  # type: ignore[attr-defined]
 
     @admin.action(description="Enable selected queries")
     def enable_queries(self, request, queryset):

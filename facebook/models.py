@@ -1,7 +1,7 @@
 from django.db import models
 
 
-class FBUser(models.Model):
+class FBUser(models.Model):  # type: ignore[django-manager-missing]
     phone_number = models.CharField(max_length=100)  # TODO phone number field
     facebook_id = models.CharField(max_length=100, unique=True)
     first_name = models.CharField(max_length=50)
