@@ -48,4 +48,6 @@ jobs:
         run: poetry run ruff check .
 
       - name: Run mypy
+        env:
+          SECRET_KEY: ci-secret-key-not-used-in-production
         run: poetry run mypy .
