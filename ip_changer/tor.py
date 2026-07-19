@@ -2,7 +2,7 @@ import logging
 import socket
 from time import sleep
 import requests
-import requests_random_user_agent  # type: ignore
+import requests_random_user_agent  # type: ignore  # noqa: F401 (side-effecting import: patches requests.Session UA)
 from stem import Signal
 from stem.control import Controller
 from django.conf import settings

@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from random import uniform
 from time import sleep
-from typing import Iterator, Any
+from typing import Iterator
 from urllib.error import URLError
 from urllib.parse import urlencode, urljoin, urlparse
 
@@ -13,7 +13,7 @@ import requests
 from requests import Response
 from selenium.common.exceptions import TimeoutException
 
-from bazos.const import BAZOS_PAGE_WAIT_TIME, BAZOS_URL, MAX_ATTEMPTS, PAGE_SIZE, BAZOS_BLACKLIST_CHECK_URL
+from bazos.const import BAZOS_PAGE_WAIT_TIME, MAX_ATTEMPTS, PAGE_SIZE, BAZOS_BLACKLIST_CHECK_URL
 from bazos.exceptions import BazosBlacklistedError
 from bazos.models import Ad, Query, EmailPublisher, PhonePublisher
 from ip_changer.tor import PROXIES

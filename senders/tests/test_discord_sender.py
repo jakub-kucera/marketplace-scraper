@@ -1,10 +1,9 @@
 """Tests for DiscordSender._send retry/backoff behaviour (no DB needed)."""
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
 
 import pytest
 
-import senders.services.discord_sender as ds_module
 from senders.exceptions import RateLimitError
 from senders.services.discord_sender import DiscordSender, MAX_CONNECTION_RETRIES
 

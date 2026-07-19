@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bazos.models import Ad, AdStatus, Query
+from bazos.models import Ad, AdStatus
 from bazos.scraping.bazos_query_runner import BazosQueryRunner
 
 

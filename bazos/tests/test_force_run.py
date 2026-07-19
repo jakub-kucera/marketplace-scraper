@@ -7,10 +7,8 @@ Covers:
 - admin force_run_now view: flag is deleted after _interruptible_sleep detects it
 """
 import time
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from django.test import RequestFactory
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage

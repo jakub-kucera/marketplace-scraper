@@ -2,10 +2,8 @@
 
 All tests are pure (no DB access needed).
 """
-import pytest
 
 from bazos.filters import FilterResult, PassthroughRule, RuleEngine
-from bazos.models import Ad
 
 
 # ---------------------------------------------------------------------------
