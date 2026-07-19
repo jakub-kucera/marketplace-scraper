@@ -71,3 +71,4 @@ asdfasfd.txt
 verify_ip_changer.py
 *.backup
 old_tests/
+/bazos_app_decomplied/
