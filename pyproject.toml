@@ -31,7 +31,6 @@ psycopg2-binary = "^2.9.5"
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.2.2"
 mypy = "^1.1.1"
-pylint = "^2.17.0"
 django-stubs = "^1.15.0"
 pytest-django = "^4.5.2"
 pytest-mock = "^3.10.0"
@@ -40,7 +39,66 @@ django-stubs-ext = "^0.7.0"
 typing-extensions = "^4.5.0"
 types-requests = "^2.28.11.15"
 jupyter = "^1.0.0"
+ruff = "^0.15.22"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 120
+exclude = [
+    "old_tests",
+    "experiments",
+    "bazos_app_decomplied",
+    "data_export_23_3_2024",
+    "*/migrations/*",
+    # Dead/broken code, not wired into any runtime path (see CLAUDE.md).
+    "bazos/scraping/bazos/bazos_scraper_click.py",
+    "bazos/scraping/notifier.py",
+    "senders/services/slack_sender.py",
+    "senders/services/email_sender.py",
+    "senders/services/calendar_api/calendar_condition_sender.py",
+]
+
+[tool.ruff.lint]
+# Default rule set only (pyflakes "F" + a slice of pycodestyle "E"/"W"):
+# unused imports/vars, undefined names, bare excepts, etc. No import
+# sorting, docstrings, or style/formatting rules enabled on purpose.
+
+[tool.mypy]
+plugins = ["mypy_django_plugin.main"]
+exclude = '''(?x)(
+    ^(old_tests|experiments|bazos_app_decomplied|data_export_23_3_2024)/
+    | /migrations/
+    | ^bazos/scraping/bazos/bazos_scraper_click\.py$
+    | ^bazos/scraping/notifier\.py$
+    | ^senders/services/slack_sender\.py$
+    | ^senders/services/email_sender\.py$
+    | ^senders/services/calendar_api/calendar_condition_sender\.py$
+    | ^ip_changer/openvpn\.py$
+    | ^verify_ip_changer\.py$
+    | ^bazos/scraping/selenium_driver\.py$
+)'''
+ignore_missing_imports = true
+check_untyped_defs = true
+# Intentionally lenient: no --strict, no disallow_untyped_defs. We want
+# real type errors caught, not full annotation coverage enforced.
+# union-attr disabled: on this codebase it's overwhelmingly Django
+# FK/session/mock Optional-narrowing noise rather than real bugs, not
+# an "obvious issue" worth gating on. django-stubs' related-manager
+# resolution errors are suppressed inline (per-line, not a real code
+# in this mypy version's registry).
+disable_error_code = ["union-attr"]
+
+[[tool.mypy.overrides]]
+# Test-only patterns that are correct at runtime but violate static
+# contracts on purpose: passing `ad=None` to DB-free filter-engine
+# tests, mocking urllib.error.HTTPError with loose arg types, and the
+# standard Django idiom for attaching a messages backend to a bare
+# RequestFactory request.
+module = "*.tests.*"
+disable_error_code = ["arg-type", "assignment", "attr-defined"]
+
+[tool.django-stubs]
+django_settings_module = "scraper.settings"

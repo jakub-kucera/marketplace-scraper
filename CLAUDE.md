@@ -27,11 +27,11 @@ python getyourguide/gyg_scraper.py    # Caminito del Rey availability → Discor
 
 # Tests / checks
 pytest
-mypy -p .
-pylint .
+ruff check .   # lint: pyflakes-only rules (unused imports/vars, undefined names); no formatting/import-sort rules
+mypy .         # lenient: ignore_missing_imports, no --strict; union-attr disabled (Django/mock Optional noise)
 ```
 
-Docker Compose runs the full stack: `marketplace_scraper`, `marketplace_filter`, `marketplace_sender`, `marketplace_server` (Django, port 8000), plus `postgres`, `adminer` (port 8081), and `tor_proxy` (SOCKS 9050 / control 9051). CI (`.github/workflows/test.yml`) runs `pytest` on push/PR to `main`.
+Docker Compose runs the full stack: `marketplace_scraper`, `marketplace_filter`, `marketplace_sender`, `marketplace_server` (Django, port 8000), plus `postgres`, `adminer` (port 8081), and `tor_proxy` (SOCKS 9050 / control 9051). CI (`.github/workflows/test.yml`) runs `pytest`, `ruff check .`, and `mypy .` on push/PR to `main`.
 
 ## Architecture
 
