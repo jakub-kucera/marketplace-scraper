@@ -48,6 +48,7 @@ class BazosRunner:
                     query=query,
                     run_start=datetime.now(timezone.utc),
                 )
+                assert self.ip_changer.session is not None
                 query_runner = BazosQueryRunner(query, self.ip_changer.session)
                 new_products_count = query_runner.run()
                 query.save()

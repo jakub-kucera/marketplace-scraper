@@ -1,4 +1,5 @@
 from random import randint
+from typing import List
 from urllib.parse import urljoin, urlparse
 
 from django_extensions.db.models import TimeStampedModel
@@ -7,7 +8,7 @@ from django.db import models
 from bazos.const import BAZOS_BASE_URL
 
 
-class Section(models.Model):
+class Section(models.Model):  # type: ignore[django-manager-missing]
     bazos_id = models.CharField(unique=True, max_length=2)
     name = models.CharField(max_length=20, unique=True)
     url = models.CharField(max_length=20, unique=True)
@@ -22,7 +23,7 @@ class Section(models.Model):
         return parsed_url._replace(netloc=updated_netloc).geturl()
 
 
-class Category(models.Model):
+class Category(models.Model):  # type: ignore[django-manager-missing]
     bazos_id = models.IntegerField(unique=True)
     name = models.CharField(max_length=50, unique=False)
     url = models.CharField(max_length=50, unique=False)
@@ -172,7 +173,7 @@ class Ad(TimeStampedModel):
     class Meta:
         verbose_name = "Ad"
         verbose_name_plural = "Ads"
-        constraints = []
+        constraints: List[models.BaseConstraint] = []
 
     @property
     def message(self):

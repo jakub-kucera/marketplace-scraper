@@ -176,7 +176,7 @@ class BazosScraper:
             product.url = urljoin(response.url, product.url)
             yield product
 
-    def run_request(self, url: str, extra_args: dict | None = None) -> Response:
+    def run_request(self, url: str, extra_args: dict | None = None) -> Response | None:
         extra_args = extra_args or {}
         response: Response | None = None
         for _ in range(1, MAX_ATTEMPTS + 1):
@@ -199,6 +199,9 @@ class BazosScraper:
     def load_full_description(self, product: Ad) -> Ad:
         logger.debug("Loading full description for %s", product.url)
         response = self.run_request(product.url)
+        if response is None:
+            logger.warning("Failed to load full description for %s after %d attempts", product.url, MAX_ATTEMPTS)
+            return product
         soup = BeautifulSoup(response.text, 'html.parser')
         full_description = soup.find(class_='popisdetail').text  # TODO FIX, CAN BE NONE?
         product.full_description = full_description
