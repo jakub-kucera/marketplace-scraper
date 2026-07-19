@@ -85,7 +85,7 @@ run_sender   →  DiscordSender (senders/services/)              # APPROVED → 
 - Use the `logging` module (`logging.getLogger(__name__)`) — not `print()`. App loggers are configured in `settings.py` (INFO → console + DB).
 - For scraping changes, update both `create_url_*` and `run_query` in `BazosScraper` and validate against `bazos/tests/test_gen_url.py`.
 - For loop/control-flow edits, explicitly reason about `check_bazos_blacklisted` and `check_ip_local` guards to avoid hot loops.
-- Legacy/experimental code lives in `old_tests/`, notebooks (`*.ipynb`), and the sender/openvpn stubs above; the many `*.md` files at repo root (`PIPELINE_REFACTOR*.md`, `REFACTOR_*.md`, `STAGE8_VINTED_DESIGN.md`, `PROMPTS.md`) are refactor-planning notes, not runtime docs.
+- Legacy/experimental code lives in `old_tests/`, notebooks (`*.ipynb`), and the sender/openvpn stubs above. Refactor-planning notes and Bazos API research (not runtime docs) live under `docs/` — see [`docs/README.md`](docs/README.md) for the index.
 
 ## Environment
 
