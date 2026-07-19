@@ -2,7 +2,7 @@ import pytest
 from django.core.exceptions import ValidationError
 
 from bazos.const import BAZOS_BASE_URL
-from bazos.models import Ad, AdStatus, Category, Query, Section
+from bazos.models import AdStatus, Query
 
 
 @pytest.mark.django_db

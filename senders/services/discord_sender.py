@@ -47,7 +47,7 @@ class DiscordSender(Sender):
                 break
             except HTTPError as e:
                 raise RateLimitError() from e
-            except URLError as e:
+            except URLError:
                 connection_errors += 1
                 logger.warning(
                     "DiscordSender: connection error (%d/%d)",

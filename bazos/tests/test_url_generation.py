@@ -4,7 +4,6 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from bazos.const import BAZOS_BASE_URL, PAGE_SIZE
-from bazos.models import Query, Section
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 
 

@@ -1,5 +1,4 @@
-from datetime import datetime, timezone
-from random import uniform, randint
+from random import randint
 from urllib.parse import urljoin, urlparse
 
 from django_extensions.db.models import TimeStampedModel

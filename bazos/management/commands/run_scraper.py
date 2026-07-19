@@ -38,5 +38,5 @@ class Command(BaseCommand):
                 with open(f"{settings.LOG_DIRECTORY_PATH}{current_time}", "w") as log_file:
                     log_file.write(str(e))
                     log_file.write(traceback.format_exc())
-                print(f"Sleeping for 60 seconds")
+                print("Sleeping for 60 seconds")
                 sleep(60)
