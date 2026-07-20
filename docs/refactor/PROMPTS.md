@@ -115,22 +115,9 @@ Steps:
 
 ## 🟡 Improvements (not pipeline-blocking, but useful)
 
-### P6 — Sentry integration
-```
-Add Sentry error monitoring.
-
-Steps:
-1. Add `sentry-sdk[django]` to pyproject.toml dependencies.
-2. In `scraper/settings.py`, after the LOGGING block, add Sentry init:
-   ```python
-   import sentry_sdk
-   if SENTRY_DSN:
-       sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.1)
-   ```
-   (`SENTRY_DSN` is already read from .env in settings.py)
-3. Verify it captures unhandled exceptions in `run_scraper`, `run_filter`, `run_sender` management commands.
-4. Add `SENTRY_DSN=` (empty) to .env.example.
-```
+### ✅ P6 — Sentry integration — done
+`sentry-sdk[django]` is in `pyproject.toml`, and `scraper/settings.py` initializes it behind
+`SENTRY_DSN` (empty disables it, per `CLAUDE.md`'s Environment section). Nothing left to do here.
 
 ---
 

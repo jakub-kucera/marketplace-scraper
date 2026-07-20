@@ -10,6 +10,7 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 | [`PIPELINE_REFACTOR.md`](refactor/PIPELINE_REFACTOR.md) | **Start here.** The live, authoritative stage-by-stage plan (Stages 1–9). Checkmarks are kept in sync with the code. |
 | [`STAGE8_VINTED_DESIGN.md`](refactor/STAGE8_VINTED_DESIGN.md) | Design doc for Stage 8 (VintedScraper + multi-marketplace `Query`), referenced from Stage 8 above. |
 | [`PROMPTS.md`](refactor/PROMPTS.md) | Ready-to-run prompts for implementing not-yet-done stages, ordered by dependency. |
+| [`BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) | Deeper dives on ideas mined from the GitHub issue tracker that aren't part of any numbered stage — cross-query dedup, async scraping, images, price/CV enrichment, interval tuning, query syntax. |
 | `archive/` | Superseded drafts, kept for history only — see banners in each file. |
 
 **Current stage status** (verified against code, 2026-07-19):
