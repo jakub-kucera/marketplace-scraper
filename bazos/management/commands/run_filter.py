@@ -14,12 +14,26 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from bazos.const import FILTER_BATCH_SIZE, FILTER_POLL_INTERVAL
-from bazos.filters import FilterResult, PassthroughRule, RuleEngine
+from bazos.filters import (
+    BlocklistKeywordRule,
+    FilterResult,
+    PriceDropRule,
+    PriceRangeRule,
+    PublisherBlocklistRule,
+    RequiredKeywordRule,
+    RuleEngine,
+)
 from bazos.models import Ad, AdStatus
 
 logger = logging.getLogger(__name__)
 
-rule_engine = RuleEngine(rules=[PassthroughRule()])
+rule_engine = RuleEngine(rules=[
+    PriceRangeRule(),
+    BlocklistKeywordRule(),
+    RequiredKeywordRule(),
+    PublisherBlocklistRule(),
+    PriceDropRule(),
+])
 
 
 class Command(BaseCommand):
@@ -33,7 +47,7 @@ class Command(BaseCommand):
                     Ad.objects
                     .select_for_update(skip_locked=True)
                     .filter(status__in=[AdStatus.PENDING, AdStatus.PRICE_CHANGED])
-                    .select_related("query")
+                    .select_related("query", "email_publisher", "phone_publisher")
                     .order_by("created")[:FILTER_BATCH_SIZE]
                 )
                 for ad in ads:

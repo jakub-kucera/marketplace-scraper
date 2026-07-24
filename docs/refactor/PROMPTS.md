@@ -77,32 +77,18 @@ Steps:
 
 ---
 
-### P5 — Stage 9: Real Filter Rules
-> ✅ P1 is done — unblocked, `PriceDropRule` can rely on `PriceChange` now.
-> 📄 See P17 below (per-query filter rule registry, extracted from
-> [`LLM_AD_REVIEW_DESIGN.md`](./LLM_AD_REVIEW_DESIGN.md) §1) — not required for this prompt,
-> but worth doing alongside or right after it, so `run_filter`'s rule-selection logic isn't
-> built around a single fixed list and then reworked later.
+### ✅ P5 — Stage 9: Real Filter Rules — done
+All five rules (`PriceRangeRule`, `BlocklistKeywordRule`, `RequiredKeywordRule`,
+`PublisherBlocklistRule`, `PriceDropRule`) plus `parse_price` are in `bazos/filters.py`,
+wired into `run_filter`'s `RuleEngine` in place of `PassthroughRule`. Migration
+`0021_emailpublisher_blocked_phonepublisher_blocked_and_more.py` adds
+`Query.filter_blocklist`/`filter_required` and `EmailPublisher.blocked`/`PhonePublisher.blocked`,
+admin exposes them (block/unblock actions on both publisher admins), and
+`bazos/tests/test_filters.py` covers each rule. Nothing left to do here.
 
-```
-Implement Stage 9 filter rules from PIPELINE_REFACTOR.md.
-
-Steps:
-1. Add `parse_price(price_raw: str) -> int | None` to `bazos/filters.py`.
-2. Add to `Query` model (with migration):
-   - `filter_blocklist = models.JSONField(default=list, blank=True)`
-   - `filter_required = models.JSONField(default=list, blank=True)`
-3. Add `blocked = models.BooleanField(default=False)` to `EmailPublisher` and `PhonePublisher` (with migration).
-4. Implement these `FilterRule` classes in `bazos/filters.py`:
-   - `PriceRangeRule` — rejects if parsed price outside query.price_lower/upper (PASS when range is 0-0 or price non-numeric)
-   - `BlocklistKeywordRule` — rejects if name or short_description contains any blocklist phrase (PASS when list empty)
-   - `RequiredKeywordRule` — rejects if name and short_description contain none of the required keywords (PASS when list empty)
-   - `PublisherBlocklistRule` — rejects if email_publisher.blocked or phone_publisher.blocked
-   - `PriceDropRule` — for PRICE_CHANGED ads only: rejects if price did NOT drop
-5. Wire all rules into the `RuleEngine` in `run_filter` management command (replace `PassthroughRule`).
-6. Update `QueryAdmin` and `EmailPublisherAdmin`/`PhonePublisherAdmin` to expose the new fields.
-7. Write unit tests for each rule in `bazos/tests/test_filters.py`.
-```
+> 📄 P17 below (per-query filter rule registry) is still open — `run_filter` currently
+> applies this same fixed five-rule list to every ad site-wide. Worth doing next if a
+> future optional rule (LLM or otherwise) needs to be opted into per query instead.
 
 ---
 
@@ -201,7 +187,7 @@ restart properly if the DB becomes temporarily unavailable.
 ---
 
 ### P13 — Filter-before-detail-fetch ordering
-> ⚠️ Depends on P5 (real filter rules).
+> ✅ P5 (real filter rules) is done — unblocked.
 
 ```
 Avoid paying for load_full_description() on ads that P5's rules would reject anyway.
@@ -312,8 +298,9 @@ Steps:
 ### P17 — Per-query filter rule registry
 > Extracted from [`LLM_AD_REVIEW_DESIGN.md`](./LLM_AD_REVIEW_DESIGN.md) §1 — worth building
 > regardless of whether the LLM-review proposal in that doc ever moves forward. Small, general,
-> reusable for any future optional rule. Best done alongside or right after P5, since it changes
-> how `run_filter` selects rules.
+> reusable for any future optional rule.
+> ✅ P5 is done — unblocked, the five real rules referenced below now exist in
+> `bazos/filters.py` rather than being hypothetical.
 
 ```
 Multiple filters per query — replace run_filter's single fixed RuleEngine with a per-query
@@ -345,11 +332,11 @@ Steps:
 
 If you only have time for a few:
 1. ~~**P1** (price history)~~ — done
-2. **P5** (real filter rules) — highest user-visible value, now unblocked
-3. **P3** (Query extra_params) — 15 min, unblocks Vinted
-4. **P10** (coverage audit) — quick wins on confidence
+2. ~~**P5** (real filter rules)~~ — done
+3. **P17** (per-query filter registry) — small, general, best done right after P5, now unblocked
+4. **P3** (Query extra_params) — 15 min, unblocks Vinted
+5. **P10** (coverage audit) — quick wins on confidence
 
 Cheapest independent wins if you want a break from the pipeline stages:
-5. **P14** (interval tuning) — zero new data, zero dependencies
-6. **P15** (AND/OR probe) — ~1hr, just closes an unknown
-7. **P17** (per-query filter registry) — small, general, best done right after P5
+6. **P14** (interval tuning) — zero new data, zero dependencies
+7. **P15** (AND/OR probe) — ~1hr, just closes an unknown

@@ -172,7 +172,20 @@ class EmailPublisherAdmin(admin.ModelAdmin):
     list_display = (
         "bazos_id",
         "email",
+        "blocked",
     )
+    list_filter = ("blocked",)
+    actions = ["block_publishers", "unblock_publishers"]
+
+    @admin.action(description="Block selected publishers")
+    def block_publishers(self, request, queryset):
+        updated = queryset.update(blocked=True)
+        self.message_user(request, f"{updated} publisher(s) blocked successfully.")
+
+    @admin.action(description="Unblock selected publishers")
+    def unblock_publishers(self, request, queryset):
+        updated = queryset.update(blocked=False)
+        self.message_user(request, f"{updated} publisher(s) unblocked successfully.")
 
 
 @admin.register(PhonePublisher)
@@ -180,4 +193,17 @@ class PhonePublisherAdmin(admin.ModelAdmin):
     list_display = (
         "bazos_id",
         "phone",
+        "blocked",
     )
+    list_filter = ("blocked",)
+    actions = ["block_publishers", "unblock_publishers"]
+
+    @admin.action(description="Block selected publishers")
+    def block_publishers(self, request, queryset):
+        updated = queryset.update(blocked=True)
+        self.message_user(request, f"{updated} publisher(s) blocked successfully.")
+
+    @admin.action(description="Unblock selected publishers")
+    def unblock_publishers(self, request, queryset):
+        updated = queryset.update(blocked=False)
+        self.message_user(request, f"{updated} publisher(s) unblocked successfully.")

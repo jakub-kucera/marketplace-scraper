@@ -125,7 +125,7 @@ explicit sign-off `LLM_AD_REVIEW_DESIGN.md` §4 already flagged for seller outre
 | Per-ad button: **"📈 Price history"** | Formats and posts `ad.price_history.all()` — the `PriceChange` records P1 already builds. Zero new API calls, pure DB read; pairs naturally with the watcher (§2.1), which is what keeps this populated for ads no longer in a query's normal scan window. |
 | Per-ad button: **"📊 Price context"** | Where this ad's price falls against a rolling median/percentile for similar recent listings in the same category — the internal baseline `BAZOS_API_DISCOVERY_PIPELINE.md` §2 Stage 2 already designed for filtering, surfaced on demand instead of only running silently in the background. "Is this actually a good deal" as an answerable question, not just a filter's internal signal. |
 | Per-ad button: **"🕵️ Repost check"** | Has this seller posted this same item before, under a different `external_id`? Matches title/price/locality similarity against your own accumulated `Ad` archive for the same publisher — `BAZOS_API_DISCOVERY_PIPELINE.md` §3.3's same-seller-repost detection, fully designed, never built, and free — it only touches data already collected. |
-| Per-ad button: **"❓ Why rejected"** | For a `REJECTED` ad, surface `ad.filter_reason` (already a field, currently only visible in Django admin) directly. Makes P5's rules debuggable from the notification itself instead of needing to open admin every time a filter seems to have made a wrong call. |
+| Per-ad button: **"❓ Why rejected"** | For a `REJECTED` ad, surface `ad.filter_reason` (already a field, currently only visible in Django admin) directly. Makes the Stage 9 rules (`PROMPTS.md` P5, done) debuggable from the notification itself instead of needing to open admin every time a filter seems to have made a wrong call. |
 | Per-ad button: **"📍 Distance"** | Using `zip.php` geocoding (`BAZOS_HIDDEN_API_RESEARCH.md` §6.4d, designed/unused) plus a configured home location, show actual distance instead of just the raw locality string. |
 
 ### Tier 1 — self-directed state changes (affects only your own scraper config/data)
@@ -136,7 +136,7 @@ explicit sign-off `LLM_AD_REVIEW_DESIGN.md` §4 already flagged for seller outre
 | Per-ad button: **"📖 Full description"** | On-demand `scraper.load_full_description(ad)` for one ad, for queries that don't have `load_full_description=True` by default (saves the request cost site-wide, still available per-ad when actually interesting). |
 | Per-ad button: **"🔇 Mute"** | Stop further re-notifications for *this ad* (e.g. `PRICE_CHANGED` re-alerts) without touching the whole query. |
 | Per-ad button: **"⭐ Favorite"** | Personal bookkeeping flag — no pipeline effect, just lets `/stats`-type queries and admin filtering surface "ads I cared about." |
-| Per-ad button: **"🚫 Blocklist seller"** | Sets `EmailPublisher.blocked`/`PhonePublisher.blocked` — directly wires into P5's `PublisherBlocklistRule` (`PROMPTS.md` P5) once that lands. Turns a manual Django-admin action into one click from the ad you're looking at. |
+| Per-ad button: **"🚫 Blocklist seller"** | Sets `EmailPublisher.blocked`/`PhonePublisher.blocked` — already wired into `PublisherBlocklistRule` (`PROMPTS.md` P5, done). Turns a manual Django-admin action into one click from the ad you're looking at. |
 | `/query enable <id>` / `/query disable <id>` | Mirrors `QueryAdmin`'s existing `enable_queries`/`disable_queries` admin actions — same effect, faster access. |
 | `/force-run [query_id]` | Global form mirrors the existing admin "Force run" button (`bazos/admin.py`'s `force_run_now`, touching `settings.FORCE_RUN_FLAG_PATH`). A **per-query** form is new — today's flag is a single global sentinel that wakes the whole runner; scoping it to one query needs a small addition (§3.3). |
 
@@ -252,8 +252,8 @@ history," "why rejected," and "repost check" (§2) need **no new fields at all**
 one new piece of config (a home location — a setting, e.g. `HOME_ZIP_CODE`, not a model field,
 since it's a property of the deployment/user, not of any `Ad`/`Query` row). "Price context"
 needs no new fields either, just a query over existing `Ad.price_raw`/`created`/`query.category`
-— though parsing `price_raw` into a comparable number depends on P5's `parse_price` helper
-(`PROMPTS.md` P5) existing first.
+— parsing `price_raw` into a comparable number can reuse `parse_price` (`bazos/filters.py`,
+`PROMPTS.md` P5, done).
 
 ### 3.2 New `AdWatch` model
 ```python
@@ -331,9 +331,8 @@ Worth being explicit about this, since it changes the efficient build order:
   Sentry actually sees crashes, instead of only `print()`) is the direct precedent for the
   heartbeat idea (§2.2) — same problem (silent failure, no one notices until they happen to
   check), different, redundant channel for noticing it.
-- **`PROMPTS.md` P5**'s `parse_price` helper is a soft dependency for the "price context" button
-  (§2) — comparing prices numerically needs the same parsing P5 already has to build for
-  `PriceRangeRule`, so this button is naturally sequenced after P5 rather than before it.
+- **`PROMPTS.md` P5** (done) built `parse_price` for `PriceRangeRule` — the "price context" button
+  (§2) can reuse it directly for comparing prices numerically, no new parsing needed.
 
 ---
 
@@ -342,7 +341,7 @@ Worth being explicit about this, since it changes the efficient build order:
 | Phase | Scope | Risk |
 |---|---|---|
 | 1 | Bot infra (`discord.py`, `run_discord_bot`, allowlist auth) + `DiscordSender` migration to bot-token sends with components + Tier 0/1 commands (`/query list`, `/stats`, `/health`, daily heartbeat, watch/mute/favorite/blocklist buttons, seller-lookup buttons, price-history/why-rejected/distance buttons, per-query force-run) | Low — all self-directed or read-only, and none of these need new data beyond what's already collected |
-| 2 | `AdWatch` + `run_ad_watch` process, wiring in sold/removed detection; repost-check and price-context buttons (the latter after P5's `parse_price` lands) | Low — extends already-built P1 logic and existing archive data |
+| 2 | `AdWatch` + `run_ad_watch` process, wiring in sold/removed detection; repost-check and price-context buttons (`parse_price` already available from P5) | Low — extends already-built P1 logic and existing archive data |
 | 3 | `/watch <free text>` LLM-assisted query creation, with a confirm-before-create step | Medium — LLM interpreting intent into a live config, mitigated by requiring confirmation |
 | 4 | Draft-seller-message button (`LLM_AD_REVIEW_DESIGN.md` §4.2's actual delivery mechanism); outcome-tracking reaction as a follow-on once drafts exist | Medium — third-party-facing content, but human-drafted-and-reviewed, human-sent |
 | — | Auto-send via email/WhatsApp/SMS | **Explicitly not part of this plan** — same separate decision as `LLM_AD_REVIEW_DESIGN.md` §4.3 |

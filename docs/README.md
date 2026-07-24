@@ -24,7 +24,7 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 | 5 · Query priority | not started |
 | 6–7 · Marketplace abstraction (`external_id`/`marketplace` rename, `MarketplaceScraper`/`Sendable` protocols) | ✅ done |
 | 8 · VintedScraper | not started (design ready, see `STAGE8_VINTED_DESIGN.md`) |
-| 9 · Real filter rules (only `PassthroughRule` exists) | not started |
+| 9 · Real filter rules (`PriceRangeRule`, `BlocklistKeywordRule`, `RequiredKeywordRule`, `PublisherBlocklistRule`, `PriceDropRule`) | ✅ done |
 
 ## `bazos-api/` — Bazos's undocumented mobile JSON API
 
