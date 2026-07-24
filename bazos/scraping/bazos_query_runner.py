@@ -3,6 +3,7 @@ import requests
 
 from bazos.const import NEW_PRODUCT_LOAD_MAX
 from bazos.models import Ad, AdStatus, Query
+from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 from bazos.scraping.marketplace import MarketplaceScraper
 
@@ -13,9 +14,15 @@ def _build_scrapers(session: requests.Session) -> dict[str, MarketplaceScraper]:
     """Return the registry of available scrapers, keyed by marketplace name.
 
     Add new entries here when new marketplaces are implemented (Stage 8+).
+
+    "bazos_api" (BazosApiScraper, see docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md)
+    is registered for validation only — no production Query currently uses it,
+    so the normal run_scraper loop is unaffected. Compare it against "bazos"
+    with `python manage.py compare_bazos_scrapers`.
     """
     return {
         "bazos": BazosScraper(session),
+        "bazos_api": BazosApiScraper(session),
         # "vinted": VintedScraper(session),   # Stage 8
     }
 

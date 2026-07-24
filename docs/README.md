@@ -37,3 +37,10 @@ Reverse-engineered from the decompiled Android app. Read in this order:
 This body of work is independent of the `refactor/` pipeline stages — it's about *how* Bazos
 is scraped, not the PENDING→APPROVED→SENT pipeline. Not yet wired into `PIPELINE_REFACTOR.md`'s
 stage list as a decision has not been made to pursue it.
+
+**Status (2026-07-24):** Stage B is implemented — `BazosApiScraper`
+(`bazos/scraping/bazos/bazos_api_scraper.py`) is a second `MarketplaceScraper`
+registered under `marketplace="bazos_api"` for validation only; the production
+`run_scraper` loop is untouched since no `Query` uses that value. Compare it
+against the HTML scraper with `python manage.py compare_bazos_scrapers`. See
+`BAZOS_HIDDEN_API_RESEARCH.md` §8 Stage B for details.

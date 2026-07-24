@@ -784,10 +784,26 @@ real JSON responses into `bazos/tests/fixtures/` for tests (the payloads in §5.
 §5.2 can seed these directly), and re-verify sustained-load rate-limit behavior
 under real Tor rotation before removing the existing backoff/blacklist safety net.
 
-### Stage B — `BazosApiScraper` implementing the `MarketplaceScraper` protocol
-New file `bazos/scraping/bazos/bazos_api_scraper.py`. Must satisfy
-`bazos/scraping/marketplace.py` (`marketplace` attr, `run_query`,
-`load_full_description`, `check_blacklisted`) so it's a peer of `BazosScraper`.
+### Stage B — `BazosApiScraper` implementing the `MarketplaceScraper` protocol — **done, 2026-07-24**
+`bazos/scraping/bazos/bazos_api_scraper.py` implements this, satisfying
+`bazos/scraping/marketplace.py` as a peer of `BazosScraper`. Registered in
+`BazosQueryRunner._build_scrapers()` under `marketplace = "bazos_api"` —
+**inert for production**, since no existing `Query` row uses that value, so
+`run_scraper` stays HTML-only until a `Query` is deliberately switched over.
+Unit tests (`bazos/tests/test_bazos_api_scraper.py`) cover query-param mapping,
+listing/detail JSON parsing, pagination against `x-total-count`, the `410`
+sold/removed case, and blacklist detection, using real captured payloads in
+`bazos/tests/fixtures/bazos_api/`. For live side-by-side validation against the
+HTML scraper on real `Query` rows (read-only, no DB writes), run
+`python manage.py compare_bazos_scrapers`.
+
+Not yet implemented (left for a follow-up once Stage B is validated in
+production): the richer Stage D fields (`price_type`/`currency`/`images`/GPS/
+`user_ads_count`), `AdStatus.REMOVED` sold-detection sweep, and the
+`ratings.php` seller-reputation enrichment — all additive and independent of
+this scraper working at all.
+
+Original plan, for reference:
 
 - `marketplace = "bazos_api"` (or reuse `"bazos"` behind a feature flag).
 - `run_query(query)`:
