@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
 from django.db.models import Max
@@ -7,6 +8,7 @@ from django.db.models.functions import Coalesce
 from django.http import HttpResponseRedirect
 from django.urls import path
 
+from bazos.filters import RULE_REGISTRY
 from bazos.models import Query, Ad, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
@@ -64,8 +66,22 @@ class SectionAdmin(admin.ModelAdmin):
     inlines = (CategoryInline,)
 
 
+class QueryAdminForm(forms.ModelForm):
+    filter_rule_names = forms.MultipleChoiceField(
+        choices=[(name, name.replace("_", " ").title()) for name in RULE_REGISTRY],
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        help_text="Filter rules applied to this query. None checked = all rules (default).",
+    )
+
+    class Meta:
+        model = Query
+        fields = "__all__"
+
+
 @admin.register(Query)
 class QueryAdmin(admin.ModelAdmin):
+    form = QueryAdminForm
     list_display = (
         "pk",
         "text",
