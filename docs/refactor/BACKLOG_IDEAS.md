@@ -58,6 +58,10 @@ under the radar), not by order of appearance above.
 > (2026-07-24) — LLM review/outreach opt-ins are properties of a *query's* interest in an ad,
 > which today's single-`Ad`-row model can't represent per-query. Not a blocker for a first
 > version of that proposal, but a reason to revisit this sooner if both move forward together.
+>
+> **Also referenced by** [`DISCORD_BOT_DESIGN.md`](../refactor/DISCORD_BOT_DESIGN.md) §3.1
+> (2026-07-24) — per-ad Discord message-id tracking hits the same one-`Ad`-row-per-delivery
+> assumption. Third independent proposal to want this; worth weighting accordingly.
 
 **Source**: [#39](https://github.com/jakub-kucera/marketplace-scrapper/issues/39). Already flagged
 as a TODO in code — `bazos/models.py:139` (`external_id` comment: "requires M:N to queries") and
@@ -178,7 +182,10 @@ text only (`discord_notify.Notifier.send(message)`, `discord_sender.py`) — no 
 Both issues bundle two different problems together; worth separating explicitly:
 
 > **Promoted to `PROMPTS.md` as P16** (2026-07-24) — ready-to-run steps there, this section
-> remains the fuller rationale.
+> remains the fuller rationale. **Also converges with**
+> [`DISCORD_BOT_DESIGN.md`](../refactor/DISCORD_BOT_DESIGN.md) §1.4/§5 — that proposal
+> independently needs the same move off plain-text `discord_notify` webhooks onto real
+> embeds/components; worth building once rather than twice if both are ever picked up.
 
 ### 3a. Attach a thumbnail to the Discord message — cheap, low-risk, decoupled from 3b
 

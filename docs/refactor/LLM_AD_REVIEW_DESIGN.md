@@ -3,6 +3,11 @@
 > Status: **proposal, not scheduled**. Not wired into `PIPELINE_REFACTOR.md`'s stage list or
 > `PROMPTS.md` — this needs an explicit decision (especially on outreach, §4) before either
 > happens. Nothing here has been built.
+>
+> **See also**: [`DISCORD_BOT_DESIGN.md`](./DISCORD_BOT_DESIGN.md) (2026-07-24) — its Tier 3
+> "draft message to seller" button is effectively this doc's §4.2 delivery mechanism, triggered
+> on-demand per ad instead of automatically for every `llm_outreach_enabled` query. The §4.1/4.3
+> recommendation against auto-sending carries over unchanged.
 
 ## 0. The idea, as floated
 
