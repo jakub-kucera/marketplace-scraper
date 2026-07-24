@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bazos.models import Ad, AdStatus
+from bazos.models import Ad, AdStatus, PriceChange
 from bazos.scraping.bazos_query_runner import BazosQueryRunner
 
 
@@ -231,3 +231,98 @@ def test_new_query_without_ignore_first_run_does_not_call_discord(query, make_ad
          patch.object(ds_module.DiscordSender, "send_sendable") as mock_send:
         runner.run_new_query()
     mock_send.assert_not_called()
+
+
+# --- Stage 4: price-change detection (_get_known) ---
+
+@pytest.mark.django_db
+def test_get_known_returns_none_for_unseen_ad(query, make_ad):
+    runner = make_runner(query)
+    product = make_ad(query, bazos_id=111)
+    assert runner._get_known(product) is None
+
+
+@pytest.mark.django_db
+def test_get_known_returns_existing_ad(query, make_ad):
+    existing = make_ad(query, bazos_id=111)
+    existing.save()
+    runner = make_runner(query)
+    product = make_ad(query, bazos_id=111)
+    assert runner._get_known(product) == existing
+
+
+@pytest.mark.django_db
+def test_existing_query_creates_price_change_on_price_drop(query, make_ad):
+    existing = make_ad(query, bazos_id=111)
+    existing.price_raw = "1 000 Kč"
+    existing.status = AdStatus.SENT
+    existing.save()
+
+    product = make_ad(query, bazos_id=111, topped=False)
+    product.price_raw = "800 Kč"
+
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_existing_query()
+
+    price_change = PriceChange.objects.get(ad=existing)
+    assert price_change.old_price == "1 000 Kč"
+    assert price_change.new_price == "800 Kč"
+
+
+@pytest.mark.django_db
+def test_existing_query_updates_price_raw_and_status_on_price_change(query, make_ad):
+    existing = make_ad(query, bazos_id=111)
+    existing.price_raw = "1 000 Kč"
+    existing.status = AdStatus.SENT
+    existing.save()
+
+    product = make_ad(query, bazos_id=111, topped=False)
+    product.price_raw = "800 Kč"
+
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_existing_query()
+
+    existing.refresh_from_db()
+    assert existing.price_raw == "800 Kč"
+    assert existing.status == AdStatus.PRICE_CHANGED
+
+
+@pytest.mark.django_db
+def test_existing_query_does_not_create_price_change_when_price_unchanged(query, make_ad):
+    existing = make_ad(query, bazos_id=111)
+    existing.price_raw = "1 000 Kč"
+    existing.status = AdStatus.SENT
+    existing.save()
+
+    product = make_ad(query, bazos_id=111, topped=False)
+    product.price_raw = "1 000 Kč"
+
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_existing_query()
+
+    existing.refresh_from_db()
+    assert not PriceChange.objects.filter(ad=existing).exists()
+    assert existing.status == AdStatus.SENT
+
+
+@pytest.mark.django_db
+def test_existing_query_price_change_on_topped_ad_still_continues_scan(query, make_ad):
+    existing = make_ad(query, bazos_id=111)
+    existing.price_raw = "1 000 Kč"
+    existing.status = AdStatus.SENT
+    existing.save()
+
+    changed_product = make_ad(query, bazos_id=111, topped=True)
+    changed_product.price_raw = "800 Kč"
+    new_product = make_ad(query, bazos_id=222, topped=False)
+
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([changed_product, new_product])):
+        runner.run_existing_query()
+
+    assert PriceChange.objects.filter(ad=existing).exists()
+    assert Ad.objects.filter(query=query, external_id=222).exists()
+    assert runner.new_product_counter == 1

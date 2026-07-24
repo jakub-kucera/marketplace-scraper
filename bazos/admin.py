@@ -7,7 +7,7 @@ from django.db.models.functions import Coalesce
 from django.http import HttpResponseRedirect
 from django.urls import path
 
-from bazos.models import Query, Ad, Section, Category, EmailPublisher, PhonePublisher, QueryRun
+from bazos.models import Query, Ad, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
 class CategoryInline(admin.TabularInline):
@@ -141,6 +141,13 @@ class QueryRunAdmin(admin.ModelAdmin):
     list_filter = ("query", )
 
 
+class PriceChangeInline(admin.TabularInline):
+    model = PriceChange
+    extra = 0
+    readonly_fields = ("old_price", "new_price", "created")
+    can_delete = False
+
+
 @admin.register(Ad)
 class AdAdmin(admin.ModelAdmin):
     list_display = (
@@ -157,6 +164,7 @@ class AdAdmin(admin.ModelAdmin):
     list_filter = ("status", "marketplace", "query", HasFullDescriptionFilter)
     search_fields = ("name", "external_id", "url")
     readonly_fields = ("external_id", "marketplace", "status", "filter_reason", "sent_at", "send_attempts")
+    inlines = (PriceChangeInline,)
 
 
 @admin.register(EmailPublisher)

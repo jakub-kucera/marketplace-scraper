@@ -187,6 +187,15 @@ class Ad(TimeStampedModel):
         return self.url
 
 
+class PriceChange(TimeStampedModel):
+    ad = models.ForeignKey(Ad, on_delete=models.CASCADE, related_name="price_history")
+    old_price = models.CharField(max_length=30)
+    new_price = models.CharField(max_length=30)
+
+    def __str__(self):
+        return f"{self.ad} | {self.old_price} -> {self.new_price}"
+
+
 class PhonePublisher(TimeStampedModel):
     bazos_id = models.IntegerField(db_index=True, unique=True)
     # Todo use phone number field. Have some conversion with prefix, so it matches FB DB. Has to be valid ob Bazos?

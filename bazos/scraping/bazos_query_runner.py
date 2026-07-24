@@ -2,7 +2,7 @@ import logging
 import requests
 
 from bazos.const import NEW_PRODUCT_LOAD_MAX
-from bazos.models import Ad, AdStatus, Query
+from bazos.models import Ad, AdStatus, PriceChange, Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 from bazos.scraping.marketplace import MarketplaceScraper
@@ -35,12 +35,12 @@ class BazosQueryRunner:
         self.scraper: MarketplaceScraper = scrapers[query.marketplace]
         self.new_product_counter = 0
 
-    def _is_known(self, product: Ad) -> bool:
+    def _get_known(self, product: Ad) -> Ad | None:
         return Ad.objects.filter(
             query=self.query,
             marketplace=product.marketplace,
             external_id=product.external_id,
-        ).exists()
+        ).first()
 
     def _handle_new_product(self, product: Ad):
         logger.info("New product %s", product)
@@ -70,11 +70,24 @@ class BazosQueryRunner:
 
     def run_existing_query(self):
         for product in self.scraper.run_query(self.query):
-            if not self._is_known(product):
+            existing = self._get_known(product)
+            if existing is None:
                 product.query = self.query
                 self._handle_new_product(product)
             else:
-                logger.debug("Product already exists %s", product)
+                if existing.price_raw != product.price_raw:
+                    logger.info(
+                        "Price changed for ad %d: %s -> %s", existing.pk, existing.price_raw, product.price_raw
+                    )
+                    PriceChange.objects.create(
+                        ad=existing,
+                        old_price=existing.price_raw,
+                        new_price=product.price_raw,
+                    )
+                    existing.price_raw = product.price_raw
+                    existing.status = AdStatus.PRICE_CHANGED
+                    existing.save(update_fields=["price_raw", "status"])
+                logger.debug("Product already exists %s", existing)
                 if product.topped:
                     logger.debug("TOP product — continuing")
                 else:
