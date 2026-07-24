@@ -10,10 +10,10 @@
 > reading before starting new Bazos-scraper work.
 >
 > [`LLM_AD_REVIEW_DESIGN.md`](./LLM_AD_REVIEW_DESIGN.md) (proposal, not scheduled) builds
-> directly on Stage 9 below — a per-query rule registry generalizing `RuleEngine`, plus an
-> LLM-judge stage proposed to follow it. Worth reading before implementing Stage 9 if that
-> generalization is likely to happen soon after, so the rule engine isn't built around a
-> single fixed rule list that then needs reworking.
+> directly on Stage 9 below (✅ done, with a fixed rule list) — a per-query rule registry
+> generalizing `RuleEngine`, plus an LLM-judge stage proposed to follow it. See
+> `PROMPTS.md` P17 for the ready-to-run per-query-registry step, which now applies to the
+> real Stage 9 rules rather than a hypothetical set.
 
 ## Problem
 
@@ -549,7 +549,7 @@ New scraper behind the `MarketplaceScraper` interface. Vinted has an unofficial 
 
 ---
 
-## Stage 9 — Real Filter Rules
+## ✅ Stage 9 — Real Filter Rules
 
 With the Stage 3 plumbing proven, implement actual rules.
 
@@ -606,6 +606,15 @@ class EmailPublisher(TimeStampedModel):
 
 **Files**: `bazos/filters.py`, `bazos/models.py`, new migration
 
+**Done** (2026-07-24): all five rules are implemented in `bazos/filters.py` exactly as
+above, wired into `run_filter`'s `RuleEngine` in place of `PassthroughRule`
+(`PassthroughRule` itself stays in `filters.py` as a no-op baseline, used only by tests
+now). Migration `0021_emailpublisher_blocked_phonepublisher_blocked_and_more.py` adds
+`Query.filter_blocklist`/`filter_required` and `EmailPublisher.blocked`/`PhonePublisher.blocked`.
+Admin exposes `blocked` (list_display/list_filter + block/unblock actions on both
+publisher admins); `Query`'s new JSON fields show on the default change form since
+`QueryAdmin` sets no restrictive `fields`/`fieldsets`. Unit tests in `bazos/tests/test_filters.py`.
+
 ---
 
 ## Migration Path (implementation steps)
@@ -636,7 +645,7 @@ Structural refactor — no behaviour change.
 ### Step 8: Implement `VintedScraper`
 New scraper behind the shared interface. Add Vinted queries.
 
-### Step 9: Add real filter rules
+### ✅ Step 9: Add real filter rules
 Replace `PassthroughRule` with actual rule implementations.
 
 ---

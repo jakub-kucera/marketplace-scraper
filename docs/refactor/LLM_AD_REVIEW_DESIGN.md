@@ -13,8 +13,8 @@
 
 Two related but separable capabilities:
 
-1. After an ad passes the existing (cheap, deterministic) filter rules from Stage 9
-   (`PIPELINE_REFACTOR.md`, `bazos/filters.py`), run it through an LLM for a subtler judgment
+1. After an ad passes the existing (cheap, deterministic) filter rules from Stage 9 (✅ done —
+   `PIPELINE_REFACTOR.md`, `bazos/filters.py`), run it through an LLM for a subtler judgment
    call — "is this actually what I'm looking for," "does this look legit," "is this genuinely
    a good deal." This implies **multiple filters need to apply per query**, since the LLM
    check is presumably expensive/opt-in, not something every query wants.
@@ -34,10 +34,11 @@ people — and deserves its own explicit sign-off, not a quiet default.
 > **Promoted to `PROMPTS.md` as P17** (2026-07-24) — ready-to-run steps there, independent of
 > the rest of this proposal. This section remains the fuller rationale.
 
-**Current state**: `run_filter.py` builds one `RuleEngine` at module load —
-`rule_engine = RuleEngine(rules=[PassthroughRule()])` (and, once P5 lands, a fixed list of the
-five Stage 9 rules) — applied identically to every `Ad` regardless of which `Query` produced
-it. There's no per-query control over which rules run.
+**Current state**: `run_filter.py` builds one `RuleEngine` at module load — now (P5, done) a
+fixed list of the five Stage 9 rules (`PriceRangeRule`, `BlocklistKeywordRule`,
+`RequiredKeywordRule`, `PublisherBlocklistRule`, `PriceDropRule`) — applied identically to
+every `Ad` regardless of which `Query` produced it. There's no per-query control over which
+rules run.
 
 **Proposal**: a small rule registry + a `Query`-level list of rule names.
 
@@ -58,8 +59,8 @@ def build_rule_engine(query: "Query") -> RuleEngine:
 ```
 
 `Query.filter_rule_names = models.JSONField(default=list, blank=True)` — empty means "all the
-free, default rules," matching the existing "empty config → permissive" convention P5 already
-uses for `filter_blocklist`/`filter_required`. `run_filter`'s loop calls
+free, default rules," matching the existing "empty config → permissive" convention P5 (done)
+already uses for `filter_blocklist`/`filter_required`. `run_filter`'s loop calls
 `build_rule_engine(ad.query)` per ad instead of using a module-level singleton — cheap (just
 dict lookups, no I/O), so no performance concern doing it per ad inside the existing
 `transaction.atomic()` block.

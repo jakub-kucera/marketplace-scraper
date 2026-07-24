@@ -58,6 +58,9 @@ class Query(TimeStampedModel):
     randomly_generated = models.BooleanField(default=False)
     marketplace = models.CharField(max_length=20, default="bazos")
 
+    filter_blocklist = models.JSONField(default=list, blank=True, help_text="Reject if name/description contains any of these phrases.")
+    filter_required = models.JSONField(default=list, blank=True, help_text="Reject unless name/description contains at least one of these phrases.")
+
     sender = models.ForeignKey('senders.Discord', on_delete=models.SET_NULL, null=True, related_name='queries')
     # logger_id
     # TODO Ads
@@ -201,9 +204,11 @@ class PhonePublisher(TimeStampedModel):
     # Todo use phone number field. Have some conversion with prefix, so it matches FB DB. Has to be valid ob Bazos?
     phone = models.CharField(max_length=30, null=True, blank=True)
     fb_user = models.ForeignKey('facebook.FBUser', on_delete=models.PROTECT, related_name='phone_publishers', null=True, blank=True)
+    blocked = models.BooleanField(default=False)
 
 
 class EmailPublisher(TimeStampedModel):
     bazos_id = models.IntegerField(db_index=True, unique=True)
     # Todo use email field
     email = models.CharField(max_length=30, null=True, blank=True)  # Is really unique?
+    blocked = models.BooleanField(default=False)
