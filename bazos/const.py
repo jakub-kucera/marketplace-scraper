@@ -19,6 +19,10 @@ BAZOS_BASE_URL: Final[str] = "https://bazos.cz"
 BAZOS_URL: Final[str] = "https://bazos.cz/search.php"
 BAZOS_BLACKLIST_CHECK_URL: Final[str] = "https://www.bazos.cz/search.php?hledat=iphone&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat&kitx=ano"
 BAZOS_API_BASE_URL: Final[str] = "https://www.bazos.cz/api/v1"
+# Server-enforced hard cap on `ads.php`'s `limit` param, confirmed live —
+# see docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md §4.0. Requesting more is
+# silently clamped back down to this value.
+API_PAGE_SIZE: Final[int] = 210
 
 NEW_PRODUCT_LOAD_MAX: Final[int] = 50
 

@@ -1,0 +1,296 @@
+"""Tests for BazosApiScraper — the hidden-API-based MarketplaceScraper impl.
+
+Fixture JSON under fixtures/bazos_api/ is captured verbatim from live probes
+documented in docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md (§5.1 listing, §5.2
+detail).
+"""
+import copy
+import json
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+import requests
+from django.utils import timezone
+
+from bazos.models import Ad, EmailPublisher, PhonePublisher, Query
+from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
+from bazos.scraping.bazos.bazos_scraper import BazosScraper
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "bazos_api"
+
+
+def load_fixture(name: str) -> dict:
+    return json.loads((FIXTURES_DIR / name).read_text())
+
+
+def make_listing_item(**overrides) -> dict:
+    item = copy.deepcopy(load_fixture("listing_item.json"))
+    item.update(overrides)
+    return item
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, json_data=None, headers=None):
+        self.status_code = status_code
+        self._json_data = json_data
+        self.headers = headers or {}
+
+    def json(self):
+        return self._json_data
+
+
+# ---------------------------------------------------------------------------
+# _build_query_params — pure, no DB access to the API
+# ---------------------------------------------------------------------------
+
+class TestBuildQueryParams:
+    def test_maps_text_category_and_location(self, query):
+        params = BazosApiScraper._build_query_params(query)
+        assert params["query"] == "macbook"
+        assert params["category"] == query.category.bazos_id
+        assert params["zip_code"] == "12345"
+        assert params["distance"] == 25
+        assert params["sort"] == "date"
+
+    def test_zero_price_is_omitted(self, query):
+        params = BazosApiScraper._build_query_params(query)
+        assert "price_from" not in params
+        assert "price_to" not in params
+
+    def test_nonzero_price_is_included(self, category):
+        query = Query.objects.create(
+            text="iphone", category=category, price_lower=100, price_upper=500,
+        )
+        params = BazosApiScraper._build_query_params(query)
+        assert params["price_from"] == 100
+        assert params["price_to"] == 500
+
+    def test_section_only_query_maps_section_not_category(self, section):
+        query = Query.objects.create(text="", section=section, price_lower=0, price_upper=0)
+        params = BazosApiScraper._build_query_params(query)
+        assert params["section"] == section.bazos_id
+        assert "category" not in params
+
+    def test_no_location_omits_zip_and_distance(self, category):
+        query = Query.objects.create(text="test", category=category, location_center="", price_lower=0, price_upper=0)
+        params = BazosApiScraper._build_query_params(query)
+        assert "zip_code" not in params
+        assert "distance" not in params
+
+
+# ---------------------------------------------------------------------------
+# _parse_listing_item / extract_product — pure JSON parsing, no DB
+# ---------------------------------------------------------------------------
+
+class TestParseListingItem:
+    def test_external_id_is_int(self):
+        parsed = BazosApiScraper._parse_listing_item(make_listing_item())
+        assert parsed["external_id"] == 221354384
+        assert isinstance(parsed["external_id"], int)
+
+    def test_name_from_title(self):
+        parsed = BazosApiScraper._parse_listing_item(make_listing_item(title="Test Ad"))
+        assert parsed["name"] == "Test Ad"
+
+    def test_price_raw_from_price_formatted(self):
+        parsed = BazosApiScraper._parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
+        assert parsed["price_raw"] == "1 000 Kč"
+
+    def test_view_count_is_int(self):
+        parsed = BazosApiScraper._parse_listing_item(make_listing_item(views="42"))
+        assert parsed["view_count"] == 42
+        assert isinstance(parsed["view_count"], int)
+
+    def test_topped_true_string_parses_to_bool_true(self):
+        parsed = BazosApiScraper._parse_listing_item(make_listing_item(topped="true"))
+        assert parsed["topped"] is True
+
+    def test_topped_false_string_parses_to_bool_false(self):
+        parsed = BazosApiScraper._parse_listing_item(make_listing_item(topped="false"))
+        assert parsed["topped"] is False
+
+    def test_publish_date_is_timezone_aware(self):
+        parsed = BazosApiScraper._parse_listing_item(make_listing_item(**{"from": "2026-07-19 09:45:51"}))
+        assert timezone.is_aware(parsed["publish_date"])
+
+    def test_publish_date_values(self):
+        parsed = BazosApiScraper._parse_listing_item(make_listing_item(**{"from": "2026-07-19 09:45:51"}))
+        d = parsed["publish_date"]
+        assert (d.year, d.month, d.day, d.hour, d.minute) == (2026, 7, 19, 9, 45)
+
+
+class TestExtractProduct:
+    def test_returns_ad_with_bazos_api_marketplace(self):
+        ad = BazosApiScraper.extract_product(make_listing_item())
+        assert isinstance(ad, Ad)
+        assert ad.marketplace == "bazos_api"
+
+    def test_short_description_is_empty_thin_payload(self):
+        ad = BazosApiScraper.extract_product(make_listing_item())
+        assert ad.short_description == ""
+
+    def test_publishers_unset_until_detail_fetch(self):
+        ad = BazosApiScraper.extract_product(make_listing_item())
+        assert ad.email_publisher_id is None
+        assert ad.phone_publisher_id is None
+
+
+# ---------------------------------------------------------------------------
+# check_blacklisted
+# ---------------------------------------------------------------------------
+
+class TestCheckBlacklisted:
+    def test_returns_false_on_200(self):
+        scraper = BazosApiScraper(session=MagicMock())
+        scraper.session.get.return_value = FakeResponse(status_code=200, json_data=[])
+        assert scraper.check_blacklisted() is False
+
+    def test_returns_true_on_403(self):
+        scraper = BazosApiScraper(session=MagicMock())
+        scraper.session.get.return_value = FakeResponse(status_code=403, json_data={})
+        assert scraper.check_blacklisted() is True
+
+    def test_returns_true_on_429(self):
+        scraper = BazosApiScraper(session=MagicMock())
+        scraper.session.get.return_value = FakeResponse(status_code=429, json_data={})
+        assert scraper.check_blacklisted() is True
+
+    def test_assumes_ok_when_request_fails(self):
+        scraper = BazosApiScraper(session=MagicMock())
+        scraper.session.get.side_effect = requests.exceptions.ConnectionError()
+        assert scraper.check_blacklisted() is False
+
+
+# ---------------------------------------------------------------------------
+# run_query — pagination against x-total-count
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestRunQuery:
+    def _scraper_not_blacklisted(self, monkeypatch):
+        import bazos.scraping.bazos.bazos_api_scraper as mod
+        monkeypatch.setattr(mod, "sleep", lambda s: None)
+        scraper = BazosApiScraper(session=MagicMock())
+        return scraper
+
+    def test_paginates_until_total_count_reached(self, monkeypatch, query):
+        scraper = self._scraper_not_blacklisted(monkeypatch)
+
+        page1 = [make_listing_item(id=str(i)) for i in (1, 2)]
+        page2 = [make_listing_item(id=str(i)) for i in (3,)]
+        check_blacklist_response = FakeResponse(status_code=200, json_data=[])
+
+        def fake_get(url, params=None, headers=None):
+            if params.get("limit") == 1:
+                return check_blacklist_response
+            if params["offset"] == 0:
+                return FakeResponse(status_code=200, json_data=page1, headers={"x-total-count": "3"})
+            if params["offset"] == 2:
+                return FakeResponse(status_code=200, json_data=page2, headers={"x-total-count": "3"})
+            return FakeResponse(status_code=200, json_data=[], headers={"x-total-count": "3"})
+
+        scraper.session.get.side_effect = fake_get
+
+        ads = list(scraper.run_query(query))
+        assert [ad.external_id for ad in ads] == [1, 2, 3]
+
+    def test_stops_on_empty_page_when_total_count_missing(self, monkeypatch, query):
+        scraper = self._scraper_not_blacklisted(monkeypatch)
+
+        page1 = [make_listing_item(id=str(i)) for i in (1, 2)]
+        check_blacklist_response = FakeResponse(status_code=200, json_data=[])
+
+        def fake_get(url, params=None, headers=None):
+            if params.get("limit") == 1:
+                return check_blacklist_response
+            if params["offset"] == 0:
+                return FakeResponse(status_code=200, json_data=page1, headers={})
+            return FakeResponse(status_code=200, json_data=[], headers={})
+
+        scraper.session.get.side_effect = fake_get
+
+        ads = list(scraper.run_query(query))
+        assert [ad.external_id for ad in ads] == [1, 2]
+
+    def test_raises_when_blacklisted(self, monkeypatch, query):
+        from bazos.exceptions import BazosBlacklistedError
+
+        scraper = self._scraper_not_blacklisted(monkeypatch)
+        scraper.session.get.return_value = FakeResponse(status_code=403, json_data={})
+
+        with pytest.raises(BazosBlacklistedError):
+            list(scraper.run_query(query))
+
+
+# ---------------------------------------------------------------------------
+# load_full_description
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestLoadFullDescription:
+    def test_sets_full_description(self, make_ad, query):
+        ad = make_ad(query, bazos_id=221354384)
+        scraper = BazosApiScraper(session=MagicMock())
+        detail = load_fixture("ad_detail.json")
+        scraper.session.get.return_value = FakeResponse(status_code=200, json_data=detail)
+
+        result = scraper.load_full_description(ad)
+
+        assert result.full_description == detail["description"]
+
+    def test_resolves_publishers_from_email_and_phone_id(self, make_ad, query):
+        ad = make_ad(query, bazos_id=221354384)
+        scraper = BazosApiScraper(session=MagicMock())
+        detail = load_fixture("ad_detail.json")
+        scraper.session.get.return_value = FakeResponse(status_code=200, json_data=detail)
+
+        result = scraper.load_full_description(ad)
+
+        assert result.email_publisher.bazos_id == int(detail["email_id"])
+        assert result.phone_publisher.bazos_id == int(detail["phone_id"])
+        assert EmailPublisher.objects.filter(bazos_id=int(detail["email_id"])).exists()
+        assert PhonePublisher.objects.filter(bazos_id=int(detail["phone_id"])).exists()
+
+    def test_handles_410_deleted_without_raising(self, make_ad, query):
+        ad = make_ad(query, bazos_id=999)
+        scraper = BazosApiScraper(session=MagicMock())
+        scraper.session.get.return_value = FakeResponse(
+            status_code=410, json_data={"idad": "1", "status": "deleted"}
+        )
+
+        result = scraper.load_full_description(ad)
+
+        assert result.full_description is None
+
+    def test_returns_product_unchanged_when_request_fails(self, make_ad, query):
+        ad = make_ad(query, bazos_id=111)
+        scraper = BazosApiScraper(session=MagicMock())
+        scraper.session.get.side_effect = requests.exceptions.ConnectionError()
+
+        result = scraper.load_full_description(ad)
+
+        assert result is ad
+        assert result.full_description is None
+
+
+# ---------------------------------------------------------------------------
+# Registry — confirms normal Query rows (marketplace="bazos") still get the
+# HTML scraper, and "bazos_api" is available but not production-wired.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestScraperRegistry:
+    def test_registry_includes_both_scrapers(self):
+        from bazos.scraping.bazos_query_runner import _build_scrapers
+
+        scrapers = _build_scrapers(MagicMock())
+        assert isinstance(scrapers["bazos"], BazosScraper)
+        assert isinstance(scrapers["bazos_api"], BazosApiScraper)
+
+    def test_default_query_marketplace_still_resolves_html_scraper(self, query):
+        from bazos.scraping.bazos_query_runner import BazosQueryRunner
+
+        assert query.marketplace == "bazos"
+        runner = BazosQueryRunner(query, MagicMock())
+        assert isinstance(runner.scraper, BazosScraper)

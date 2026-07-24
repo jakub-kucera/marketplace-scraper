@@ -52,6 +52,7 @@ run_sender   →  DiscordSender (senders/services/)              # APPROVED → 
 **Marketplace abstraction** (Stages 6–7):
 - `bazos/scraping/marketplace.py` — `MarketplaceScraper` **Protocol** (`marketplace` attr, `run_query`, `load_full_description`, `check_blacklisted`). `BazosScraper` satisfies it structurally.
 - `BazosQueryRunner._build_scrapers()` is the registry keyed by `query.marketplace`; add new marketplaces there.
+- `bazos/scraping/bazos/bazos_api_scraper.py` — `BazosApiScraper`, a second `MarketplaceScraper` using Bazos's hidden mobile JSON API instead of HTML (see `docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md`). Registered under `marketplace="bazos_api"` for validation only (`python manage.py compare_bazos_scrapers`) — no `Query` uses that value, so `run_scraper` stays HTML-only (`BazosScraper`) in production.
 - `bazos/protocols.py` — `Sendable` Protocol (`.message`, `.link`), replaces the old `SendableMixin` ABC. `Ad` implements it.
 
 **Key models** (`bazos/models.py`):
