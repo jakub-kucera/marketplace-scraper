@@ -79,16 +79,13 @@ Steps:
 
 ### ✅ P5 — Stage 9: Real Filter Rules — done
 All five rules (`PriceRangeRule`, `BlocklistKeywordRule`, `RequiredKeywordRule`,
-`PublisherBlocklistRule`, `PriceDropRule`) plus `parse_price` are in `bazos/filters.py`,
-wired into `run_filter`'s `RuleEngine` in place of `PassthroughRule`. Migration
+`PublisherBlocklistRule`, `PriceDropRule`) plus `parse_price` are in `bazos/filters.py`. Migration
 `0021_emailpublisher_blocked_phonepublisher_blocked_and_more.py` adds
 `Query.filter_blocklist`/`filter_required` and `EmailPublisher.blocked`/`PhonePublisher.blocked`,
 admin exposes them (block/unblock actions on both publisher admins), and
-`bazos/tests/test_filters.py` covers each rule. Nothing left to do here.
-
-> 📄 P17 below (per-query filter rule registry) is still open — `run_filter` currently
-> applies this same fixed five-rule list to every ad site-wide. Worth doing next if a
-> future optional rule (LLM or otherwise) needs to be opted into per query instead.
+`bazos/tests/test_filters.py` covers each rule. Nothing left to do here. (`run_filter` no longer
+uses a fixed `RuleEngine([PassthroughRule()])`/`RuleEngine([...five rules])` — see P17 below,
+also done, for how rule selection is now per-query.)
 
 ---
 
@@ -295,36 +292,16 @@ Steps:
 
 ---
 
-### P17 — Per-query filter rule registry
-> Extracted from [`LLM_AD_REVIEW_DESIGN.md`](./LLM_AD_REVIEW_DESIGN.md) §1 — worth building
-> regardless of whether the LLM-review proposal in that doc ever moves forward. Small, general,
-> reusable for any future optional rule.
-> ✅ P5 is done — unblocked, the five real rules referenced below now exist in
-> `bazos/filters.py` rather than being hypothetical.
-
-```
-Multiple filters per query — replace run_filter's single fixed RuleEngine with a per-query
-rule selection, so a future optional/expensive rule (LLM or otherwise) can be opted into per
-query instead of running for every ad site-wide.
-
-Steps:
-1. In `bazos/filters.py`, add a `RULE_REGISTRY: dict[str, FilterRule]` mapping rule name ->
-   instance for the five Stage 9 rules (`price_range`, `blocklist_keyword`, `required_keyword`,
-   `publisher_blocklist`, `price_drop`), and `DEFAULT_RULE_NAMES = list(RULE_REGISTRY)`.
-2. Add `build_rule_engine(query: Query) -> RuleEngine` that returns
-   `RuleEngine([RULE_REGISTRY[name] for name in (query.filter_rule_names or DEFAULT_RULE_NAMES)])`.
-3. Add `Query.filter_rule_names = models.JSONField(default=list, blank=True)` (migration) —
-   empty means "all default rules," matching the existing empty-config-is-permissive convention
-   already used for `filter_blocklist`/`filter_required`.
-4. Update `run_filter`'s loop to call `build_rule_engine(ad.query)` per ad instead of using a
-   module-level `rule_engine` singleton — cheap (dict lookups only, no I/O), fine to do inside
-   the existing `transaction.atomic()` block.
-5. Update `QueryAdmin` to expose `filter_rule_names` (a multi-select of `RULE_REGISTRY` keys is
-   nicer than a raw JSON widget, but raw JSON is fine for a first pass).
-6. Write tests: default (empty list) applies all five rules; a query with e.g.
-   `["price_range"]` only applies that one; an unknown name in the list should raise clearly
-   rather than silently no-op (fail loudly on a typo/removed rule name).
-```
+### ✅ P17 — Per-query filter rule registry — done
+`RULE_REGISTRY` (name → rule instance for all five Stage 9 rules) and `DEFAULT_RULE_NAMES` are
+in `bazos/filters.py`, along with `build_rule_engine(query)` — empty `filter_rule_names` applies
+all default rules, a subset (e.g. `["price_range"]`) applies only those, and an unknown name
+raises `ValueError` (fail loudly on a typo). `Query.filter_rule_names` (migration
+`0022_query_filter_rule_names.py`) exposes it — shows on `QueryAdmin`'s default form (raw JSON
+widget, per the original "fine for a first pass" note; no multi-select built yet). `run_filter`'s
+loop now calls `build_rule_engine(ad.query)` per ad instead of a module-level singleton. Tests in
+`bazos/tests/test_filters.py` cover the registry, the default/subset/unknown-name cases, and that
+a scoped rule set doesn't apply rules outside its list. Nothing left to do here.
 
 ---
 
@@ -333,7 +310,7 @@ Steps:
 If you only have time for a few:
 1. ~~**P1** (price history)~~ — done
 2. ~~**P5** (real filter rules)~~ — done
-3. **P17** (per-query filter registry) — small, general, best done right after P5, now unblocked
+3. ~~**P17** (per-query filter registry)~~ — done
 4. **P3** (Query extra_params) — 15 min, unblocks Vinted
 5. **P10** (coverage audit) — quick wins on confidence
 

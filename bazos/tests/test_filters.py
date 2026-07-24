@@ -1,11 +1,14 @@
 """Unit tests for bazos/filters.py — FilterResult, RuleEngine, PassthroughRule,
-and the Stage 9 rules (PriceRangeRule, BlocklistKeywordRule, RequiredKeywordRule,
-PublisherBlocklistRule, PriceDropRule).
+the Stage 9 rules (PriceRangeRule, BlocklistKeywordRule, RequiredKeywordRule,
+PublisherBlocklistRule, PriceDropRule), and the P17 per-query rule registry
+(RULE_REGISTRY, build_rule_engine).
 """
 
 import pytest
 
 from bazos.filters import (
+    DEFAULT_RULE_NAMES,
+    RULE_REGISTRY,
     BlocklistKeywordRule,
     FilterResult,
     PassthroughRule,
@@ -14,6 +17,7 @@ from bazos.filters import (
     PublisherBlocklistRule,
     RequiredKeywordRule,
     RuleEngine,
+    build_rule_engine,
     parse_price,
 )
 from bazos.models import AdStatus, EmailPublisher, PhonePublisher, PriceChange
@@ -447,3 +451,66 @@ def test_price_drop_rule_uses_latest_price_change(query, make_ad):
 
     result, _ = PriceDropRule().apply(ad)
     assert result == FilterResult.REJECT
+
+
+# ---------------------------------------------------------------------------
+# RULE_REGISTRY / build_rule_engine (P17 — per-query filter rule registry)
+# ---------------------------------------------------------------------------
+
+def test_rule_registry_has_all_five_stage9_rules():
+    assert set(RULE_REGISTRY) == {
+        "price_range",
+        "blocklist_keyword",
+        "required_keyword",
+        "publisher_blocklist",
+        "price_drop",
+    }
+
+
+def test_default_rule_names_matches_registry():
+    assert DEFAULT_RULE_NAMES == list(RULE_REGISTRY)
+
+
+@pytest.mark.django_db
+def test_build_rule_engine_empty_list_applies_all_default_rules(query):
+    query.filter_rule_names = []
+    engine = build_rule_engine(query)
+    assert [rule.name for rule in engine.rules] == DEFAULT_RULE_NAMES
+
+
+@pytest.mark.django_db
+def test_build_rule_engine_subset_applies_only_named_rules(query):
+    query.filter_rule_names = ["price_range"]
+    engine = build_rule_engine(query)
+    assert [rule.name for rule in engine.rules] == ["price_range"]
+
+
+@pytest.mark.django_db
+def test_build_rule_engine_subset_preserves_order(query):
+    query.filter_rule_names = ["price_drop", "price_range"]
+    engine = build_rule_engine(query)
+    assert [rule.name for rule in engine.rules] == ["price_drop", "price_range"]
+
+
+@pytest.mark.django_db
+def test_build_rule_engine_unknown_name_raises(query):
+    query.filter_rule_names = ["not_a_real_rule"]
+    with pytest.raises(ValueError, match="not_a_real_rule"):
+        build_rule_engine(query)
+
+
+@pytest.mark.django_db
+def test_build_rule_engine_selected_rule_still_applies(query, make_ad):
+    """A query scoped to just price_range shouldn't apply blocklist_keyword."""
+    query.filter_rule_names = ["price_range"]
+    query.price_lower = 1000
+    query.price_upper = 2000
+    query.filter_blocklist = ["mint"]  # would normally reject this ad
+    ad = make_ad(query, bazos_id=150)
+    ad.price_raw = "1500 Kč"
+    ad.name = "Mint condition laptop"
+
+    engine = build_rule_engine(query)
+    result, reason = engine.apply(ad)
+    assert result == FilterResult.APPROVE
+    assert reason is None

@@ -60,6 +60,7 @@ class Query(TimeStampedModel):
 
     filter_blocklist = models.JSONField(default=list, blank=True, help_text="Reject if name/description contains any of these phrases.")
     filter_required = models.JSONField(default=list, blank=True, help_text="Reject unless name/description contains at least one of these phrases.")
+    filter_rule_names = models.JSONField(default=list, blank=True, help_text="Which filter rules to apply (empty = all default rules). Valid names: price_range, blocklist_keyword, required_keyword, publisher_blocklist, price_drop.")
 
     sender = models.ForeignKey('senders.Discord', on_delete=models.SET_NULL, null=True, related_name='queries')
     # logger_id
