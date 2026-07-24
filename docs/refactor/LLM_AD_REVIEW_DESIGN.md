@@ -29,18 +29,13 @@ people — and deserves its own explicit sign-off, not a quiet default.
 
 ---
 
-## 1. Multiple filters per query — a real, useful generalization
+## ✅ 1. Multiple filters per query — a real, useful generalization — done
 
-> **Promoted to `PROMPTS.md` as P17** (2026-07-24) — ready-to-run steps there, independent of
-> the rest of this proposal. This section remains the fuller rationale.
+> **Promoted to `PROMPTS.md` as P17** (2026-07-24), **done** (2026-07-25) — implemented exactly
+> as designed below. This section remains the fuller rationale.
 
-**Current state**: `run_filter.py` builds one `RuleEngine` at module load — now (P5, done) a
-fixed list of the five Stage 9 rules (`PriceRangeRule`, `BlocklistKeywordRule`,
-`RequiredKeywordRule`, `PublisherBlocklistRule`, `PriceDropRule`) — applied identically to
-every `Ad` regardless of which `Query` produced it. There's no per-query control over which
-rules run.
-
-**Proposal**: a small rule registry + a `Query`-level list of rule names.
+**Built**: `bazos/filters.py` has `RULE_REGISTRY` (name → instance for all five Stage 9 rules)
+and `DEFAULT_RULE_NAMES = list(RULE_REGISTRY)`, plus `build_rule_engine(query)`:
 
 ```python
 # bazos/filters.py
@@ -53,21 +48,25 @@ RULE_REGISTRY: dict[str, FilterRule] = {
 }
 DEFAULT_RULE_NAMES: list[str] = list(RULE_REGISTRY)  # all cheap rules on by default
 
-def build_rule_engine(query: "Query") -> RuleEngine:
+def build_rule_engine(query: Query) -> RuleEngine:
     names = query.filter_rule_names or DEFAULT_RULE_NAMES
-    return RuleEngine([RULE_REGISTRY[name] for name in names])
+    rules = [RULE_REGISTRY[name] for name in names]  # raises KeyError on a typo/removed name
+    return RuleEngine(rules)
 ```
 
-`Query.filter_rule_names = models.JSONField(default=list, blank=True)` — empty means "all the
-free, default rules," matching the existing "empty config → permissive" convention P5 (done)
-already uses for `filter_blocklist`/`filter_required`. `run_filter`'s loop calls
-`build_rule_engine(ad.query)` per ad instead of using a module-level singleton — cheap (just
-dict lookups, no I/O), so no performance concern doing it per ad inside the existing
-`transaction.atomic()` block.
+`Query.filter_rule_names` (`JSONField(default=list, blank=True)`, migration
+`0022_query_filter_rule_names.py`) — empty means "all the free, default rules," matching the
+existing "empty config → permissive" convention P5 already uses for
+`filter_blocklist`/`filter_required`. `run_filter`'s loop calls `build_rule_engine(ad.query)`
+per ad instead of using a module-level singleton — cheap (just dict lookups, no I/O), so no
+performance concern doing it per ad inside the existing `transaction.atomic()` block. An unknown
+rule name raises `ValueError` rather than silently no-opping. Tests in
+`bazos/tests/test_filters.py`.
 
-This is worth doing independent of the LLM idea — it's the mechanism that makes *any* future
+This was worth doing independent of the LLM idea — it's the mechanism that makes *any* future
 optional/expensive rule (LLM or otherwise) something a query opts into explicitly, rather than
-something that silently runs (and costs money) for every ad site-wide.
+something that silently runs (and costs money) for every ad site-wide. The LLM judge stage
+proposed below (§2) can now build on this directly instead of needing it built first.
 
 ---
 
@@ -269,12 +268,12 @@ conversation first is the one thing I'd actively push back on.
 
 | Piece | Recommendation |
 |---|---|
-| Multiple filters per query (§1) | Build — small, general, useful regardless of the LLM feature |
+| Multiple filters per query (§1) | ✅ Done — built independent of the LLM feature |
 | LLM judge as its own stage (§2) | Build, but as a new `run_llm_review` process + `AWAITING_LLM_REVIEW` status, **not** a `FilterRule` — needs a cost-cap/rate-limit spike first (§2f) |
 | Draft-and-suggest outreach via Discord (§4.2) | Build — low risk, reuses existing infra, human stays in the loop for actual contact |
 | Auto-send via email/WhatsApp/SMS (§4.1/§4.3) | **Do not build without a separate, explicit decision** — real ToS/compliance/spam exposure, ill-defined contact-channel access, qualitatively different from everything else this project does |
 
-If this moves forward, a reasonable sequencing: §1 (filter registry) → §2 (LLM judge stage,
-after its own small cost/rate-limit spike, mirroring how the Bazos API got probed before
+If this moves forward, a reasonable sequencing: ~~§1 (filter registry)~~ done → §2 (LLM judge
+stage, after its own small cost/rate-limit spike, mirroring how the Bazos API got probed before
 `BazosApiScraper` was built) → §4.2 (draft-only outreach). Treat §4.3 as its own future
 conversation, not a checkbox on this list.

@@ -16,7 +16,7 @@ import re
 from enum import Enum
 from typing import Protocol
 
-from bazos.models import Ad, AdStatus
+from bazos.models import Ad, AdStatus, Query
 
 
 class FilterResult(Enum):
@@ -156,3 +156,30 @@ class RuleEngine:
             if result != FilterResult.PASS:
                 return result, reason
         return FilterResult.APPROVE, None
+
+
+RULE_REGISTRY: dict[str, FilterRule] = {
+    "price_range": PriceRangeRule(),
+    "blocklist_keyword": BlocklistKeywordRule(),
+    "required_keyword": RequiredKeywordRule(),
+    "publisher_blocklist": PublisherBlocklistRule(),
+    "price_drop": PriceDropRule(),
+}
+DEFAULT_RULE_NAMES: list[str] = list(RULE_REGISTRY)
+
+
+def build_rule_engine(query: Query) -> RuleEngine:
+    """Build a RuleEngine from a query's `filter_rule_names`.
+
+    An empty list means "all default rules" — the same permissive-when-empty
+    convention already used for `filter_blocklist`/`filter_required`.
+    """
+    names = query.filter_rule_names or DEFAULT_RULE_NAMES
+    try:
+        rules = [RULE_REGISTRY[name] for name in names]
+    except KeyError as e:
+        raise ValueError(
+            f"Unknown filter rule name {e.args[0]!r} in Query {query.pk}.filter_rule_names "
+            f"(known rules: {DEFAULT_RULE_NAMES})"
+        ) from e
+    return RuleEngine(rules)

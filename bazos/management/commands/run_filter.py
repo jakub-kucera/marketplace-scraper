@@ -14,26 +14,10 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from bazos.const import FILTER_BATCH_SIZE, FILTER_POLL_INTERVAL
-from bazos.filters import (
-    BlocklistKeywordRule,
-    FilterResult,
-    PriceDropRule,
-    PriceRangeRule,
-    PublisherBlocklistRule,
-    RequiredKeywordRule,
-    RuleEngine,
-)
+from bazos.filters import FilterResult, build_rule_engine
 from bazos.models import Ad, AdStatus
 
 logger = logging.getLogger(__name__)
-
-rule_engine = RuleEngine(rules=[
-    PriceRangeRule(),
-    BlocklistKeywordRule(),
-    RequiredKeywordRule(),
-    PublisherBlocklistRule(),
-    PriceDropRule(),
-])
 
 
 class Command(BaseCommand):
@@ -51,7 +35,7 @@ class Command(BaseCommand):
                     .order_by("created")[:FILTER_BATCH_SIZE]
                 )
                 for ad in ads:
-                    result, reason = rule_engine.apply(ad)
+                    result, reason = build_rule_engine(ad.query).apply(ad)
                     if result != FilterResult.REJECT:
                         ad.status = AdStatus.APPROVED
                     else:

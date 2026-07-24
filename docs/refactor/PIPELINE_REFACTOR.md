@@ -10,10 +10,9 @@
 > reading before starting new Bazos-scraper work.
 >
 > [`LLM_AD_REVIEW_DESIGN.md`](./LLM_AD_REVIEW_DESIGN.md) (proposal, not scheduled) builds
-> directly on Stage 9 below (✅ done, with a fixed rule list) — a per-query rule registry
-> generalizing `RuleEngine`, plus an LLM-judge stage proposed to follow it. See
-> `PROMPTS.md` P17 for the ready-to-run per-query-registry step, which now applies to the
-> real Stage 9 rules rather than a hypothetical set.
+> directly on Stage 9 below (✅ done) — its §1 per-query rule registry generalizing `RuleEngine`
+> is also ✅ done (`PROMPTS.md` P17, `bazos/filters.py`'s `RULE_REGISTRY`/`build_rule_engine`).
+> Only the LLM-judge stage proposed to follow it remains unscheduled.
 
 ## Problem
 
