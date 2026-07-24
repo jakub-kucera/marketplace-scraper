@@ -11,14 +11,15 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 | [`STAGE8_VINTED_DESIGN.md`](refactor/STAGE8_VINTED_DESIGN.md) | Design doc for Stage 8 (VintedScraper + multi-marketplace `Query`), referenced from Stage 8 above. |
 | [`PROMPTS.md`](refactor/PROMPTS.md) | Ready-to-run prompts for implementing not-yet-done stages, ordered by dependency. |
 | [`BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) | Deeper dives on ideas mined from the GitHub issue tracker that aren't part of any numbered stage — cross-query dedup, async scraping, images, price/CV enrichment, interval tuning, query syntax. |
+| [`LLM_AD_REVIEW_DESIGN.md`](refactor/LLM_AD_REVIEW_DESIGN.md) | Proposal (not scheduled): an LLM-based ad judge as its own pipeline stage, and draft-only seller-outreach messages via Discord. Explicitly recommends against auto-sending messages to sellers without a separate decision. Its per-query multi-filter mechanism (§1) is independently ready-to-run — see `PROMPTS.md` P17. |
 | `archive/` | Superseded drafts, kept for history only — see banners in each file. |
 
-**Current stage status** (verified against code, 2026-07-19):
+**Current stage status** (verified against code, 2026-07-24):
 
 | Stage | Status |
 |---|---|
 | 1–3 · DB status machine, `run_filter`, `run_sender` | ✅ done |
-| 4 · Price history (`PriceChange` model) | not started |
+| 4 · Price history (`PriceChange` model) | ✅ done |
 | 5 · Query priority | not started |
 | 6–7 · Marketplace abstraction (`external_id`/`marketplace` rename, `MarketplaceScraper`/`Sendable` protocols) | ✅ done |
 | 8 · VintedScraper | not started (design ready, see `STAGE8_VINTED_DESIGN.md`) |

@@ -8,6 +8,12 @@
 > proposes replacing `BazosScraper`'s HTML scraping with Bazos's hidden JSON API —
 > a change to *how* Bazos is scraped, not to this pipeline's stage sequence. Worth
 > reading before starting new Bazos-scraper work.
+>
+> [`LLM_AD_REVIEW_DESIGN.md`](./LLM_AD_REVIEW_DESIGN.md) (proposal, not scheduled) builds
+> directly on Stage 9 below — a per-query rule registry generalizing `RuleEngine`, plus an
+> LLM-judge stage proposed to follow it. Worth reading before implementing Stage 9 if that
+> generalization is likely to happen soon after, so the rule engine isn't built around a
+> single fixed rule list that then needs reworking.
 
 ## Problem
 
@@ -294,7 +300,7 @@ def _handle_new_product(self, product: Ad):
 
 ---
 
-## Stage 4 — Enrichment: Price History
+## ✅ Stage 4 — Enrichment: Price History
 
 Track price changes on already-known ads. Scraper re-enters the pipeline for changed prices.
 
@@ -615,7 +621,7 @@ Set `status=PENDING` on save, `status=SENT` + `sent_at` after a successful send.
 ### ✅ Step 3: Deploy filter + sender, cut over scraper
 Start `run_filter` (PassthroughRule) and `run_sender`. Deploy scraper without `send_to_senders()`. Scraper is now send-free.
 
-### Step 4: Add `PriceChange` model
+### ✅ Step 4: Add `PriceChange` model
 Price-change detection in the dedup loop; `PRICE_CHANGED` re-enters the filter/sender pipeline.
 
 ### Step 5: Add `Query.priority`

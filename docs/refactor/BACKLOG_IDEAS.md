@@ -54,6 +54,11 @@ under the radar), not by order of appearance above.
 
 ## 1. Cross-query `Ad` dedup (M:N `Ad`↔`Query`)
 
+> **Referenced by** [`LLM_AD_REVIEW_DESIGN.md`](../refactor/LLM_AD_REVIEW_DESIGN.md) §3
+> (2026-07-24) — LLM review/outreach opt-ins are properties of a *query's* interest in an ad,
+> which today's single-`Ad`-row model can't represent per-query. Not a blocker for a first
+> version of that proposal, but a reason to revisit this sooner if both move forward together.
+
 **Source**: [#39](https://github.com/jakub-kucera/marketplace-scrapper/issues/39). Already flagged
 as a TODO in code — `bazos/models.py:139` (`external_id` comment: "requires M:N to queries") and
 `:161` ("TODO m:n relationship with Query (+ senders)") — but never designed.
@@ -172,6 +177,9 @@ text only (`discord_notify.Notifier.send(message)`, `discord_sender.py`) — no 
 
 Both issues bundle two different problems together; worth separating explicitly:
 
+> **Promoted to `PROMPTS.md` as P16** (2026-07-24) — ready-to-run steps there, this section
+> remains the fuller rationale.
+
 ### 3a. Attach a thumbnail to the Discord message — cheap, low-risk, decoupled from 3b
 
 The hidden API's listing response already includes `image_thumbnail` **at zero extra request
@@ -272,6 +280,9 @@ yet, unlike the Bazos-API-grounded ideas above which build on already-confirmed 
 
 ## 6. Posting-time-of-day analysis → interval tuning
 
+> **Promoted to `PROMPTS.md` as P14** (2026-07-24) — ready-to-run steps there, this section
+> remains the fuller rationale.
+
 **Source**: [#36](https://github.com/jakub-kucera/marketplace-scrapper/issues/36) ("analyse at what
 hours are posts most posted and change the interval changing logic").
 
@@ -295,6 +306,9 @@ already on hand, small and self-contained.
 ---
 
 ## 7. True AND/OR query support — unconfirmed, needs its own probe
+
+> **Promoted to `PROMPTS.md` as P15** (2026-07-24) — ready-to-run probe steps there, this
+> section remains the fuller rationale.
 
 **Source**: [#52](https://github.com/jakub-kucera/marketplace-scrapper/issues/52) ("the BE support
 AND and OR operator for search terms").

@@ -7,21 +7,10 @@ Ordered roughly by dependency — earlier prompts unblock later ones.
 
 ## 🔴 Blocked / Missing (pipeline stages not yet implemented)
 
-### P1 — Stage 4: Price History
-```
-Implement Stage 4 from PIPELINE_REFACTOR.md (Price History).
-
-Steps:
-1. Add `PriceChange` model to `bazos/models.py` (FK to Ad, `old_price`/`new_price` CharFields, use TimeStampedModel).
-2. The `PRICE_CHANGED` AdStatus value already exists.
-3. Refactor `_is_known` → `_get_known` in `bazos/scraping/bazos_query_runner.py` to return `Ad | None` instead of bool.
-4. Update `run_existing_query` to detect price changes and create `PriceChange` records.
-5. Generate migration `0020_price_change.py`.
-6. Add `PriceChange` to Django admin (inline on `AdAdmin`).
-7. Write tests for the price-change detection path.
-
-Do not touch Stage 5 yet.
-```
+### ✅ P1 — Stage 4: Price History — done
+`PriceChange` model, `_get_known` (renamed from `_is_known`, returns `Ad | None`), price-change
+detection in `run_existing_query`, migration `0020_price_change.py`, `PriceChangeInline` on
+`AdAdmin`, and tests are all in place. Nothing left to do here.
 
 ---
 
@@ -89,7 +78,11 @@ Steps:
 ---
 
 ### P5 — Stage 9: Real Filter Rules
-> ⚠️ Depends on P1 (price history) for `PriceDropRule`.
+> ✅ P1 is done — unblocked, `PriceDropRule` can rely on `PriceChange` now.
+> 📄 See P17 below (per-query filter rule registry, extracted from
+> [`LLM_AD_REVIEW_DESIGN.md`](./LLM_AD_REVIEW_DESIGN.md) §1) — not required for this prompt,
+> but worth doing alongside or right after it, so `run_filter`'s rule-selection logic isn't
+> built around a single fixed list and then reworked later.
 
 ```
 Implement Stage 9 filter rules from PIPELINE_REFACTOR.md.
@@ -207,10 +200,156 @@ restart properly if the DB becomes temporarily unavailable.
 
 ---
 
+### P13 — Filter-before-detail-fetch ordering
+> ⚠️ Depends on P5 (real filter rules).
+
+```
+Avoid paying for load_full_description() on ads that P5's rules would reject anyway.
+
+Context: none of P5's rules (PriceRangeRule, BlocklistKeywordRule, RequiredKeywordRule,
+PublisherBlocklistRule, PriceDropRule) read `full_description` — they only need fields
+already present on the Ad before load_full_description() is called (name, short_description,
+price_raw, publisher FKs). run_filter is deliberately decoupled from the scraper (no network/
+scraper access) — so the fix is a local heuristic pre-check in the scraper stage, NOT moving
+detail-fetching into run_filter. run_filter remains the sole authoritative owner of
+Ad.status transitions; this only skips a wasted HTTP request.
+
+Steps:
+1. In `bazos/scraping/bazos_query_runner.py::_handle_new_product`, before calling
+   `self.scraper.load_full_description(product)`, run the same `rule_engine` instance from
+   `bazos/filters.py` against `product` as a heuristic pre-check.
+2. If the pre-check result is REJECT, skip the `load_full_description` call (still save the
+   Ad as PENDING — run_filter still runs its own independent, authoritative check).
+3. Import/reuse the existing `rule_engine` instance rather than duplicating rule logic.
+4. Log when the pre-check's verdict would differ from run_filter's later verdict (should
+   never happen today since no rule reads full_description — this is a drift detector for
+   if that assumption changes later, e.g. a future rule that does inspect full_description).
+5. Write tests: rejected-by-cheap-rules ads don't trigger load_full_description; approved
+   ads still do; run_filter's final status is unaffected either way.
+```
+
+---
+
+### P14 — Posting-time-of-day → interval tuning
+> Promoted from `BACKLOG_IDEAS.md` #6 — see there for full rationale. No dependencies, no new
+> data collection; ready to run today.
+
+```
+Replace NightMultiplier's flat day/night 2x split with a real hourly posting-density curve.
+
+Steps:
+1. Query `Ad.objects.annotate(hour=ExtractHour("publish_date"), dow=ExtractWeekDay("publish_date"))`
+   (or similar) to bucket ad-discovery volume by hour and weekday from data already collected.
+2. Turn that into a lookup (hour/weekday -> relative posting density) that
+   `bazos/scraping/interval_multiplier.py`'s `NightMultiplier` can use internally, keeping
+   the same interface `BazosRunner.get_next_interval` already calls.
+3. Decide a reasonable minimum/maximum multiplier bound so a genuinely dead hour doesn't
+   produce an absurdly long sleep.
+4. Write tests for the new density-based multiplier logic (mock/fixture `Ad` timestamps).
+5. Consider logging the computed multiplier per pass for visibility during rollout.
+```
+
+---
+
+### P15 — True AND/OR query probe
+> Promoted from `BACKLOG_IDEAS.md` #7 — see there for full rationale. This is a probe/spike,
+> not a design — small and self-contained, kills an unconfirmed claim either way.
+
+```
+Confirm or refute whether Bazos's search (HTML form or hidden API `query` param) supports
+real boolean AND/OR operators, as issue #52 claimed but BAZOS_HIDDEN_API_RESEARCH.md never
+tested.
+
+Steps:
+1. Using the same live-probe methodology as BAZOS_HIDDEN_API_RESEARCH.md §7 (curl with a
+   faithful app User-Agent, see BAZOS_API_USER_AGENT.md), try plausible AND/OR syntaxes
+   against `api/v1/ads.php?query=...` — e.g. `"macbook" OR "imac"`, `macbook|imac`,
+   `macbook AND pro` — and compare `x-total-count`/results against known single-term baselines.
+2. Also check the HTML search form (`hledat=` param) for the same behavior, since the two
+   scrapers could differ.
+3. Document the result (confirmed/unconfirmed, and exact syntax if it works) in
+   BAZOS_HIDDEN_API_RESEARCH.md, following its existing "confirmed live" citation style.
+4. Only if confirmed: sketch how this would reduce Query row sprawl (e.g. one query for
+   "macbook" OR "imac" OR "ipad" instead of three rows) — as a follow-up idea, not part of
+   this prompt's scope.
+```
+
+---
+
+### P16 — Discord thumbnail embed
+> Promoted from `BACKLOG_IDEAS.md` #3a — see there for full rationale (including why this is
+> low-risk unlike #3b's image mirroring). One open sub-question below before starting.
+
+```
+Attach a thumbnail image to the Discord notification instead of plain text.
+
+Open question to resolve first: get the thumbnail URL from BazosApiScraper's listing
+payload (`image_thumbnail`, already parsed at zero extra request cost per
+BAZOS_HIDDEN_API_RESEARCH.md §5.1) — but that scraper isn't wired into production yet
+(marketplace="bazos_api" is validation-only, see BAZOS_HIDDEN_API_RESEARCH.md §8 Stage B) —
+or add thumbnail-URL parsing to the production HTML scraper now, independent of the API
+migration. Pick one before writing code; don't block this on the API scraper's rollout
+unless you're comfortable waiting for it.
+
+Steps:
+1. If going the HTML route: add a BeautifulSoup selector for the listing thumbnail `<img>`
+   to `bazos_scraper.py::_parse_product`, and an `Ad.thumbnail_url` field (migration).
+   If going the API route: read `image_thumbnail` in `bazos_api_scraper.py::extract_product`
+   (already parsing the same payload) into the same new field.
+2. Check whether `discord_notify` (current dependency) supports embeds; if not, evaluate
+   swapping to `discord-webhook` (the package the original issue linked) for `DiscordSender`.
+3. Update `DiscordSender._format_product_message` (or add a sibling method) to build an
+   embed with the thumbnail instead of a plain-text webhook post.
+4. Confirm Discord's own servers fetch the embed image server-side (not the scraper's IP) —
+   this is what makes it safe versus #3b's mirroring concern; no code needed, just a sanity
+   check against a live test webhook.
+5. Write tests for the new message-building path (mock the Discord client, assert the embed
+   payload shape).
+```
+
+---
+
+### P17 — Per-query filter rule registry
+> Extracted from [`LLM_AD_REVIEW_DESIGN.md`](./LLM_AD_REVIEW_DESIGN.md) §1 — worth building
+> regardless of whether the LLM-review proposal in that doc ever moves forward. Small, general,
+> reusable for any future optional rule. Best done alongside or right after P5, since it changes
+> how `run_filter` selects rules.
+
+```
+Multiple filters per query — replace run_filter's single fixed RuleEngine with a per-query
+rule selection, so a future optional/expensive rule (LLM or otherwise) can be opted into per
+query instead of running for every ad site-wide.
+
+Steps:
+1. In `bazos/filters.py`, add a `RULE_REGISTRY: dict[str, FilterRule]` mapping rule name ->
+   instance for the five Stage 9 rules (`price_range`, `blocklist_keyword`, `required_keyword`,
+   `publisher_blocklist`, `price_drop`), and `DEFAULT_RULE_NAMES = list(RULE_REGISTRY)`.
+2. Add `build_rule_engine(query: Query) -> RuleEngine` that returns
+   `RuleEngine([RULE_REGISTRY[name] for name in (query.filter_rule_names or DEFAULT_RULE_NAMES)])`.
+3. Add `Query.filter_rule_names = models.JSONField(default=list, blank=True)` (migration) —
+   empty means "all default rules," matching the existing empty-config-is-permissive convention
+   already used for `filter_blocklist`/`filter_required`.
+4. Update `run_filter`'s loop to call `build_rule_engine(ad.query)` per ad instead of using a
+   module-level `rule_engine` singleton — cheap (dict lookups only, no I/O), fine to do inside
+   the existing `transaction.atomic()` block.
+5. Update `QueryAdmin` to expose `filter_rule_names` (a multi-select of `RULE_REGISTRY` keys is
+   nicer than a raw JSON widget, but raw JSON is fine for a first pass).
+6. Write tests: default (empty list) applies all five rules; a query with e.g.
+   `["price_range"]` only applies that one; an unknown name in the list should raise clearly
+   rather than silently no-op (fail loudly on a typo/removed rule name).
+```
+
+---
+
 ## Order recommendation
 
 If you only have time for a few:
-1. **P1** (price history) — unlocks PriceDropRule in Stage 9
-2. **P3** (Query extra_params) — 15 min, unblocks Vinted
-3. **P5** (real filter rules) — highest user-visible value
+1. ~~**P1** (price history)~~ — done
+2. **P5** (real filter rules) — highest user-visible value, now unblocked
+3. **P3** (Query extra_params) — 15 min, unblocks Vinted
 4. **P10** (coverage audit) — quick wins on confidence
+
+Cheapest independent wins if you want a break from the pipeline stages:
+5. **P14** (interval tuning) — zero new data, zero dependencies
+6. **P15** (AND/OR probe) — ~1hr, just closes an unknown
+7. **P17** (per-query filter registry) — small, general, best done right after P5
