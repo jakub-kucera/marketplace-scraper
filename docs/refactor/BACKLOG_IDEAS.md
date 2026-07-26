@@ -26,6 +26,7 @@ under the radar), not by order of appearance above.
 | 3b | Self-host image mirror | **L** (storage + serving + retention) | 3a | **Defer** |
 | 4 | External price cross-referencing (Heureka) | **L**, high uncertainty | its own unresearched spike | **Defer** |
 | 5 | Computer-vision item recognition | **L**, speculative | idea #3 (images) + vendor pick | **Defer, lowest** |
+| 8 | Full-listing rescan flag (comprehensive price-drop detection) | **S** structurally (~1hr); **M** with the cap/throttle guardrail it needs | nothing, but must ship with a page cap/throttle | **Do soon, but scope narrowly** |
 
 **Why this order:**
 
@@ -49,6 +50,11 @@ under the radar), not by order of appearance above.
   dependency (#4's Heureka endpoint, #5's vendor choice) or an unconfirmed benefit (#3b's
   click-tracking risk isn't observed to be a real problem yet). None block anything else — lowest
   urgency by construction.
+- **#8 is cheap to build but easy to misuse** — the code change itself is a few lines, but enabling
+  it on a broad category-scoped query multiplies request volume by orders of magnitude on *every*
+  pass, not once (see its own section for the measured numbers). Worth doing soon since it's small
+  and unblocks real price-drop detection, but only alongside a page cap/throttle guardrail and
+  strictly as an opt-in for narrow queries — not a flag to flip broadly.
 
 ---
 
@@ -331,6 +337,78 @@ broader queries" theme already argues for (§1: category-scoped over narrow keyw
 query for `"macbook" OR "imac" OR "ipad"` instead of three separate `Query` rows. But this needs a
 small, targeted live probe (same methodology as `BAZOS_HIDDEN_API_RESEARCH.md` §7) before any model
 change is designed around it.
+
+---
+
+## 8. Full-listing rescan flag — comprehensive price-drop detection
+
+> **Related but distinct**: [`DISCORD_BOT_DESIGN.md`](../refactor/DISCORD_BOT_DESIGN.md) §2.1/§3.2
+> (2026-07-24) already designs `AdWatch` — a per-ad "👁 Watch this ad" model plus a `run_ad_watch`
+> poll loop — for the *same* underlying gap (an ad that scrolls out of a query's newest-first scan
+> window never gets re-checked). `AdWatch` solves it for a user-curated set of *specific* ads, cheaply,
+> via the bulk `ads.php?ad_id[]=` recheck (`BAZOS_HIDDEN_API_RESEARCH.md` §5.3, §8 Stage D) — up to 210
+> known ids per call, no listing pagination at all. This idea (#8) solves the broader case — catching a
+> drop on *any* ad in a query's full result set, not just ones a human already flagged — at
+> proportionally higher cost (§ below). Pick #8 only when the ads worth watching aren't known in
+> advance; reach for `AdWatch` first when they are, since it's the same payoff for far less request
+> volume.
+
+**Source**: internal design discussion (2026-07-26) — not from the GitHub issue tracker. A proposed
+extension to the existing-query dedup logic, motivated by wanting `PriceDropRule` (Stage 9, already
+built — see `PROMPTS.md` P5) to actually see price drops on old listings, instead of only whatever
+ad happens to sit at a given pass's dedup boundary.
+
+### The actual problem: price-change detection today is incidental, not comprehensive
+
+`run_existing_query` (`bazos_query_runner.py:71-95`) walks a query's results newest→oldest and stops
+at the first known non-TOP ad, assuming (correctly) that everything older was already seen — this is
+the "Existing-query dedup" behavior noted in `CLAUDE.md`. But that means price is only ever re-checked
+for two kinds of ad per pass: known TOP ads encountered before the break (they don't trigger it), and
+the single known ad that causes the break. Every other older known ad is never revisited after its
+first discovery — if its seller drops the price six weeks later, buried on page 9 of the listing,
+nothing will ever notice. `PriceDropRule` (`filters.py:120`) already exists specifically to reject
+non-drop `PRICE_CHANGED` re-notifications, but it's starved of data past the boundary ad — it can only
+ever act on the one ad each pass happens to stop at.
+
+### The proposed mechanism
+
+A per-query opt-in boolean (same pattern as `load_full_description`/`ignore_first_run`) — e.g.
+`Query.full_rescan` — that changes the branch at `bazos_query_runner.py:91-95`: instead of `break` on
+a known non-TOP ad, `continue`, exactly like the existing TOP-ad case already does. Every known ad the
+query has ever seen then gets its price compared on every pass, and on a drop gets the existing
+`PriceChange`/`AdStatus.PRICE_CHANGED` treatment (`bazos_query_runner.py:78-89`) — no new pipeline
+mechanics needed, `run_filter` and `PriceDropRule` already handle `PRICE_CHANGED` re-entry correctly.
+
+### The real cost — quantified from `PROXY_ROTATION_RESEARCH.md`
+
+`run_query` (`bazos_scraper.py:210-235`) is a lazy per-page generator with a sleep between every page
+fetch (`BAZOS_PAGE_WAIT_TIME`) — breaking early is *why* per-pass cost is low today.
+`PROXY_ROTATION_RESEARCH.md:179` measures this directly: "steady-state each category still resolves in
+~1 request/pass (dedup breaks at the first known non-TOP id)." Flipping that off for a query changes
+its cost from O(1) request/pass to O(listing size / `PAGE_SIZE`) requests **every single pass,
+forever** — for the doc's own `auto` category example (49,372 active listings), that's hundreds of
+requests per pass instead of one, at whatever cadence that query runs (240 passes/day at a 5-min
+interval per the doc's model). It also serializes badly: queries run strictly sequentially, sharing
+one Tor session (`BazosRunner.run()`, see idea #2 above), so one deep-rescan query would dominate
+wall-clock and delay every other query's turn during its pass.
+
+### Recommendation
+
+Build it as a narrowly-scoped opt-in, not a general-purpose toggle:
+
+- Per-query boolean, off by default, exactly like `load_full_description`.
+- Document (and ideally guard in code/admin) that it should only be enabled on small/narrow queries —
+  explicitly warn against combining it with the "broader category-scoped queries" direction
+  `BAZOS_API_DISCOVERY_PIPELINE.md` pushes toward, since that's exactly where the cost multiplies
+  worst.
+- Add a hard page cap or a "only every Nth pass" throttle so the recurring cost is bounded rather than
+  paid on every interval forever — a full walk doesn't need to happen every 15–45 minutes to still
+  catch a price drop days later.
+- Pairs naturally with idea #6 (interval tuning) if that's ever built — a full-rescan query is a good
+  candidate for its own, much longer interval, independent of the rest of the fleet.
+- Before reaching for this, check whether `AdWatch` (see the cross-reference above) already covers the
+  actual need — if the ads worth tracking are a small, known set, watching them individually is
+  strictly cheaper than rescanning the whole query on their behalf.
 
 ---
 
