@@ -13,6 +13,7 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 | [`BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) | Deeper dives on ideas mined from the GitHub issue tracker that aren't part of any numbered stage — cross-query dedup, async scraping, images, price/CV enrichment, interval tuning, query syntax. |
 | [`LLM_AD_REVIEW_DESIGN.md`](refactor/LLM_AD_REVIEW_DESIGN.md) | Proposal (not scheduled): an LLM-based ad judge as its own pipeline stage, and draft-only seller-outreach messages via Discord. Explicitly recommends against auto-sending messages to sellers without a separate decision. Its per-query multi-filter mechanism (§1) was independently built — see `PROMPTS.md` P17 (done). |
 | [`DISCORD_BOT_DESIGN.md`](refactor/DISCORD_BOT_DESIGN.md) | Proposal (not scheduled): replace webhook-only notifications with a real Discord bot (gateway-based, not a public HTTP endpoint — see §1 for why) enabling per-ad watch/mute/favorite/blocklist buttons, seller lookups, on-demand full-description fetch, and query control from Discord. Connects to and partly supersedes `LLM_AD_REVIEW_DESIGN.md` §4.2's outreach delivery mechanism — see its §5 for the full cross-reference map. |
+| [`JOB_QUEUE_DESIGN.md`](refactor/JOB_QUEUE_DESIGN.md) | Proposal (not scheduled): generalize `run_filter`/`run_sender`'s DB-polling pattern into a generic `Job` model + registry + `run_jobs` worker, so new recurring/on-demand work (`AdWatch`, full-rescan, seller enrichment, LLM review, ...) becomes a new job type instead of a new hand-rolled process/docker-compose service. Catalogs candidate jobs sourced from `BACKLOG_IDEAS.md` #6/#8, `DISCORD_BOT_DESIGN.md`, `BAZOS_API_DISCOVERY_PIPELINE.md`, and `LLM_AD_REVIEW_DESIGN.md`. |
 | `archive/` | Superseded drafts, kept for history only — see banners in each file. |
 
 **Current stage status** (verified against code, 2026-07-24):
@@ -39,6 +40,14 @@ Reverse-engineered from the decompiled Android app. Read in this order:
 This body of work is independent of the `refactor/` pipeline stages — it's about *how* Bazos
 is scraped, not the PENDING→APPROVED→SENT pipeline. Not yet wired into `PIPELINE_REFACTOR.md`'s
 stage list as a decision has not been made to pursue it.
+
+## `proxies/` — replacing Tor for Bazos requests
+
+| Doc | What it's for |
+|---|---|
+| [`PROXY_ROTATION_RESEARCH.md`](proxies/PROXY_ROTATION_RESEARCH.md) | Why Tor (IP reputation) and the old single Surfshark VPN (per-IP rate) both failed; the fix (rotating **residential**, CZ-geo); **live-measured** request/bandwidth volumes (via `bench_proxy.py` at repo root) incl. the "run more often" cadence math, the broad **scrape-all** scenario, and the **download-all-images** scenario (77+ GB/mo → split transport: images on cheap datacenter, API on residential); 2026 provider pricing; and an `HttpProxyIPChanger` integration sketch behind `IP_CHANGER_TYPE=HTTP_PROXY`. |
+
+The throwaway benchmark it references lives at [`bench_proxy.py`](../bench_proxy.py) (repo root).
 
 **Status (2026-07-24):** Stage B is implemented — `BazosApiScraper`
 (`bazos/scraping/bazos/bazos_api_scraper.py`) is a second `MarketplaceScraper`
