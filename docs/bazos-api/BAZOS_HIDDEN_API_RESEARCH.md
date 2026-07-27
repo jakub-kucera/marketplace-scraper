@@ -10,7 +10,14 @@
 > have now been checked against the live API (direct connection, no Tor) — see
 > §7 for the full probe log. Auth-free access, the real pagination cap, the
 > listing-vs-detail field split, and several new endpoints are now **confirmed**,
-> not inferred. Anything still unconfirmed is marked explicitly.
+> not inferred. Anything still unconfirmed is marked explicitly. **Update
+> 2026-07-26:** issue #52's AND/OR claim probed live — see §4.1a. `OR` is a real
+> boolean union operator (confirmed via near-exact union arithmetic); `AND` is not
+> an operator at all, just literal text, and silently narrows results if used.
+> Follow-up probe (§4.1b) also identified the actual search mechanism: plain SQL
+> substring `LIKE`, not MySQL FULLTEXT boolean mode as initially suspected — no
+> wildcard/`+require`/`~rank` operators work, but substring matching means Czech
+> word declension is already handled for free with no special syntax needed.
 
 ---
 
@@ -214,6 +221,145 @@ available (§6.4 / §8).
   dropped the total from 6984 to 6781 (excluding "case"-mentioning results) while
   keeping otherwise-matching ads. Space-separated, appended after the base phrase.
 - Empty `SearchOptions` serializes to `""`.
+
+### 4.1a Boolean `OR` — confirmed real, `AND` — confirmed fake (live, 2026-07-26)
+
+Issue #52 claimed the backend supports AND/OR operators; this was never tested in
+the original 2026-07-19 pass. Probed directly (no Tor, unblocked connection) against
+both surfaces — `api/v1/ads.php` (`query=`) and the HTML `search.php` (`hledat=`),
+which return **identical `x-total-count`/"Zobrazeno X z Y" totals** for every query
+below, confirming both hit the same backend index/logic.
+
+**`OR` is a real boolean union operator, not literal text.** Evidence — union
+arithmetic matches almost exactly, which plain literal-substring matching could not
+produce:
+
+| Query | Total (API / HTML) |
+|---|---|
+| `iphone` | 6940 / 6940 |
+| `traktor` | 11542 / 11542 |
+| `iphone OR traktor` | **18481** / 18481 |
+| `macbook` | 1615 / 1615 |
+| `imac` | 215 / 215 |
+| `macbook imac` (implicit AND, both terms) | 57 / — |
+| `macbook OR imac` | **1788** / 1788 |
+| `macbook OR imac OR ipad` (ipad=1072) | 2794 / — |
+
+`iphone` + `traktor` (two unrelated categories, near-zero real overlap) sums to
+18482 — the `OR` query returned 18481, essentially exact. `macbook` + `imac` −
+overlap (1615 + 215 − 57 = 1773) is close to the observed 1788 (small delta
+consistent with live index churn between requests, ads posted/removed mid-probe).
+A literal-token reading (`query` AND `"or"` AND `imac`, all required) would predict
+a tiny number, not a value exceeding either baseline — ruled out. Also confirmed:
+**case-insensitive** (`or` == `OR`), works with **3+ terms**, and quoting/
+parenthesizing (`"macbook" OR "imac"`, `(macbook OR imac)`) doesn't change the
+result — the parser accepts but doesn't require them. `macbook|imac` (pipe, no
+spaces) and `iphone&samsung` are **not** recognized — both returned 0 (treated as
+literal punctuation matching nothing).
+
+**`AND` is NOT a real operator — it's just another literal required word,
+indistinguishable from the existing default multi-word behavior.** Multi-word
+`query` already behaves as an implicit AND (`macbook pro` → 1101/1102, down from
+`macbook` alone's 1615 — narrowing, not widening). If `AND` were parsed and
+discarded as a no-op keyword, `macbook AND pro` should return ~1101 too. It
+doesn't — it returns **71/72**, a 15x drop, because `AND` gets treated as a *fourth
+required literal substring* ("and"/"and" must also appear in the ad text), on top
+of `macbook` and `pro`. Case-insensitive same way (`and` == `AND`, both 71-ish).
+`macbook & pro` (ampersand) returns 0, consistent with literal-character matching
+rather than any operator.
+
+**Bottom line for query design**: `" OR "` between terms is safe to rely on and
+already reduces `Query` row sprawl exactly as issue #52 hoped — e.g. one query for
+`macbook OR imac OR ipad` instead of three separate rows, confirmed to work
+identically via the production HTML scraper's `hledat=` param (no API migration
+needed to use this today). There is **no working AND operator** beyond the
+already-existing implicit multi-word AND — don't design anything around an
+explicit `AND` keyword, it silently degrades results by requiring literal "and"
+text.
+
+Probe commands (reproducible):
+```bash
+UA="bazos/2.19.1 (cz.ackee.bazos; build:4630; android 13; model:pixel 7) okhttp/4.11.0"
+curl -s -D - -A "$UA" -G "https://www.bazos.cz/api/v1/ads.php" \
+  --data-urlencode "limit=3" --data-urlencode "sort=date" \
+  --data-urlencode "query=macbook OR imac"   # check x-total-count header
+
+curl -s -A "Mozilla/5.0" -G "https://www.bazos.cz/search.php" \
+  --data-urlencode "hledat=macbook OR imac" --data-urlencode "rubriky=www" \
+  --data-urlencode "Submit=Hledat"           # check "Zobrazeno 1-20 inzerátů z N"
+```
+
+### 4.1b Search mechanism identified — plain SQL substring `LIKE`, not FULLTEXT boolean mode (live, 2026-07-26)
+
+Follow-up probe, prompted by §4.1a's confirmed `-word`/`"phrase"` syntax initially
+looking like MySQL's native `MATCH() AGAINST(... IN BOOLEAN MODE)` — tested whether
+that theory holds by trying more of *that* syntax's other operators (`+word`
+require, `~word` soft-rank, `word*` wildcard). **All three break the query instead
+of working as documented MySQL operators would:**
+
+| Query | Total | Expected if real MySQL boolean-mode operator |
+|---|---|---|
+| `macbook` (baseline) | 1615/1616 | — |
+| `+macbook` (explicit require) | **0** | should equal baseline (1615) — a lone `+word` is a no-op in real boolean mode |
+| `macbook ~pro` (soft negative, rank-only) | **0** | should be ≥ baseline — `~` only downranks, never excludes |
+| `macbook*` / `notebook*` (wildcard) | same as bare word | should be ≥ baseline (wildcard only ever adds matches) |
+| `macb*` (broader wildcard prefix) | **0** | should be > 0 — "macb" is a real prefix of real listings |
+
+Getting **0** for `+macbook` and `~pro` — rather than the baseline count or higher —
+rules out real boolean-mode semantics entirely: those operators are being searched
+for as literal characters, not interpreted. The decisive test was substring
+truncation:
+
+```
+macbook  → 1616
+acbook   → 1616   (missing the leading "m")
+macboo   → 1616   (missing the trailing "k")
+```
+
+A fragment with letters missing from *either end* returns the **exact same** count
+as the full word. A real full-text/tokenized index (MySQL FULLTEXT, Sphinx, Lucene,
+…) only ever matches whole indexed tokens — "acbook" was never itself a token and
+could not match. Identical counts across truncations is the signature of plain
+`title LIKE '%word%' OR description LIKE '%word%'` substring matching.
+
+**Corrected model**: PHP + MySQL, but the search itself is ordinary `LIKE`-based
+substring matching, not `MATCH() AGAINST()`. On top of that raw substring match, the
+PHP layer hand-parses exactly the operators actually confirmed working: bare
+space-separated words (ANDed, each as its own required `LIKE '%word%'`), `-word`
+(→ `NOT LIKE`), `"phrase"` (exact substring), and literal `" OR "` (splits the query
+into two independent searches and unions the result sets — this one has to be
+app-level, since bare-substring reasoning alone can't produce a union). Nothing else
+is special-cased — `*`, `+`, `~`, `&`, `|`, and the literal word `AND` all just
+become part of the literal substring being matched, which is why they return 0 or
+(for `AND`) a small nonzero count from matching the literal 3-character substring
+"and" inside unrelated words (brand names, "handmade", etc.), not from any real
+conjunction logic.
+
+**Practical implications**:
+- **No useful new operators exist beyond the three already confirmed** (`OR`,
+  `-exclude`, `"exact phrase"`) — don't design anything around wildcards or
+  explicit `+require`, they don't work.
+- **Czech declension is already handled for free**, and *better* than a wildcard
+  would give — substring matching means a bare query like `notebook` already
+  matches declined forms (`notebooku`, `notebooky`, …) without needing `notebook*`.
+  Confirmed: `notebook` alone (7884) is a strict superset covering `notebooku`
+  (2280) and `notebooky` (1242) results, since both contain "notebook" as a literal
+  substring.
+- **Flip side — substring noise on short/common query words.** The same looseness
+  that gives free declension matching also means a short generic `Query.text` can
+  match unrelated compound words purely by substring (e.g. `kolo` inside
+  "koloběžka", `auto` inside "automat"/"automobil"). Worth a second look at any
+  existing short single-word queries for false-positive risk, not just a positive.
+
+Probe commands (reproducible):
+```bash
+UA="bazos/2.19.1 (cz.ackee.bazos; build:4630; android 13; model:pixel 7) okhttp/4.11.0"
+for q in "macbook" "+macbook" "macbook ~pro" "macbook*" "macb*" "acbook" "macboo"; do
+  curl -s -D - -A "$UA" -G "https://www.bazos.cz/api/v1/ads.php" \
+    --data-urlencode "limit=1" --data-urlencode "sort=date" --data-urlencode "query=$q" \
+    | grep -i "^x-total-count"
+done
+```
 
 ### 4.2 `sort` values (`td.b`)
 `date` (newest), `price_asc`, `price_desc`, `distance` (nearest — requires lat/long).

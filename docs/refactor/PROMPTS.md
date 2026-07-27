@@ -234,28 +234,16 @@ Steps:
 
 ---
 
-### P15 — True AND/OR query probe
-> Promoted from `BACKLOG_IDEAS.md` #7 — see there for full rationale. This is a probe/spike,
-> not a design — small and self-contained, kills an unconfirmed claim either way.
-
-```
-Confirm or refute whether Bazos's search (HTML form or hidden API `query` param) supports
-real boolean AND/OR operators, as issue #52 claimed but BAZOS_HIDDEN_API_RESEARCH.md never
-tested.
-
-Steps:
-1. Using the same live-probe methodology as BAZOS_HIDDEN_API_RESEARCH.md §7 (curl with a
-   faithful app User-Agent, see BAZOS_API_USER_AGENT.md), try plausible AND/OR syntaxes
-   against `api/v1/ads.php?query=...` — e.g. `"macbook" OR "imac"`, `macbook|imac`,
-   `macbook AND pro` — and compare `x-total-count`/results against known single-term baselines.
-2. Also check the HTML search form (`hledat=` param) for the same behavior, since the two
-   scrapers could differ.
-3. Document the result (confirmed/unconfirmed, and exact syntax if it works) in
-   BAZOS_HIDDEN_API_RESEARCH.md, following its existing "confirmed live" citation style.
-4. Only if confirmed: sketch how this would reduce Query row sprawl (e.g. one query for
-   "macbook" OR "imac" OR "ipad" instead of three rows) — as a follow-up idea, not part of
-   this prompt's scope.
-```
+### ✅ P15 — True AND/OR query probe — done
+Probed live 2026-07-26 against both `api/v1/ads.php?query=` and HTML `search.php?hledat=`
+(identical totals on both, confirming shared backend). **`OR` confirmed real** — boolean
+union, case-insensitive, works with 3+ terms, quoting/parens optional
+(`iphone OR traktor` = 18481 vs. 6940+11542=18482 baseline sum, near-exact since the two
+terms barely overlap). **`AND` confirmed fake** — not a parsed operator, just an additional
+literal required word; `macbook AND pro` = 71 vs. `macbook pro`'s already-implicit-AND 1101,
+a 15x drop from requiring literal "and" text too. Full evidence and probe commands in
+`BAZOS_HIDDEN_API_RESEARCH.md` §4.1a. Follow-up (not done here): actually using `OR` to
+consolidate `Query` rows is a separate, un-started idea — see `BACKLOG_IDEAS.md` #7.
 
 ---
 
@@ -316,4 +304,4 @@ If you only have time for a few:
 
 Cheapest independent wins if you want a break from the pipeline stages:
 6. **P14** (interval tuning) — zero new data, zero dependencies
-7. **P15** (AND/OR probe) — ~1hr, just closes an unknown
+7. ~~**P15** (AND/OR probe)~~ — done

@@ -19,7 +19,7 @@ under the radar), not by order of appearance above.
 | # | Idea | Effort | Depends on | Priority |
 |---|---|---|---|---|
 | 6 | Posting-time-of-day → interval tuning | **S** (~half day) | nothing — data already collected | **Do first** |
-| 7 | True AND/OR queries | **S** (probe: ~1hr; impl if real: trivial) | nothing | **Do first** (just to kill the unknown) |
+| 7 | True AND/OR queries | **S** (probe: ~1hr; impl if real: trivial) | nothing | ✅ **Done** — probed 2026-07-26, `OR` real/`AND` fake (see §7) |
 | 3a | Thumbnail in Discord embed | **S/M** (~1-2 days) | nothing | **Do soon** |
 | 1 | Cross-query `Ad`/`AdDelivery` split | **L** (bigger than any existing stage) | nothing, but gets worse the longer you wait | **Do before scaling queries** |
 | 2 | asyncio scraping | **M/L**, but only as part of a scraper you haven't built yet | the API migration (not started) | **Not independently actionable** |
@@ -318,25 +318,33 @@ already on hand, small and self-contained.
 
 ---
 
-## 7. True AND/OR query support — unconfirmed, needs its own probe
+## 7. True AND/OR query support — ✅ resolved 2026-07-26 (OR real, AND fake)
 
-> **Promoted to `PROMPTS.md` as P15** (2026-07-24) — ready-to-run probe steps there, this
-> section remains the fuller rationale.
+> **Promoted to `PROMPTS.md` as P15** (2026-07-24), **done 2026-07-26** — see
+> `BAZOS_HIDDEN_API_RESEARCH.md` §4.1a for full probe evidence.
 
 **Source**: [#52](https://github.com/jakub-kucera/marketplace-scrapper/issues/52) ("the BE support
 AND and OR operator for search terms").
 
 Cross-checked against `BAZOS_HIDDEN_API_RESEARCH.md` §4.1: the confirmed-live `query` param
 behavior is full-text search across title+description, with a **confirmed** `-word` exclusion
-suffix and quoted-phrase exact-match — but the research doc never tests or claims boolean AND/OR
-operators. The original issue's claim was never verified against either the HTML search form or the
-hidden API; treat it as **unconfirmed**, not as an existing capability waiting to be wired up.
+suffix and quoted-phrase exact-match — but the research doc (as of 2026-07-19) never tested or
+claimed boolean AND/OR operators. Live-probed 2026-07-26 against both `api/v1/ads.php` and the
+HTML `search.php`, which return identical totals:
 
-If it's real, it would reduce `Query` row sprawl the same way the discovery-pipeline doc's "fewer,
-broader queries" theme already argues for (§1: category-scoped over narrow keyword rows) — e.g. one
-query for `"macbook" OR "imac" OR "ipad"` instead of three separate `Query` rows. But this needs a
-small, targeted live probe (same methodology as `BAZOS_HIDDEN_API_RESEARCH.md` §7) before any model
-change is designed around it.
+- **`OR` is real** — a genuine boolean union, case-insensitive, works with 3+ terms
+  (`iphone OR traktor` = 18481 vs. an expected ~18482 from the two near-disjoint baselines —
+  arithmetic that plain literal-text matching can't produce).
+- **`AND` is not real** — it's treated as an ordinary additional required literal word (on top
+  of the default implicit-AND-of-space-separated-terms that already exists), not a parsed
+  operator. `macbook AND pro` returns 71, a 15x drop from `macbook pro`'s already-narrowed 1101,
+  because "and" itself must now also appear literally in the ad text.
+
+This confirms the original motivation — reducing `Query` row sprawl via one query for
+`macbook OR imac OR ipad` instead of three separate rows (per the discovery-pipeline doc's
+"fewer, broader queries" theme, §1) — **works today, with the current production HTML scraper**,
+no API migration required. Actually adopting `OR` in real `Query` rows (consolidating existing
+narrow queries) is a small, separate follow-up, not yet done.
 
 ---
 
