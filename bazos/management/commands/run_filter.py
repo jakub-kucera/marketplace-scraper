@@ -29,7 +29,7 @@ class Command(BaseCommand):
             with transaction.atomic():
                 ads = list(
                     Ad.objects
-                    .select_for_update(skip_locked=True)
+                    .select_for_update(skip_locked=True, of=("self",))
                     .filter(status__in=[AdStatus.PENDING, AdStatus.PRICE_CHANGED])
                     .select_related("query", "email_publisher", "phone_publisher")
                     .order_by("created")[:FILTER_BATCH_SIZE]
