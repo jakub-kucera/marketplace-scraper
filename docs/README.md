@@ -3,6 +3,12 @@
 Planning and research notes for the scraper. Runtime/architecture docs live in the root
 [`CLAUDE.md`](../CLAUDE.md) — everything here is forward-looking design or historical record.
 
+## Business
+
+| Doc | What it's for |
+|---|---|
+| [`MONETIZATION.md`](MONETIZATION.md) | Options analysis for turning the project into revenue — data sales, flipping/arbitrage, subscriptions, selling the capability — each with competitor check, financial model, and verdict. Includes the **legal section that constrains the rest** (Bazos ToS API-consent clause + `robots.txt`, sui generis database right / *Innoweb v Wegener*, GDPR Art 14 and the KASPR/Bisnode fines, Act 480/2004 anti-spam, CZ tax/VAT for reselling). **§7.1 argues that detection latency — not features — is the binding constraint** on the whole "find deals" goal, and is cross-referenced from [`refactor/PROMPTS.md`](refactor/PROMPTS.md) P21 and [`refactor/BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md)'s priority table; §7.2 lists three data-model defects that block every data-driven option. **§4.7** analyses the job/gig-post idea — measured Bazos `Práce` volumes (too small), the economics of taking automatable gigs (below contract rate), the Gemini free-tier EEA data carve-out, and the reframe that makes it worth keeping: read job ads as **automation-consulting leads**, not as jobs. |
+
 ## `refactor/` — pipeline decoupling (scraper → filter → sender)
 
 | Doc | What it's for |
@@ -11,7 +17,7 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 | [`STAGE8_VINTED_DESIGN.md`](refactor/STAGE8_VINTED_DESIGN.md) | Design doc for Stage 8 (VintedScraper + multi-marketplace `Query`), referenced from Stage 8 above. |
 | [`PROMPTS.md`](refactor/PROMPTS.md) | Ready-to-run prompts for implementing not-yet-done stages, ordered by dependency. |
 | [`BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) | Deeper dives on ideas mined from the GitHub issue tracker that aren't part of any numbered stage — cross-query dedup, async scraping, images, price/CV enrichment, interval tuning, query syntax. |
-| [`LLM_AD_REVIEW_DESIGN.md`](refactor/LLM_AD_REVIEW_DESIGN.md) | Proposal (not scheduled): an LLM-based ad judge as its own pipeline stage, and draft-only seller-outreach messages via Discord. Explicitly recommends against auto-sending messages to sellers without a separate decision. Its per-query multi-filter mechanism (§1) was independently built — see `PROMPTS.md` P17 (done). |
+| [`LLM_AD_REVIEW_DESIGN.md`](refactor/LLM_AD_REVIEW_DESIGN.md) | Proposal (not scheduled): an LLM-based ad judge as its own pipeline stage, and draft-only seller-outreach messages via Discord. Explicitly recommends against auto-sending messages to sellers without a separate decision. Its per-query multi-filter mechanism (§1) was independently built — see `PROMPTS.md` P17 (done). §2f now carries researched free-tier cost/ops figures and the Gemini EEA data-terms carve-out that makes a free tier viable for public ad text — added 2026-07-30 from [`MONETIZATION.md`](MONETIZATION.md) §4.7, which independently re-derived §2's "own stage, not a `FilterRule`" conclusion. |
 | [`DISCORD_BOT_DESIGN.md`](refactor/DISCORD_BOT_DESIGN.md) | Proposal (not scheduled): replace webhook-only notifications with a real Discord bot (gateway-based, not a public HTTP endpoint — see §1 for why) enabling per-ad watch/mute/favorite/blocklist buttons, seller lookups, on-demand full-description fetch, and query control from Discord. Connects to and partly supersedes `LLM_AD_REVIEW_DESIGN.md` §4.2's outreach delivery mechanism — see its §5 for the full cross-reference map. |
 | [`JOB_QUEUE_DESIGN.md`](refactor/JOB_QUEUE_DESIGN.md) | Proposal (not scheduled): generalize `run_filter`/`run_sender`'s DB-polling pattern into a generic `Job` model + registry + `run_jobs` worker, so new recurring/on-demand work (`AdWatch`, full-rescan, seller enrichment, LLM review, ...) becomes a new job type instead of a new hand-rolled process/docker-compose service. Catalogs candidate jobs sourced from `BACKLOG_IDEAS.md` #6/#8, `DISCORD_BOT_DESIGN.md`, `BAZOS_API_DISCOVERY_PIPELINE.md`, and `LLM_AD_REVIEW_DESIGN.md`. |
 | `archive/` | Superseded drafts, kept for history only — see banners in each file. |

@@ -16,36 +16,68 @@
 Ranked by effort vs. actual relevance to what this scraper does (find deals, notify fast, stay
 under the radar), not by order of appearance above.
 
+> **⚠️ Re-ranked 2026-07-29.** Two things changed the order, and neither is an idea in this
+> document:
+>
+> 1. **Detection latency is the binding constraint on the whole "find deals" goal** — the
+>    current 15–45 min interval means a **~15 minute median** delay, while competing services
+>    poll every 60 s and good listings are gone in minutes. See
+>    [`../MONETIZATION.md`](../MONETIZATION.md) **§7.1** for the full argument and the numbers;
+>    the executable fix is [`PROMPTS.md`](PROMPTS.md) **P21**. Everything in this table is
+>    downstream of that — a better filter delivered 15 minutes late is worth nothing.
+> 2. **#6 is blocked and was previously mislabelled "Do first"** — see its own section below.
+>
+> Neither point invalidates any idea here; they change what to pick up *first*.
+
 | # | Idea | Effort | Depends on | Priority |
 |---|---|---|---|---|
-| 6 | Posting-time-of-day → interval tuning | **S** (~half day) | nothing — data already collected | **Do first** |
+| — | **Latency chain** — production API cutover + collapse the double blacklist check + rotating proxy pool | **M** (~3-5 days) | nothing; designed in `../proxies/` + `../bazos-api/`, scraper already built | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P21.** Not an idea in this doc; execution of two existing research docs. |
+| — | **Silent-failure defects** — `QueryRun` lost on crash, zero-results canary, `check_ip_local` skip, uncapped retry loop | **S** (~1 day total) | nothing | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P18-P20.** You currently cannot tell "no deals" from "broken". |
 | 7 | True AND/OR queries | **S** (probe: ~1hr; impl if real: trivial) | nothing | ✅ **Done** — probed 2026-07-26, `OR` real/`AND` fake (see §7) |
-| 3a | Thumbnail in Discord embed | **S/M** (~1-2 days) | nothing | **Do soon** |
-| 1 | Cross-query `Ad`/`AdDelivery` split | **L** (bigger than any existing stage) | nothing, but gets worse the longer you wait | **Do before scaling queries** |
-| 2 | asyncio scraping | **M/L**, but only as part of a scraper you haven't built yet | the API migration (not started) | **Not independently actionable** |
+| 3a | Thumbnail in Discord embed | **S/M** (~1-2 days) | nothing | **Do soon** — and see #10, which wants the same notification rework |
+| 9 | `AdOutcome` — record what you actually did about an ad | **S** (~half day) | nothing | **Do soon** — cheapest item here, and the only source of ground truth |
+| 10 | Distance / travel-cost-aware scoring | **M** (~1-2 days) | nothing (`zip.php` already probed) | **Do soon** if flipping is the goal |
+| 8 | Full-listing rescan flag (comprehensive price-drop detection) | **S** structurally (~1hr); **M** with the cap/throttle guardrail it needs | nothing, but must ship with a page cap/throttle | **Do soon, but scope narrowly** |
+| 6 | Posting-time-of-day → interval tuning | **S** (~half day) *once unblocked* | ⚠️ **blocked** — needs second-resolution timestamps (see §6) | **Blocked, and superseded in value by the latency chain** |
+| 1 | Cross-query `Ad`/`AdDelivery` split | **L** (bigger than any existing stage) | nothing, but gets worse the longer you wait | **Do before scaling queries** — *not* needed for narrow-query flipping; see the note in §1 |
+| 2 | asyncio scraping | **M/L**, but only as part of a scraper you haven't built yet | the API migration | **Still not independently actionable** — and *less* attractive after P21 (see §2 note) |
 | 3b | Self-host image mirror | **L** (storage + serving + retention) | 3a | **Defer** |
 | 4 | External price cross-referencing (Heureka) | **L**, high uncertainty | its own unresearched spike | **Defer** |
 | 5 | Computer-vision item recognition | **L**, speculative | idea #3 (images) + vendor pick | **Defer, lowest** |
-| 8 | Full-listing rescan flag (comprehensive price-drop detection) | **S** structurally (~1hr); **M** with the cap/throttle guardrail it needs | nothing, but must ship with a page cap/throttle | **Do soon, but scope narrowly** |
 
 **Why this order:**
 
-- **#6 and #7 are the obvious first picks** — both are small and self-contained, and don't wait on
-  anything. #6 is pure analysis over data already collected; #7 isn't even a build decision yet,
-  just an unresolved unknown that costs almost nothing to close (a couple of live curl probes, same
-  style as the existing `BAZOS_HIDDEN_API_RESEARCH.md` work) — worth knowing whether it's real
-  before it's worth a design.
-- **#3a is the best "visible payoff" item** — Discord notifications get noticeably nicer for a
-  bounded, well-understood cost. Doesn't need the API migration to start.
+- **The two "—" rows outrank everything numbered**, because they're not feature bets — one is the
+  difference between arriving first and arriving 15 minutes late (the entire premise of "find
+  deals"), and the other is the difference between knowing the pipeline works and assuming it does.
+  Both are execution of work already designed elsewhere, not new design.
+- **#6 was the previous "Do first" and that was wrong** — it wants to build an hourly
+  posting-density curve from `Ad.publish_date`, but `BazosScraper.extract_date` parses only
+  `[29.7.2026]` and **discards the time**, so `ExtractHour("publish_date")` returns all-zeros
+  today. It's blocked on data that doesn't exist yet, and even unblocked it makes a 15–45 min
+  interval *smarter* where P21 makes it **~2 minutes** — the wrong term to optimise. Keep it, but
+  after the API cutover supplies real timestamps.
+- **#3a is still the best "visible payoff" item** — Discord notifications get noticeably nicer for
+  a bounded, well-understood cost. Doesn't need the API migration to start. Worth building
+  together with **#10**, since both rewrite the same notification-formatting path.
+- **#9 is the cheapest thing in this document and the only one that creates ground truth** —
+  without it, no threshold in #4/#5 or the discovery doc's price-anomaly filter can ever be
+  tuned against reality, and you can't compute what a flip actually earned.
 - **#1 (cross-query dedup) is the most architecturally important idea here, and the most
   expensive** — bigger than any single stage in `PIPELINE_REFACTOR.md`. Not urgent today because
   query overlap is rare in practice, but the discovery-pipeline doc's "fewer, broader
   category-scoped queries" pattern makes collisions much more likely. The real trigger for doing
-  this isn't a calendar date — it's **before broadening query scope**, not after.
-- **#2 (asyncio) isn't really a standalone task** — its own conclusion above is "don't retrofit
-  onto the HTML scraper"; the actual payoff only exists once the Bazos API migration
-  (`BAZOS_HIDDEN_API_RESEARCH.md` §8, not yet scheduled) is underway. Not worth active
-  consideration until that migration is on the table.
+  this isn't a calendar date — it's **before broadening query scope**, not after. Note what this
+  means in practice: it is a precondition for the *analytics/data* direction and for category
+  sweeps, but **not** for deal-hunting on today's narrow queries, where overlap is rare and the
+  symptom is a duplicate notification rather than a wrong answer. Don't let it block P21.
+- **#2 (asyncio) isn't really a standalone task, and P21 weakens the case further** — its own
+  conclusion below is "don't retrofit onto the HTML scraper", and the payoff was always going to
+  come with the API migration. But P21's steady-state shape is **one ~1.1 KB request per query
+  per pass** (a `limit≈10` dedup probe), so there is very little left to parallelise in the
+  common case; the remaining fan-out candidates are `load_full_description` batches on first
+  discovery and the bulk enrichment workflows (`ratings.php`, per-ad detail). Re-read §2 with
+  that in mind before spending effort here.
 - **#3b, #4, #5 are all "interesting but speculative"** — each has either an unresearched
   dependency (#4's Heureka endpoint, #5's vendor choice) or an unconfirmed benefit (#3b's
   click-tracking risk isn't observed to be a real problem yet). None block anything else — lowest
@@ -295,15 +327,31 @@ yet, unlike the Bazos-API-grounded ideas above which build on already-confirmed 
 
 > **Promoted to `PROMPTS.md` as P14** (2026-07-24) — ready-to-run steps there, this section
 > remains the fuller rationale.
+>
+> **⚠️ BLOCKED — correction 2026-07-29.** The claim below that the data is "already enough today"
+> is **wrong**, and P14's step 1 will silently produce garbage. `BazosScraper.extract_date`
+> (`bazos_scraper.py`) slices the `[d.m.yyyy]` substring out of the listing and builds a
+> `datetime(day, month, year)` — **the time component is discarded entirely**, so every stored
+> `publish_date` sits at midnight and `ExtractHour("publish_date")` returns **0 for every row**.
+> `Ad.created` (discovery time, not posting time) has real resolution but is quantised to the
+> pass interval, so at a 15–45 min cadence it can't resolve posting hour cleanly either.
+>
+> **Unblocked by:** the API cutover ([`PROMPTS.md`](PROMPTS.md) P21). The API's listing payload
+> carries `"from": "2026-07-19 09:45:51"` — **second resolution** (`BAZOS_HIDDEN_API_RESEARCH.md`
+> §5.1). One caveat when it lands: for **topped** ads that `from` value is *not* the real posting
+> time (§4.3 of the same doc — topped ads share a `from` equal to the request timestamp), so
+> filter `topped=False` before building any density curve.
+>
+> **Also note:** even once unblocked, this tunes *when* a 15–45 min interval fires, whereas P21
+> makes the interval ~2 minutes. Lower value than the table previously implied.
 
 **Source**: [#36](https://github.com/jakub-kucera/marketplace-scrapper/issues/36) ("analyse at what
 hours are posts most posted and change the interval changing logic").
 
-The cheapest idea in this document by far: `Ad.publish_date` (already captured for every ad,
-`models.py:149`) plus `Ad.created` (free via `TimeStampedModel`) is already **enough data today** to
-bucket posting/discovery volume by hour and weekday — zero new scraping, zero new model fields, zero
-new API calls, just an aggregate query (`Ad.objects.annotate(hour=ExtractHour("publish_date"))...`)
-over data already being collected.
+Cheap in *implementation* terms — no new scraping, no new API calls, just an aggregate query
+(`Ad.objects.annotate(hour=ExtractHour("publish_date"))...`) plus a lookup table feeding
+`interval_multiplier.py`. But **not** cheap in prerequisites, per the correction above: the
+hour-of-day signal it needs is not in the database today.
 
 This feeds directly into `bazos/scraping/interval_multiplier.py`'s `NightMultiplier` (referenced in
 `CLAUDE.md`'s Environment section) — currently a flat day/night 2× split. A real hourly posting-
@@ -417,6 +465,117 @@ Build it as a narrowly-scoped opt-in, not a general-purpose toggle:
 - Before reaching for this, check whether `AdWatch` (see the cross-reference above) already covers the
   actual need — if the ads worth tracking are a small, known set, watching them individually is
   strictly cheaper than rescanning the whole query on their behalf.
+
+---
+
+## 9. `AdOutcome` — record what you actually did about an ad
+
+> **Source**: internal analysis 2026-07-29, prompted by [`../MONETIZATION.md`](../MONETIZATION.md)
+> §4.2. Not from the issue tracker. **The cheapest idea in this document, and a dependency of
+> every scoring/tuning idea in it.**
+
+### The gap
+
+Nothing in the schema records the *result* of a notification. `Ad.status` tracks pipeline
+mechanics (`PENDING → APPROVED → SENT`) — it says the Discord message was delivered, not whether
+the ad was any good. So today there is no answer to: did I message this seller? did I buy it? for
+how much? did I resell it, and for what? if I passed, why?
+
+**Why that matters more than it sounds.** Every "find better deals" idea in this document and in
+`BAZOS_API_DISCOVERY_PIPELINE.md` needs a threshold or a model — the price-anomaly filter's
+percentile cut-off (discovery doc §2 stage 2), #4's reference-price margin, #5's classifier
+confidence, the discovery doc's own "deal-velocity as a model-quality feedback loop" (§3.4). **All
+of them are untunable without labelled outcomes.** You can measure whether a flagged ad
+*disappeared* (that's delisting detection), but disappearing tells you someone bought it — not
+whether *you* should have, or what it was actually worth. Only you can supply that label.
+
+It's also the only way to know whether the pipeline earns anything. `MONETIZATION.md` §4.2 models
+~1,200 CZK net per flip on assumptions; `AdOutcome` replaces the assumptions with your numbers.
+
+### Shape
+
+Deliberately minimal — this is a logbook, not a CRM:
+
+```
+AdOutcome(ad FK, action, price_paid, price_sold, sold_at, note, created)
+   action ∈ {IGNORED, CONTACTED, NO_REPLY, REJECTED_ON_INSPECTION, BOUGHT, SOLD, LOST_TO_OTHER_BUYER}
+```
+
+- One row per state change (append-only) rather than mutable fields, so the *timeline* survives —
+  time-from-notification-to-contact is itself the latency metric that
+  [`../MONETIZATION.md`](../MONETIZATION.md) §7.1 argues is the binding constraint, and you cannot
+  measure it retroactively.
+- `LOST_TO_OTHER_BUYER` is worth its own value rather than folding into `NO_REPLY`: it is the
+  direct evidence of whether latency is still costing you deals after P21.
+- Entry point is an **admin action on `AdAdmin`** (select rows → set outcome), not a new UI. If
+  the Discord bot proposal (`DISCORD_BOT_DESIGN.md`) is ever built, its per-ad buttons are the
+  natural second entry point — and that doc's §2.1 button set is close to this action enum
+  already, so keep the vocabularies aligned if both land.
+
+### Recommendation
+
+Build it early and cheaply, before any scoring work. It is ~half a day, has no dependencies, and
+it is the difference between a notifier and something you can actually improve. Note the honest
+caveat: its value depends entirely on you actually filling it in — a logbook nobody writes to is
+worse than none, because it looks like data.
+
+---
+
+## 10. Distance / travel-cost-aware scoring
+
+> **Source**: internal analysis 2026-07-29, prompted by [`../MONETIZATION.md`](../MONETIZATION.md)
+> §4.2's per-flip P&L, where travel is a real line item against a ~1,200 CZK margin.
+
+### What exists today, and why it isn't enough
+
+`Query.location_center` (a PSČ) and `Query.location_radius` are passed straight through to Bazos
+as `hlokalita`/`humkreis` (`bazos_scraper.py::get_query_url_dict`), so filtering is **server-side
+and binary** — inside the radius or not in the results at all. `Ad.location` is then stored as
+free text (`"Praha 10"`), never parsed.
+
+Two consequences:
+
+- **No ranking within the radius.** A 25 km radius treats a 3 km pickup and a 24 km pickup
+  identically, when the second may erase a third of the margin.
+- **The radius is a per-query constant, not a function of value.** The right radius for a 1,500 CZK
+  drill is not the right radius for a 40,000 CZK e-bike, but one `Query` row can only express one.
+  Today you either miss distant high-value deals or drown in distant low-value ones.
+
+### Mechanism
+
+The pieces are already probed. `api/v1/zip.php` geocodes both directions (`query` → coordinates,
+or `latitude`+`longitude` → locality) and is confirmed live (`BAZOS_HIDDEN_API_RESEARCH.md` §3.1),
+and the detail endpoint returns real GPS per ad (§5.2). So:
+
+1. Store `latitude`/`longitude` on `Ad` — already on the Stage D additive-column list
+   (`BAZOS_HIDDEN_API_RESEARCH.md` §8 Stage D), so no new model design needed.
+2. Add a home coordinate to settings (one geocode call, cached — not per ad).
+3. Compute haversine distance on save; store it as a column so it's filterable/sortable.
+4. Express the actual decision as a `FilterRule` — the abstraction already exists:
+   `TravelCostRule` rejects when `estimated_margin − (2 × distance_km × cost_per_km)` falls below
+   a floor. That turns "is it close enough" into "is it worth the drive", which is the question
+   that actually matters.
+
+**Cheap first version, no new columns at all:** distance can be approximated from the PSČ prefix
+or the locality string against a static CZ municipality table, no geocoding and no API dependency.
+Worth doing that first to find out whether the ranking changes any decisions before paying for
+GPS plumbing.
+
+### Interactions
+
+- **Depends on a numeric price** to compute margin at all — so it lands after the
+  `price`/`price_type` split ([`PROMPTS.md`](PROMPTS.md) P22).
+- **Wants the same notification rework as #3a** — distance and price-vs-comparable are exactly the
+  fields that belong in a Discord embed next to the thumbnail. Build the two together; the
+  notification path shouldn't be rewritten twice.
+- **Is the wrong tool for GPS-less marketplaces** — Vinted (Stage 8) is shipped, not collected, so
+  gate the rule on `marketplace` rather than assuming every `Ad` has a location worth scoring.
+
+### Recommendation
+
+Do the cheap PSČ-prefix version soon if flipping is the goal — it is the second-largest lever on
+realised margin after latency, and it needs no new external dependency. Defer the GPS/`zip.php`
+version until Stage D columns land anyway.
 
 ---
 

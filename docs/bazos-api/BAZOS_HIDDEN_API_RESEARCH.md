@@ -922,6 +922,29 @@ The pipeline is already decoupled through `Ad.status`, and the marketplace layer
 already keys scrapers by `query.marketplace` in `BazosQueryRunner._build_scrapers()`.
 So this is a **drop-in scraper implementation**, not a pipeline change.
 
+> **Two additional arguments for the migration, added 2026-07-29** — neither was captured
+> in §1's original case, and both are independently decisive:
+>
+> **a) Timestamp resolution — the HTML path is losing data every single scrape.**
+> `BazosScraper.extract_date` slices the `[d.m.yyyy]` substring out of the listing and
+> builds `datetime(day, month, year)` — **the time is discarded entirely**, so every
+> `Ad.publish_date` collected so far sits at midnight. The API's thin listing carries
+> `"from": "2026-07-19 09:45:51"` at **second** resolution (§5.1) for free, in the same
+> payload. Consequences: no ad-lifetime measurement better than ±1 day, and
+> `refactor/BACKLOG_IDEAS.md` #6 (posting-density interval tuning) is **impossible from
+> stored data today** — it was listed as a zero-dependency quick win on the strength of
+> data that doesn't exist. Caveat when relying on this: for **topped** ads the `from`
+> value is not the real posting time (§4.3), so filter `topped=False` for any
+> time-of-day analysis.
+>
+> **b) Latency, not just request efficiency.** §1 argues the API case on structure and
+> request volume. The sharper point is cadence: a `limit≈10` steady-state dedup probe is
+> **~1.1 KB** (§4), which per `proxies/PROXY_ROTATION_RESEARCH.md` §5 makes a **2-minute
+> cadence cost ~0.24 GB/month** — versus the ~15-minute median detection latency the
+> current HTML path is stuck with. See `MONETIZATION.md` §7.1 for why that gap decides
+> whether the project captures deals or merely observes them, and
+> `refactor/PROMPTS.md` **P21** for the executable rollout.
+
 ### Stage A — Spike & verify — **done, see §7**
 Live-confirmed 2026-07-19: auth-free (no `token`/`X-DeviceId` needed), real page
 cap is 210, listing is thin / detail is rich, sold-ad detection via `410`, and

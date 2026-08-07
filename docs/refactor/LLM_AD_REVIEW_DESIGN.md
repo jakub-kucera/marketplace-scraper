@@ -181,6 +181,29 @@ decide silently.
   this is the first stage in the whole pipeline with a real, uncapped monetary cost per item
   processed (Discord sends are free; LLM calls are not).
 
+**Partial answer to the cost spike, researched 2026-07-30** (prompted by the job-ad idea in
+[`../MONETIZATION.md`](../MONETIZATION.md) §4.7, which independently arrived at this doc's §2
+conclusion — a second vote for "own stage, not a `FilterRule`"; the concrete figure is that
+`FILTER_BATCH_SIZE = 50`, so a rule-based judge would hold `select_for_update` locks for
+50 serial LLM round-trips):
+
+- **A free tier can genuinely carry this workload.** Gemini's free tier allows on the order of
+  **~1,500 requests/day** — comfortably above a filtered candidate stream, though *not* above an
+  unfiltered broad-category one, which is exactly the blow-up scenario flagged above. Cheap rules
+  must run first; the LLM sees survivors only (same filter-before-enrich principle as `PROMPTS.md`
+  P13 and `BAZOS_API_DISCOVERY_PIPELINE.md` stages 2→3).
+- **The EEA carve-out removes the usual free-tier objection.** Per
+  [Google's Gemini API terms](https://ai.google.dev/gemini-api/terms), for users in the EEA,
+  Switzerland or the UK the **paid-tier data terms apply to the free tier too** — so free-tier
+  prompts are *not* used to train models. For scraped **public ad text** this makes the free tier
+  viable rather than merely tempting.
+- **Caveat that doesn't apply here but would elsewhere:** the same terms instruct "do not submit
+  sensitive, confidential, or personal information to the Unpaid Services." Public listing text is
+  fine. Anything involving a third party's data is not — see `MONETIZATION.md` §4.7c for why that
+  distinction matters if this machinery is ever pointed at non-public content.
+- **Sequencing note:** whenever this stage is built, its first corpus should be the existing ad
+  deal-flow (thousands/day, where a judge earns its keep), not a low-volume experiment.
+
 ---
 
 ## 3. Interaction with the cross-query dedup backlog item
