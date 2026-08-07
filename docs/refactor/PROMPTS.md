@@ -1,7 +1,10 @@
 # Ready-to-Run Prompts
 
 Copy-paste any of these when you have tokens to burn.
-Ordered roughly by dependency — earlier prompts unblock later ones.
+
+**Sections are ordered by priority, not by prompt number** — P18–P24 (added 2026-07-29) sit above
+the older P6–P17 improvements because they're defects and prerequisites rather than enhancements.
+See [Order recommendation](#order-recommendation) at the bottom for the actual sequence to work in.
 
 ---
 
@@ -86,6 +89,292 @@ admin exposes them (block/unblock actions on both publisher admins), and
 `bazos/tests/test_filters.py` covers each rule. Nothing left to do here. (`run_filter` no longer
 uses a fixed `RuleEngine([PassthroughRule()])`/`RuleEngine([...five rules])` — see P17 below,
 also done, for how rule selection is now per-query.)
+
+---
+
+## 🐛 Silent-failure defects
+
+> Added 2026-07-29. These are **not ideas** — they are things quietly broken today, each with a
+> known fix. Common theme: **the pipeline cannot currently distinguish "nothing to find" from
+> "not working"**, so every failure mode below looks like a quiet market. Do these before any
+> feature work; they're ~1 day in total and they protect the value of everything else.
+
+### P18 — `QueryRun` is lost whenever a query raises
+```
+QueryRun rows silently vanish on failure, so there is no coverage metric.
+
+Context: in `bazos/scraping/bazos_runner.py::run`, the QueryRun is constructed in memory,
+then `query_runner.run()` is called, and only afterwards are `run_end`/`new_ads_count` set
+and `.save()` called. Any exception from `query_runner.run()` means the row is never
+persisted at all. Combined with `run_scraper`'s default mode (which catches everything at
+the top level, logs, sleeps 60s and restarts the whole runner), the result is that a
+repeatedly-failing query leaves no trace in QueryRun — you cannot answer "was this category
+actually watched for the last 48 hours?".
+
+Steps:
+1. Save the `QueryRun` row immediately after constructing it (so it exists even if the run
+   dies), then update it with `run_end`/`new_ads_count` in a `finally` block.
+2. Add a nullable `error` (TextField) and a `success` (BooleanField) to `QueryRun`; on
+   exception, record the exception string and re-raise. Generate the migration.
+3. Wrap the per-query body in try/except/finally so one failing query does not abort the
+   whole pass (today an exception propagates out of the `for query in queries` loop and
+   kills the remaining queries in that pass — confirm this and fix it deliberately).
+4. Surface it: add `success`/`error` to `QueryRunAdmin` (see P9) and to the list filters.
+5. Write tests: a scraper that raises still produces a QueryRun row with success=False and
+   a populated error, and subsequent queries in the same pass still execute.
+```
+
+---
+
+### P19 — No zero-results canary (parser drift is invisible)
+```
+A Bazos HTML change would silently zero the deal flow and look identical to a quiet market.
+
+Context: `BazosScraper._parse_product` depends on hardcoded CSS class names
+(`inzeratynadpis`, `nadpis`, `velikost10`, `popis`, `inzeratycena`, `inzeratylok`,
+`inzeratyview`, `inzeratyakce`) and an `assert int(bazos_id) == product_id`. If Bazos
+renames a class, parsing fails or yields nothing, `run_scraper`'s outer handler swallows it,
+and the logs show a scraper that keeps running and finding no new ads — which is exactly what
+a genuinely quiet period looks like. There is no alert for this today.
+
+Steps:
+1. Add a check after each pass in `BazosRunner.run`: track consecutive passes in which the
+   total new-ad count across all queries was zero.
+2. When that counter crosses a threshold (make it a setting, default e.g. 6 consecutive
+   passes), emit a WARNING via `self.log` — which already fans out to the `for_logging`
+   Discord channels — and reset the counter after alerting so it doesn't spam every pass.
+3. Consider a second, stronger signal: a pass where every query returned zero *parsed rows*
+   (not just zero *new* ads) is much more suspicious than zero new ads, since a live listing
+   page essentially always parses to >0 rows. Prefer this if `run_query` can cheaply report
+   rows-seen alongside new-ads-found.
+4. Do NOT make this fatal — it's an alert, not a crash. A genuinely dead category at 3am
+   should not stop the scraper.
+5. Write tests for the counter/threshold/reset logic with a mocked scraper returning zero rows.
+```
+
+---
+
+### P20 — Two IP-guard failure modes: silent total skip, and an unbounded retry loop
+```
+Fix two guard bugs in the IP layer that can each stall the scraper invisibly.
+
+Context (a) — silent total skip: `BazosRunner.run` does
+`if self.ip_changer.check_ip_local(): self.log(...); continue`. `continue` skips the query.
+If `check_ip_local()` is persistently True — a misconfigured `LOCAL_IP_SUBNET`, or Tor down
+so the session egresses from the local network — then EVERY query is skipped on EVERY pass,
+forever, while each pass reports completing normally. Total silent failure.
+
+Context (b) — unbounded loop: `IPChanger.renew_ip_bazos_ok` is `while True:` with no attempt
+cap — it rotates and re-probes until Bazos stops returning 403. If Bazos is blocking the
+whole exit-node pool (the documented Tor reputation problem, see
+../proxies/PROXY_ROTATION_RESEARCH.md §2), this spins indefinitely, hammering both Tor's
+control port and Bazos.
+
+Steps:
+1. For (a): treat a local IP as a pass-level fatal condition, not a per-query skip — break
+   out of the query loop, log at ERROR (so it reaches the Discord logging channels), and let
+   the pass end so the next one retries after the normal sleep. A guard that can silently
+   disable all work must be loud.
+2. For (a): also count consecutive local-IP detections and escalate (ERROR + longer backoff)
+   rather than re-probing at full cadence.
+3. For (b): add a max-attempts cap to `renew_ip_bazos_ok` (reuse `MAX_ATTEMPTS` from
+   `bazos/const.py`, currently 5), raise `BazosBlacklistedError` when exhausted, and let the
+   caller decide — do not loop forever inside the IP layer.
+4. For (b): add a bounded backoff between rotation attempts so a fully-blocked pool doesn't
+   generate a tight request loop.
+5. Write tests: `check_ip_local` returning True aborts the pass loudly rather than silently
+   skipping each query; `renew_ip_bazos_ok` raises after MAX_ATTEMPTS rather than hanging.
+```
+
+---
+
+## ⚡ Latency & data-quality prerequisites
+
+> Added 2026-07-29. **P21 is the highest-value item in this file.** The rationale is commercial
+> and lives in [`../MONETIZATION.md`](../MONETIZATION.md) **§7.1**: the current 15–45 min interval
+> gives a **~15 minute median detection latency** while competing services poll every 60 s and
+> good listings are gone in minutes — so the deal-capture premise of the whole project fails on
+> this one number. The technical groundwork is already done in
+> [`../proxies/PROXY_ROTATION_RESEARCH.md`](../proxies/PROXY_ROTATION_RESEARCH.md) §8 and
+> [`../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md`](../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md) §8;
+> this prompt is the missing executable version. It also unblocks
+> [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6, which needs the API's second-resolution timestamps.
+
+### P21 — Cut latency ~30×: production API cutover + guard collapse + rotating proxy
+> ⚠️ Do P18–P20 first — you want failure visibility *before* you increase cadence.
+
+```
+Take detection latency from a ~15 min median to a ~2 min cadence. Three changes, one goal.
+Read ../proxies/PROXY_ROTATION_RESEARCH.md §5 and §8 and ../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md
+§8 Stage C first — the design decisions are already made there; this is execution.
+
+Part 1 — tunable API page size (do this first, it's the prerequisite):
+1. `BazosApiScraper` currently hardcodes `limit=API_PAGE_SIZE` (210). A steady-state dedup
+   probe only needs the newest handful. Add a `limit` parameter (default 210 for
+   backfill/deep paging) and use a small value (~10) for the routine newest-first pass.
+   Measured effect: the dominant request drops from ~15 KB to ~1.1 KB (research doc §4).
+2. Keep 210 for `run_new_query` backfill and any bulk `ad_id[]=` path.
+
+Part 2 — collapse the duplicate blacklist check:
+3. Per PROXY_ROTATION_RESEARCH.md §3 there are ~3 Bazos requests per query per pass, and TWO
+   of them are redundant blacklist probes: `BazosRunner.run`'s
+   `ip_changer.check_bazos_blacklisted(query.url)` and the scraper-level
+   `scraper.check_blacklisted(...)`. Collapse to a SINGLE probe ONCE PER PASS (not per
+   query) in `BazosRunner.run`, before the query loop.
+4. `check_ip_local()` calls icanhazip.com per query — move that to once per pass too.
+5. Be careful with the interaction with P20: the guards must still be loud on failure, just
+   evaluated less often.
+
+Part 3 — rotating proxy transport:
+6. Implement `ip_changer/http_proxy.py::HttpProxyIPChanger` per the sketch in
+   PROXY_ROTATION_RESEARCH.md §8 — `renew_session` points a fresh `requests.Session` at
+   `settings.PROXY_URL`; `renew_ip` is a no-op (the provider rotates per request);
+   `renew_ip_and_check_new` re-creates the session and returns the new IP.
+7. Add `PROXY_URL` to settings/.env (empty default) and an `HTTP_PROXY` branch in
+   `BazosRunner.__init__` alongside `DUMMY`/`TOR`, gated on `IP_CHANGER_TYPE`. Nothing
+   changes until it's set — do not alter the default.
+8. Validate with the existing tool before switching production:
+   `python bench_proxy.py --proxy <endpoint> --repeat 30 --query auto` and compare success %
+   against the current Tor baseline. This is the one measurement PROXY_ROTATION_RESEARCH.md
+   §10 flags as still missing — record the result in that doc's §10.
+
+Part 4 — cut over and lower the interval:
+9. Switch ONE canary `Query` to `marketplace="bazos_api"`, run
+   `python manage.py compare_bazos_scrapers`, confirm parity, then migrate the rest.
+10. Only after parity: lower `INTERVAL_LOWER`/`INTERVAL_UPPER` (they are already env-driven,
+    no code change). Step down gradually — e.g. 15 min → 5 min → 2 min — watching the P19
+    canary and the blacklist-probe outcome at each step rather than jumping straight to 2 min.
+11. Reconsider `NightMultiplier`: at a 2-minute cadence the night ×2 is much less meaningful,
+    and BACKLOG_IDEAS.md #6 (now unblocked by the API's real timestamps) is the better
+    long-term answer than a flat multiplier.
+12. Keep detail-endpoint calls event-driven, per PROXY_ROTATION_RESEARCH.md §5.1 — detail
+    volume, not query count, is what re-creates the old single-IP ban.
+```
+
+---
+
+### P22 — `Ad.price_raw` → real integer + `price_type`
+> Unblocks P23, and BACKLOG_IDEAS.md #10 (distance/margin scoring).
+
+```
+`Ad.price_raw` is a CharField holding strings like "12 500 Kč", "Dohodou", "V textu",
+"Nabídněte" — so no median, percentile, index, or margin arithmetic is possible. This is
+already flagged as a TODO in `bazos/models.py` on the price_raw field.
+
+Note `parse_price(price_raw) -> int | None` ALREADY EXISTS in `bazos/filters.py` and is used
+by PriceRangeRule/PriceDropRule — reuse it, don't write a second parser.
+
+Steps:
+1. Add `price` (IntegerField, null=True, db_index=True) and `price_type` (CharField with
+   TextChoices: EXACT / NEGOTIABLE ("Dohodou") / IN_TEXT ("V textu") / MAKE_OFFER
+   ("Nabídněte") / FREE / UNKNOWN) to `Ad`. KEEP `price_raw` — it's the audit trail and the
+   source for backfill.
+2. Extend the parsing in `bazos/filters.py` (or move it to a shared helper both filters and
+   scrapers import) so it returns BOTH the amount and the detected type, rather than just
+   `int | None`. Keep the existing `parse_price` signature working for current callers.
+3. Populate both new fields at scrape time in `BazosScraper` and `BazosApiScraper`. The API
+   path can do better than parsing: the detail endpoint returns a real `price_type` field
+   (BAZOS_HIDDEN_API_RESEARCH.md §5.2) and listings carry `currency` — prefer those when
+   available and fall back to string parsing for the HTML path.
+4. Write a data migration backfilling `price`/`price_type` from existing `price_raw` values.
+   Log/count rows that fail to parse rather than silently leaving them null.
+5. Update `PriceRangeRule` and `PriceDropRule` to use `ad.price` directly (keeping their
+   current PASS-on-unparseable behaviour, which is still correct when `price is None`).
+6. `PriceChange.old_price`/`new_price` are also CharFields — decide deliberately whether to
+   migrate them too (recommended: yes, same treatment, or price history stays unusable for
+   the same reasons).
+7. Tests: parsing of each price form incl. thousands separators and non-numeric variants;
+   the backfill migration; both filter rules still behaving identically on edge cases.
+```
+
+---
+
+### P23 — `PriceAnomalyRule` — the first rule that actually finds deals
+> ⚠️ Requires P22 (needs a numeric price). Design rationale already written:
+> [`../bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md`](../bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md)
+> §1 stage 2 ("Cheap filter pass — zero extra API calls"). This prompt is the promotion of
+> that design, not a new idea. Distinct from BACKLOG_IDEAS.md #4, which compares against
+> *external* retail prices; this one compares against *your own accumulated Bazos history*.
+
+```
+Every rule in `bazos/filters.py` today is a static per-query predicate (price range, keyword
+blocklist/required, publisher blocklist, price drop). NONE of them answer "is this cheap
+RELATIVE to comparable listings?" — which is the only question that finds a deal rather than
+a keyword match. Add that rule.
+
+Steps:
+1. Add a `PriceAnomalyRule` to `bazos/filters.py` implementing the FilterRule protocol, and
+   register it in `RULE_REGISTRY` (per-query opt-in already works via
+   `Query.filter_rule_names`, see P17 — decide whether it belongs in DEFAULT_RULE_NAMES; it
+   probably should NOT be on by default until calibrated).
+2. Baseline: a rolling median (and a low percentile) of `Ad.price` over comparable ads —
+   scoped by category where known, plus a recency window (e.g. trailing 90 days) and a
+   minimum sample size below which the rule PASSes rather than guessing. Start with a plain
+   ORM aggregate over the existing `Ad` table, NOT a separate ML service — the discovery doc
+   §4 explicitly recommends the simple baseline first.
+3. Handle the scoping problem honestly: category is only reliably known for category-scoped
+   queries (the discovery doc §1 notes section is derivable from the listing URL subdomain
+   but category needs a detail call). For text queries, fall back to comparing against ads
+   from the same `Query` — narrower, but honest. Do not silently compare across unrelated
+   categories; PASS instead.
+4. Store the computed signal, don't just branch on it: add `Ad.price_percentile` (or a
+   residual-vs-median float) so it's visible in admin, usable in the notification (see
+   BACKLOG_IDEAS.md #3a/#10), and analysable later. A rule that only returns
+   APPROVE/REJECT/PASS throws away the interesting number.
+5. Guard against the obvious failure modes: exclude the ad being scored from its own
+   baseline; exclude `price_type != EXACT` from the baseline (a "Dohodou" listing at 1 Kč
+   would wreck a median); consider excluding known-dealer publishers once
+   `user_ads_count` lands (research doc §5.2).
+6. Do NOT wire this to auto-reject initially. Run it in shadow mode — compute and store the
+   percentile, notify as usual — and calibrate the threshold against real outcomes from
+   BACKLOG_IDEAS.md #9 (`AdOutcome`) before letting it gate anything.
+7. Tests: baseline computation with/without enough samples; self-exclusion; non-EXACT price
+   exclusion; PASS when category is unknown; the stored percentile value.
+```
+
+---
+
+### P24 — Delisting / sold detection (time-to-disappear)
+> Design rationale already written:
+> [`../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md`](../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md)
+> §6.4a and §8 Stage D. This prompt is the promotion of that design.
+
+```
+You currently record ASKING prices only, never realised ones. The closest available proxy is
+time-to-disappear plus last-seen price — and it's cheap, because `ads.php` accepts up to 210
+`ad_id[]=` values in ONE request and silently omits ids that no longer exist, while
+`ad-detail-2.php` returns HTTP 410 {"status":"deleted"} for a removed ad.
+
+This is the single most valuable field the DB doesn't have: it's the feedback signal for
+P23's anomaly model (a genuinely underpriced item should disappear fast — see
+../bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md §3.4 "deal-velocity"), and it's the prerequisite
+for any price-index or valuation work (../MONETIZATION.md §4.1b, §7.2c).
+
+Steps:
+1. Add `AdStatus.REMOVED` plus `Ad.last_seen_at` and `Ad.removed_at` (nullable). Note the
+   status-machine implication: REMOVED is orthogonal to the delivery states
+   (PENDING/APPROVED/SENT) — an ad can be SENT and later removed. Decide deliberately whether
+   REMOVED is a status value or a separate nullable timestamp field; the timestamp is
+   probably cleaner precisely because it doesn't collide with delivery state.
+2. Add a management command `check_delisted` that batches known non-removed ads by
+   `(marketplace, external_id)` into `ads.php?ad_id[]=...` calls of up to 210 ids, marks
+   returned ids with a fresh `last_seen_at`, and marks absent ids as removed. Follow the
+   existing `run_filter`/`run_sender` polling pattern (`select_for_update(skip_locked=True)`)
+   so it's safe to run alongside everything else.
+3. Also refresh `price` from the same response — the bulk form returns `price_formatted` and
+   `views` for free, so this doubles as comprehensive price-change detection and largely
+   subsumes BACKLOG_IDEAS.md #8's expensive full-listing rescan. Note that explicitly in #8
+   if this lands.
+4. Cadence: this is bounded by tracked-ad count, not query count. Read
+   ../proxies/PROXY_ROTATION_RESEARCH.md §5.1 before choosing an interval — detail-endpoint
+   volume is the documented ban vector. Once per hour or few hours is plenty for a
+   time-to-sell signal; do not run it every pass.
+5. Do NOT create a `Job` model for this yet — one recurring job doesn't justify
+   JOB_QUEUE_DESIGN.md's generic machinery. A management command plus a docker-compose
+   service matches the existing pattern. Revisit if a third such job appears.
+6. Tests: batching at the 210 boundary; absent ids marked removed; present ids refreshed;
+   410 handling on the detail path; idempotency when run twice.
+```
 
 ---
 
@@ -214,8 +503,18 @@ Steps:
 ---
 
 ### P14 — Posting-time-of-day → interval tuning
-> Promoted from `BACKLOG_IDEAS.md` #6 — see there for full rationale. No dependencies, no new
-> data collection; ready to run today.
+> Promoted from `BACKLOG_IDEAS.md` #6 — see there for full rationale.
+>
+> ⚠️ **BLOCKED — correction 2026-07-29.** The line below ("no dependencies, ready to run today")
+> is **wrong**. `BazosScraper.extract_date` parses only the `[d.m.yyyy]` substring and **discards
+> the time**, so every `publish_date` is at midnight and step 1's `ExtractHour("publish_date")`
+> returns **0 for every row** — it will appear to work and produce a meaningless flat curve.
+> Unblocked by **P21** (the API listing carries `"from": "2026-07-19 09:45:51"`, second
+> resolution). When it lands, filter `topped=False` first — topped ads' `from` value is not the
+> real posting time (`../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md` §4.3). Also note P21 reduces the
+> value of this work: it tunes *when* a 15–45 min interval fires, where P21 makes it ~2 minutes.
+>
+> ~~No dependencies, no new data collection; ready to run today.~~
 
 ```
 Replace NightMultiplier's flat day/night 2x split with a real hourly posting-density curve.
@@ -295,13 +594,44 @@ a scoped rule set doesn't apply rules outside its list. Nothing left to do here.
 
 ## Order recommendation
 
-If you only have time for a few:
-1. ~~**P1** (price history)~~ — done
-2. ~~**P5** (real filter rules)~~ — done
-3. ~~**P17** (per-query filter registry)~~ — done
-4. **P3** (Query extra_params) — 15 min, unblocks Vinted
-5. **P10** (coverage audit) — quick wins on confidence
+> **Revised 2026-07-29.** The old ordering optimised for "cheapest independent win". That was
+> reasonable while the goal was tidying the pipeline, but it doesn't survive contact with what the
+> project is *for*: see [`../MONETIZATION.md`](../MONETIZATION.md) §7.1. Latency, then failure
+> visibility, then data usability — features after that.
 
-Cheapest independent wins if you want a break from the pipeline stages:
-6. **P14** (interval tuning) — zero new data, zero dependencies
-7. ~~**P15** (AND/OR probe)~~ — done
+**Do these first, in this order:**
+
+1. **P18–P20** (silent-failure defects) — ~1 day total. Get failure visibility *before* raising
+   cadence, otherwise P21 just fails faster and quieter.
+2. **P21** (latency chain) — ~3–5 days, **highest-value item in this file.** ~30× latency
+   improvement for ~$3–6/mo, using a scraper that's already built and tested.
+3. **P22** (price → int + `price_type`) — ~1 day. Unblocks everything numeric.
+4. **P24** (delisting / time-to-disappear) — ~1–2 days. The feedback signal for P23 and the
+   prerequisite for any valuation or index work.
+5. **P23** (`PriceAnomalyRule`) — ~1–2 days, in shadow mode first. The first rule that finds
+   deals rather than matching keywords.
+
+**Then, if flipping is the actual goal**, the two cheap items from
+[`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) that aren't prompts yet: **#9** (`AdOutcome`, ~half a day —
+the only source of ground truth for calibrating P23) and **#10** (distance/travel-cost scoring),
+built together with **P16** since all three touch the notification-formatting path.
+
+**Already done:** ~~P1~~ (price history), ~~P5~~ (real filter rules), ~~P17~~ (per-query filter
+registry), ~~P6~~ (Sentry), ~~P15~~ (AND/OR probe).
+
+**Still worthwhile, lower priority:**
+
+- **P3** (Query `extra_params`) — 15 min, unblocks Vinted. Cheap regardless of direction, and
+  multi-marketplace is the concentration-risk hedge (`../MONETIZATION.md` §7.4).
+- **P10** (coverage audit) — quick wins on confidence.
+- **P13** (filter-before-detail-fetch) — matters more once cadence rises.
+- **P16** (Discord thumbnail) — best visible payoff; P21 makes it nearly free by putting
+  `image_thumbnail` in the production payload, so it's worth doing *after* the cutover rather than
+  adding HTML-scraper parsing that P21 obsoletes.
+- **P7** / **P8** / **P9** / **P12** — housekeeping, no dependencies.
+- **P14** (interval tuning) — ⚠️ **blocked**, and it was previously listed here as a zero-dependency
+  quick win. It isn't: `extract_date` discards the time component, so `ExtractHour("publish_date")`
+  returns 0 for every row. P21 unblocks it by supplying the API's second-resolution `from` field.
+  See [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6 for the full correction.
+- **P2** (Stage 5 query priority), **P4** (VintedScraper), **P11** (multi-marketplace `Ad.message`)
+  — feature work; sequence against whichever direction you pick.
