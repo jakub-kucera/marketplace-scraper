@@ -26,7 +26,7 @@ from bazos.const import (
     MAX_ATTEMPTS,
 )
 from bazos.exceptions import BazosBlacklistedError
-from bazos.models import Ad, Query
+from bazos.models import Ad, Marketplace, Query
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 from bazos.scraping.bazos.user_agent import default_user_agent
 from ip_changer.tor import PROXIES
@@ -44,7 +44,7 @@ def _to_bool(value) -> bool:
 
 
 class BazosApiScraper:
-    marketplace = "bazos_api"
+    marketplace: str = Marketplace.BAZOS_API
 
     def __init__(self, session: requests.Session):
         self.sent_requests_count = 0
@@ -103,7 +103,7 @@ class BazosApiScraper:
         parsed = BazosApiScraper._parse_listing_item(item)
         return Ad(
             external_id=parsed["external_id"],
-            marketplace="bazos_api",
+            marketplace=Marketplace.BAZOS_API,
             name=parsed["name"],
             price_raw=parsed["price_raw"],
             url=parsed["url"],
