@@ -721,6 +721,16 @@ the broad category sweep today is ~$5/month and a few days of work. That is a ch
 option on a large payoff — and it is the *only* item on this list where delay is
 irreversible.
 
+> **⚠️ And it is currently unbacked (added 2026-08-08).** The argument above says the
+> archive cannot be rebuilt at any price — yet there is **no backup of the database of any
+> kind**: no `pg_dump`, no snapshot, no off-host copy, nothing in `docker-compose.yml`,
+> `deploy.sh`, or the deploy workflow (which runs `migrate` against production without
+> dumping first). The only copies are the live `postgres_data/` bind mount on the Pi and
+> the **March-2024** CSV export. An SD-card failure — the dominant Pi failure mode — takes
+> the entire compounding asset with it. **Fix cost: ~2 hours, ~$0/mo** at the current 83 MB.
+> Options, retention/GDPR interaction, and a concrete plan: [`BACKUPS.md`](BACKUPS.md).
+> This belongs in §8's Phase 0, which currently omits it.
+
 ### 7.4 Concentration risk
 
 One marketplace, one ToS clause, one sole trader who can end this in an afternoon. Stage 8
@@ -763,10 +773,14 @@ build is re-implementing a free feature.
 ## 8. Recommended sequencing
 
 **Phase 0 — hygiene (1 day, do regardless).**
-Delete the `facebook/` app, model, migration, importer and the `PhonePublisher.fb_user`
-FK; verify the production table is empty first. Write down a retention policy: listing
-facts kept, contact identifiers purged at 6 months. Decide, explicitly, that the
-current operating posture is **private use** (§3, left column).
+**Set up database backups first** — nightly `pg_dump -Fc` off-host, ~2 hours, see
+[`BACKUPS.md`](BACKUPS.md) §8. Everything below assumes the archive still exists.
+Then: delete the `facebook/` app, model, migration, importer and the
+`PhonePublisher.fb_user` FK; verify the production table is empty first (and do this
+**before** starting a backup rotation, so a leaked-data table never enters the archives —
+`BACKUPS.md` §7). Write down a retention policy: listing facts kept, contact identifiers
+purged at 6 months — and cap **backup** retention to match, or the purge is cosmetic.
+Decide, explicitly, that the current operating posture is **private use** (§3, left column).
 
 **Phase 1 — fix latency first, then make the data usable (2–4 weeks).**
 **Start with the latency chain (§7.1)** — production API cutover, collapse the double
