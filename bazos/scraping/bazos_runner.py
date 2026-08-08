@@ -48,13 +48,21 @@ class BazosRunner:
                     query=query,
                     run_start=datetime.now(timezone.utc),
                 )
-                assert self.ip_changer.session is not None
-                query_runner = BazosQueryRunner(query, self.ip_changer.session)
-                new_products_count = query_runner.run()
-                query.save()
-                query_run.run_end = datetime.now(timezone.utc)
-                query_run.new_ads_count = new_products_count
                 query_run.save()
+                try:
+                    assert self.ip_changer.session is not None
+                    query_runner = BazosQueryRunner(query, self.ip_changer.session)
+                    new_products_count = query_runner.run()
+                    query.save()
+                    query_run.new_ads_count = new_products_count
+                except Exception as e:
+                    query_run.success = False
+                    query_run.error = str(e)
+                    logger.exception("Query %s failed", query)
+                    continue
+                finally:
+                    query_run.run_end = datetime.now(timezone.utc)
+                    query_run.save()
                 logger.info("Found %d new products for query %s", new_products_count, query)
 
             end = datetime.now(timezone.utc)

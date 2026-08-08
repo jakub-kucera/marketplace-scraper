@@ -127,6 +127,8 @@ class QueryRun(models.Model):
     run_start = models.DateTimeField()
     run_end = models.DateTimeField(null=True, blank=True)
     new_ads_count = models.IntegerField(null=True)
+    success = models.BooleanField(default=True)
+    error = models.TextField(null=True, blank=True)
 
 
 class AdStatus(models.TextChoices):

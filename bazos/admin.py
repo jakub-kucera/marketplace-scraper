@@ -153,8 +153,10 @@ class QueryRunAdmin(admin.ModelAdmin):
         "run_start",
         "run_end",
         "new_ads_count",
+        "success",
+        "error",
     )
-    list_filter = ("query", )
+    list_filter = ("query", "success")
 
 
 class PriceChangeInline(admin.TabularInline):
