@@ -2,7 +2,7 @@ import logging
 import requests
 
 from bazos.const import NEW_PRODUCT_LOAD_MAX
-from bazos.models import Ad, AdStatus, PriceChange, Query
+from bazos.models import Ad, AdStatus, Marketplace, PriceChange, Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 from bazos.scraping.marketplace import MarketplaceScraper
@@ -15,15 +15,15 @@ def _build_scrapers(session: requests.Session) -> dict[str, MarketplaceScraper]:
 
     Add new entries here when new marketplaces are implemented (Stage 8+).
 
-    "bazos_api" (BazosApiScraper, see docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md)
+    Marketplace.BAZOS_API (BazosApiScraper, see docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md)
     is registered for validation only — no production Query currently uses it,
-    so the normal run_scraper loop is unaffected. Compare it against "bazos"
+    so the normal run_scraper loop is unaffected. Compare it against Marketplace.BAZOS
     with `python manage.py compare_bazos_scrapers`.
     """
     return {
-        "bazos": BazosScraper(session),
-        "bazos_api": BazosApiScraper(session),
-        # "vinted": VintedScraper(session),   # Stage 8
+        Marketplace.BAZOS.value: BazosScraper(session),
+        Marketplace.BAZOS_API.value: BazosApiScraper(session),
+        # Marketplace.VINTED.value: VintedScraper(session),   # Stage 8
     }
 
 

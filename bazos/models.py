@@ -38,6 +38,12 @@ class Category(models.Model):  # type: ignore[django-manager-missing]
         return urljoin(self.section.full_url, self.url)
 
 
+class Marketplace(models.TextChoices):
+    BAZOS     = "bazos",     "Bazos"
+    BAZOS_API = "bazos_api", "Bazos (API)"
+    # VINTED  = "vinted",     "Vinted"  # Stage 8 — add once VintedScraper is registered
+
+
 class Query(TimeStampedModel):
     text = models.CharField(max_length=120, help_text="Querying text", blank=True)
 
@@ -56,7 +62,7 @@ class Query(TimeStampedModel):
     load_full_description = models.BooleanField(default=False)
     # last_top_count = Column(Integer, nullable=False, default=0)
     randomly_generated = models.BooleanField(default=False)
-    marketplace = models.CharField(max_length=20, default="bazos")
+    marketplace = models.CharField(max_length=20, choices=Marketplace.choices, default=Marketplace.BAZOS)
 
     filter_blocklist = models.JSONField(default=list, blank=True, help_text="Reject if name/description contains any of these phrases.")
     filter_required = models.JSONField(default=list, blank=True, help_text="Reject unless name/description contains at least one of these phrases.")
@@ -143,7 +149,7 @@ class AdStatus(models.TextChoices):
 
 class Ad(TimeStampedModel):
     external_id = models.IntegerField(db_index=True)  # TODO unique=True (requires M:N to queries)
-    marketplace = models.CharField(max_length=20, default="bazos", db_index=True)
+    marketplace = models.CharField(max_length=20, choices=Marketplace.choices, default=Marketplace.BAZOS, db_index=True)
     url = models.URLField(max_length=1024)  # TODO unique=True
 
     # TODO add relation to Category model. (some init method where from URL take category, bazos_id)

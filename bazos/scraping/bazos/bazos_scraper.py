@@ -15,14 +15,14 @@ from selenium.common.exceptions import TimeoutException
 
 from bazos.const import BAZOS_PAGE_WAIT_TIME, MAX_ATTEMPTS, PAGE_SIZE, BAZOS_BLACKLIST_CHECK_URL
 from bazos.exceptions import BazosBlacklistedError
-from bazos.models import Ad, Query, EmailPublisher, PhonePublisher
+from bazos.models import Ad, Marketplace, Query, EmailPublisher, PhonePublisher
 from ip_changer.tor import PROXIES
 
 logger = logging.getLogger(__name__)
 
 
 class BazosScraper:
-    marketplace = "bazos"
+    marketplace: str = Marketplace.BAZOS
 
     def __init__(self, session: requests.Session):
         self.sent_requests_count = 0
@@ -151,7 +151,7 @@ class BazosScraper:
         )
         return Ad(
             external_id=parsed['external_id'],
-            marketplace="bazos",
+            marketplace=Marketplace.BAZOS,
             name=parsed['name'],
             price_raw=parsed['price_raw'],
             url=parsed['url'],
