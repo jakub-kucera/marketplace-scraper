@@ -9,6 +9,12 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 |---|---|
 | [`MONETIZATION.md`](MONETIZATION.md) | Options analysis for turning the project into revenue — data sales, flipping/arbitrage, subscriptions, selling the capability — each with competitor check, financial model, and verdict. Includes the **legal section that constrains the rest** (Bazos ToS API-consent clause + `robots.txt`, sui generis database right / *Innoweb v Wegener*, GDPR Art 14 and the KASPR/Bisnode fines, Act 480/2004 anti-spam, CZ tax/VAT for reselling). **§7.1 argues that detection latency — not features — is the binding constraint** on the whole "find deals" goal, and is cross-referenced from [`refactor/PROMPTS.md`](refactor/PROMPTS.md) P21 and [`refactor/BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md)'s priority table; §7.2 lists three data-model defects that block every data-driven option. **§4.7** analyses the job/gig-post idea — measured Bazos `Práce` volumes (too small), the economics of taking automatable gigs (below contract rate), the Gemini free-tier EEA data carve-out, and the reframe that makes it worth keeping: read job ads as **automation-consulting leads**, not as jobs. |
 
+## Operations
+
+| Doc | What it's for |
+|---|---|
+| [`BACKUPS.md`](BACKUPS.md) | **There is no backup of the database today** — the only copies are the live `postgres_data/` bind mount on the Pi and a 2.5-year-stale CSV export. Compares the dump options (`pg_dump -Fc` / plain SQL / `pg_dumpall` / Django `dumpdata` / cold copy / PITR / managed / replica), where to run them (compose sidecar vs. host cron vs. the job queue), off-host destinations and cost, and the **retention/GDPR interaction** — a PII purge that doesn't reach the backups isn't a purge. Recommends nightly `pg_dump -Fc` → `restic` to B2, ~2 hours, ~$0/mo. Directly closes the gap in [`MONETIZATION.md`](MONETIZATION.md) §7.3, which calls the archive irreplaceable while it sits unbacked on one SD card. |
+
 ## `refactor/` — pipeline decoupling (scraper → filter → sender)
 
 | Doc | What it's for |
@@ -51,9 +57,9 @@ stage list as a decision has not been made to pursue it.
 
 | Doc | What it's for |
 |---|---|
-| [`PROXY_ROTATION_RESEARCH.md`](proxies/PROXY_ROTATION_RESEARCH.md) | Why Tor (IP reputation) and the old single Surfshark VPN (per-IP rate) both failed; the fix (rotating **residential**, CZ-geo); **live-measured** request/bandwidth volumes (via `bench_proxy.py` at repo root) incl. the "run more often" cadence math, the broad **scrape-all** scenario, and the **download-all-images** scenario (77+ GB/mo → split transport: images on cheap datacenter, API on residential); 2026 provider pricing; and an `HttpProxyIPChanger` integration sketch behind `IP_CHANGER_TYPE=HTTP_PROXY`. |
+| [`PROXY_ROTATION_RESEARCH.md`](proxies/PROXY_ROTATION_RESEARCH.md) | Why Tor (IP reputation) and the old single Surfshark VPN (per-IP rate) both failed; the fix (rotating **residential**, CZ-geo); **live-measured** request/bandwidth volumes (via `experiments/bench_proxy.py`) incl. the "run more often" cadence math, the broad **scrape-all** scenario, and the **download-all-images** scenario (77+ GB/mo → split transport: images on cheap datacenter, API on residential); 2026 provider pricing; and an `HttpProxyIPChanger` integration sketch behind `IP_CHANGER_TYPE=HTTP_PROXY`. |
 
-The throwaway benchmark it references lives at [`bench_proxy.py`](../bench_proxy.py) (repo root).
+The throwaway benchmark it references lives at [`experiments/bench_proxy.py`](../experiments/bench_proxy.py).
 
 **Status (2026-07-24):** Stage B is implemented — `BazosApiScraper`
 (`bazos/scraping/bazos/bazos_api_scraper.py`) is a second `MarketplaceScraper`

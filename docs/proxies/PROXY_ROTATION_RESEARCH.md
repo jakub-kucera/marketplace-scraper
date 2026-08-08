@@ -8,7 +8,7 @@
 > **Status of claims:** the architecture/volume sections are read directly from the
 > code (`bazos/scraping/*`, `ip_changer/*`, `bazos/const.py`, `scraper/settings.py`)
 > as of 2026-07-26. The byte-size / latency numbers in §4 are **live-measured** with
-> `bench_proxy.py` (repo root) against `bazos.cz` on 2026-07-26 — see §9 for the tool.
+> `experiments/bench_proxy.py` against `bazos.cz` on 2026-07-26 — see §9 for the tool.
 > Provider pricing in §6 is from public 2026 pricing pages (sources in §11) and drifts;
 > re-check before buying. The one thing **not** yet measured is sustained block-rate
 > through a real candidate proxy — that requires running the tool's `--repeat` probe
@@ -354,7 +354,7 @@ stay as-is — this only swaps the transport.
 
 ---
 
-## 9. The benchmark tool — `bench_proxy.py`
+## 9. The benchmark tool — `experiments/bench_proxy.py`
 
 Standalone (no Django/DB) script at the **repo root**. Measures real on-the-wire byte
 sizes, latency, and HTTP status for the three request shapes **plus the image gallery
@@ -364,13 +364,13 @@ probe** via `--repeat`. All numbers in §4–5 are its output.
 
 ```bash
 # your current Tor setup — expect some 403/429 in the status distribution
-python bench_proxy.py --proxy socks5h://127.0.0.1:9050 --repeat 30 --query auto
+python experiments/bench_proxy.py --proxy socks5h://127.0.0.1:9050 --repeat 30 --query auto
 
 # a provider free trial (Webshare / IPRoyal), CZ-geo endpoint
-python bench_proxy.py --proxy http://USER-country-cz:PASS@HOST:PORT --repeat 30 --query auto
+python experiments/bench_proxy.py --proxy http://USER-country-cz:PASS@HOST:PORT --repeat 30 --query auto
 
 # your real query count, broad term
-python bench_proxy.py --queries 15 --query auto
+python experiments/bench_proxy.py --queries 15 --query auto
 ```
 
 `--repeat N` reports the **status distribution + success %** — the apples-to-apples

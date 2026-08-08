@@ -234,7 +234,7 @@ Part 3 — rotating proxy transport:
    `BazosRunner.__init__` alongside `DUMMY`/`TOR`, gated on `IP_CHANGER_TYPE`. Nothing
    changes until it's set — do not alter the default.
 8. Validate with the existing tool before switching production:
-   `python bench_proxy.py --proxy <endpoint> --repeat 30 --query auto` and compare success %
+   `python experiments/bench_proxy.py --proxy <endpoint> --repeat 30 --query auto` and compare success %
    against the current Tor baseline. This is the one measurement PROXY_ROTATION_RESEARCH.md
    §10 flags as still missing — record the result in that doc's §10.
 
