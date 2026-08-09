@@ -69,6 +69,32 @@ class SectionAdmin(admin.ModelAdmin):
     inlines = (CategoryInline,)
 
 
+def ad_changelist_url(ad_fk_name: str, pk) -> str:
+    """URL of the Ad changelist filtered to one related row.
+
+    `ad_fk_name` is the FK on `Ad` — "query", "email_publisher", "phone_publisher".
+    A link rather than an inline everywhere it's used: inlines render every row on the
+    page, and the biggest seller in the 2024-03 export has 369 ads (a broad query, far
+    more). The changelist is paginated and inherits `AdAdmin.ordering` (newest first).
+    """
+    return f"{reverse('admin:bazos_ad_changelist')}?{urlencode({f'{ad_fk_name}__id__exact': pk})}"
+
+
+def ads_browse_link(ad_fk_name: str, obj):
+    """Readonly-field renderer: 'Browse N ads — newest first', or a dash."""
+    if obj.pk is None:
+        return "—"
+    count = obj.ads.count()
+    if not count:
+        return "— (no ads)"
+    return format_html(
+        '<a href="{}">Browse {} ad{}</a> — newest first',
+        ad_changelist_url(ad_fk_name, obj.pk),
+        count,
+        "" if count == 1 else "s",
+    )
+
+
 class QueryAdminForm(forms.ModelForm):
     filter_rule_names = forms.MultipleChoiceField(
         choices=[(name, name.replace("_", " ").title()) for name in RULE_REGISTRY],
@@ -94,6 +120,7 @@ class QueryAdmin(admin.ModelAdmin):
         "enabled",
         "randomly_generated",
         "sender",
+        "ad_count",
         "last_run",
     )
     list_filter = ("enabled", "randomly_generated", "marketplace", "section", "category")
@@ -103,13 +130,23 @@ class QueryAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         # annotate last_run as the latest run_end if present, otherwise run_start
-        return qs.annotate(last_run=Coalesce(Max('runs__run_end'), Max('runs__run_start')))
+        # ad_count needs distinct=True: it aggregates over `ads` while last_run aggregates
+        # over `runs`, and the two joins multiply rows. (Max is unaffected by that
+        # duplication; a plain Count would over-count.)
+        return qs.annotate(
+            last_run=Coalesce(Max('runs__run_end'), Max('runs__run_start')),
+            ad_count=Count('ads', distinct=True),
+        )
 
     def last_run(self, obj):
         return getattr(obj, 'last_run', None)
 
     last_run.admin_order_field = 'last_run'  # type: ignore[attr-defined]
     last_run.short_description = 'Last run'  # type: ignore[attr-defined]
+
+    @admin.display(description="Ads", ordering="ad_count")
+    def ad_count(self, obj):
+        return obj.ad_count
 
     @admin.action(description="Enable selected queries")
     def enable_queries(self, request, queryset):
@@ -309,28 +346,11 @@ class PublisherAdminBase(admin.ModelAdmin):
         return format_html('<ul style="margin:0;padding-left:1.2em">{}{}</ul>', format_html("".join(items)), suffix)
 
     def ads_changelist_url(self, obj) -> str:
-        """URL of the Ad changelist filtered to this publisher.
-
-        A link rather than an inline on purpose: inlines render every row on the page, and
-        the biggest real seller in the 2024-03 export has 369 ads. The changelist is
-        paginated, searchable and sortable, and inherits `AdAdmin.ordering` (newest first).
-        """
-        query = urlencode({f"{self.own_ad_field}__id__exact": obj.pk})
-        return f"{reverse('admin:bazos_ad_changelist')}?{query}"
+        return ad_changelist_url(self.own_ad_field, obj.pk)
 
     @admin.display(description="All ads by this publisher")
     def ads_link(self, obj):
-        if obj.pk is None:
-            return "—"
-        count = obj.ads.count()
-        if not count:
-            return "— (no ads)"
-        return format_html(
-            '<a href="{}">Browse {} ad{}</a> — newest first',
-            self.ads_changelist_url(obj),
-            count,
-            "" if count == 1 else "s",
-        )
+        return ads_browse_link(self.own_ad_field, obj)
 
     @admin.action(description="Block selected publishers")
     def block_publishers(self, request, queryset):

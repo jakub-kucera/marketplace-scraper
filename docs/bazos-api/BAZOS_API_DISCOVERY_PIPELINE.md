@@ -124,6 +124,20 @@ The request floated this loosely; here's what it can actually mean:
 
 ### 3.1 Reseller / dealer detection
 
+> **A local precursor shipped 2026-08-10** — see
+> [`../refactor/BACKLOG_IDEAS.md`](../refactor/BACKLOG_IDEAS.md) #11. It resolves seller
+> identity from the `(email_id, phone_id)` pairs already in the DB (transitively — the two
+> ids are not 1:1; 4.7% of emails pair with several phones) and surfaces per-seller ad
+> counts in the admin and in Discord notifications. Two things it does **not** do, both
+> relevant here: it counts only ads *we* scraped, not the seller's true total, and it
+> classifies nobody. The threshold below is what turns it into actual dealer detection, and
+> it needs `user_ads_count` — i.e. the API scraper in production first.
+>
+> One finding from that work worth carrying into any threshold: a `bazos_id=0` publisher id
+> is Bazos's "no publisher of this kind" marker, and it was being stored as a real row —
+> 1,137 ads (6.7%) attached to one fake seller spanning 671 phones. Fixed, but the general
+> lesson holds: **validate that a seller id is a real identity before aggregating on it.**
+
 - Primary signal (free, already in every detail call): `user_ads_count`. A
   threshold (e.g. >20-30) flags "professional."
 - **New:** with the seller-inventory pull, you get the *actual* current listing

@@ -596,6 +596,66 @@ version until Stage D columns land anyway.
 
 ---
 
+## 11. Seller identity & history in the admin — ✅ done 2026-08-10
+
+> **Source**: internal work, 2026-08-08→10. Not from the issue tracker and not previously in
+> this document — recorded here because it shipped and because it is the local, zero-API
+> precursor to [`../bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md`](../bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md)
+> §3.1 (reseller/dealer detection).
+
+**The problem it addresses:** a seller on Bazos is identified by a *pair* of opaque ids
+(`email_id`, `phone_id`), not one id, and the same person routinely posts under several
+pairings. Neither id alone answers "how many ads has this seller posted", and the schema
+carries no seller entity — the pairing exists only per-`Ad`, through two independent FKs.
+
+**What was built:**
+
+- **`SellerAdCounts`** (`bazos/models.py`) — three counts for the seller behind an ad:
+  `by_email`, `by_phone`, and a `combined` that walks the identity graph transitively to a
+  fixpoint (ad → its email → that email's other phones → those phones' other emails).
+  Bounded by `MAX_IDENTITY_ROUNDS`. Surfaced on `AdAdmin` and appended to `Ad.message`, so
+  it reaches Discord on every notification.
+- **`PublisherMixin.partner_rows()`** — publishers of the other type sharing an ad, shown on
+  both publisher admins as "Seen together with", plus `ad_count`/`partner_count` columns and
+  a link to each publisher's ads (newest first, via `AdAdmin.ordering = ("-publish_date",)`).
+- **The `bazos_id=0` sentinel fix** (migration `0025`, scraper writes NULL) — see below.
+
+**Measured findings that shaped it** (2024-03 export, 16,987 ads — worth keeping, since they
+are the empirical basis for the design and for §3.1's thresholds later):
+
+| Measurement | Result |
+|---|---|
+| Ads carrying **both** an email and a phone id | **99.9%** — "only one side" is a non-case (9 ads) |
+| Emails paired with exactly one phone | **95.3%** |
+| Ads where transitive `combined` ≠ `max(by_email, by_phone)` | **13.7%** — one hop is not enough |
+| Largest connected component, before the sentinel fix | **1,408 ads = 8.3% of everything** |
+| Largest connected component, after | **369 ads = 2.2%** |
+
+**The `bazos_id=0` sentinel was the important discovery.** A `0` publisher id is Bazos's "no
+publisher of this kind" marker; `get_or_create` had been turning it into a real row, so
+**1,137 ads (6.7%) shared one fake `EmailPublisher` spanning 671 distinct phones**. It was
+not a legacy artifact — it ran at a steady 6–8%/month across the whole export. Any
+seller-grouping built on top of it would have been wrong on 6.7% of ads, and transitive
+closure would have merged 671 unrelated sellers into one. Fixed at both ends: the scraper
+stores NULL, migration `0025` detaches and deletes the existing rows.
+
+**Deliberately *not* built** (open, if reseller detection is picked up properly):
+
+- **The counts are scoped to this database** — ads our own queries happened to scrape, not
+  the seller's true Bazos total. A dealer with 500 live listings can read as 2 here. The real
+  number is `user_ads_count` on the API detail endpoint
+  (`BAZOS_HIDDEN_API_RESEARCH.md` §5.2), free once the API scraper is in production
+  ([`PROMPTS.md`](PROMPTS.md) P21a). The UI says "seen" rather than "has" for this reason.
+- **No dealer threshold, no flagging, no `FilterRule`** — this surfaces the data for a human,
+  it does not classify anyone. §3.1's ">20-30 ads = professional" rule needs the API count
+  above before it means anything.
+- **`PhonePublisher.phone` / `EmailPublisher.email` are empty on 100% of rows** — only
+  `bazos_id` is ever stored, so there is no way today to detect dummy numbers or match a
+  seller across marketplaces. Populating them is a prerequisite for most of §3.2 (scammer
+  detection). Note `ad-phone.php` is auth-gated (`403 "Číslo je neověřené"`).
+
+---
+
 ## Explicitly out of scope for this document
 
 **[#60](https://github.com/jakub-kucera/marketplace-scrapper/issues/60) — using ChatGPT to write ad

@@ -165,3 +165,64 @@ def test_change_page_post_updates_rule_selection(admin_client_logged_in, query, 
     assert response.status_code == 302, response.context["adminform"].form.errors if response.status_code == 200 else None
     query.refresh_from_db()
     assert query.filter_rule_names == ["publisher_blocklist", "price_drop"]
+
+
+# ---------------------------------------------------------------------------
+# QueryAdmin.ad_count — how many ads this query has found
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def query_admin():
+    from django.contrib.admin.sites import AdminSite
+
+    from bazos.admin import QueryAdmin
+    from bazos.models import Query
+
+    return QueryAdmin(Query, AdminSite())
+
+
+@pytest.mark.django_db
+def test_ad_count_counts_this_querys_ads(query_admin, query, make_ad, rf):
+    for bazos_id in (1, 2, 3):
+        make_ad(query, bazos_id).save()
+
+    row = query_admin.get_queryset(rf.get("/")).get(pk=query.pk)
+
+    assert query_admin.ad_count(row) == 3
+
+
+@pytest.mark.django_db
+def test_ad_count_is_not_inflated_by_query_runs(query_admin, query, make_ad, rf):
+    """`ad_count` aggregates over `ads` while `last_run` aggregates over `runs` in the same
+    queryset — the two joins multiply rows, so a non-distinct Count would report 6 here.
+    """
+    from django.utils import timezone
+
+    from bazos.models import QueryRun
+
+    for bazos_id in (1, 2, 3):
+        make_ad(query, bazos_id).save()
+    for _ in range(2):
+        QueryRun.objects.create(query=query, run_start=timezone.now(), run_end=timezone.now())
+
+    row = query_admin.get_queryset(rf.get("/")).get(pk=query.pk)
+
+    assert query_admin.ad_count(row) == 3
+    assert row.last_run is not None  # the other annotation still works
+
+
+@pytest.mark.django_db
+def test_ad_count_is_zero_for_a_query_with_no_ads(query_admin, query, rf):
+    row = query_admin.get_queryset(rf.get("/")).get(pk=query.pk)
+
+    assert query_admin.ad_count(row) == 0
+
+
+@pytest.mark.django_db
+def test_changelist_renders_the_ad_count_column(admin_client_logged_in, query, make_ad):
+    make_ad(query, 1).save()
+
+    response = admin_client_logged_in.get("/admin/bazos/query/")
+
+    assert response.status_code == 200
+    assert "column-ad_count" in response.content.decode()

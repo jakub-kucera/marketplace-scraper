@@ -575,22 +575,45 @@ Also check: the `location_center = randint(10000, 99999)` line generates a rando
 
 ---
 
-### P9 — Admin UX improvements
+### 🔶 P9 — Admin UX improvements — partially done
+
+> **Status checked against code 2026-08-10.** Three of the seven sub-items have landed,
+> across several sessions. What remains is listed in the prompt below — the ticked lines are
+> kept for context rather than deleted.
+>
+> - ✅ `AdAdmin` price-history inline — `PriceChangeInline` is registered on `AdAdmin`.
+> - ✅ `QueryAdmin.last_run` — annotated via `Coalesce(Max(run_end), Max(run_start))`.
+> - ✅ `QueryRunAdmin` registered — plus `success`/`error` columns and filters from P18.
+>
+> **Separately, and not part of P9:** `QueryAdmin` gained an **`ad_count`** column
+> (2026-08-10) — total `Ad` rows pointing at that query. Note this is *not* item 2's
+> "`new_ads_count` sum from recent runs": `ad_count` counts ads that currently exist,
+> the sum counts what runs *reported finding*, and the two diverge as ads are deleted or
+> re-discovered. Both are worth having; item 2 is still open.
+
 ```
 Polish the Django admin for the current pipeline state.
 
 1. `AdAdmin`:
    - Add `filter_reason` to the list display (short, truncated).
+     STILL OPEN — filter_reason is on the change form (readonly_fields), not in list_display.
    - Add a custom action `mark_as_pending` that resets status to PENDING (useful for re-running the filter on an ad).
-   - Add `price_history` inline (PriceChange, once Stage 4 is done).
+     STILL OPEN.
+   - ✅ DONE — Add `price_history` inline (PriceChange, once Stage 4 is done).
 
 2. `QueryAdmin`:
-   - Add `last_run` display (latest `QueryRun.run_start` for this query).
+   - ✅ DONE — Add `last_run` display (latest `QueryRun.run_start` for this query).
    - Show `new_ads_count` sum from recent runs.
+     STILL OPEN — see the note above on why the new `ad_count` column is not this.
 
 3. `QueryRunAdmin`:
-   - Register it if not already registered.
+   - ✅ DONE — Register it if not already registered.
    - Show duration (run_end - run_start).
+     STILL OPEN.
+
+Note when picking this up: `QueryAdmin.get_queryset` already combines aggregates over two
+different multi-valued relations (`runs` for last_run, `ads` for ad_count). Any further
+aggregate there needs `distinct=True` or it will be inflated by the join multiplication.
 ```
 
 ---
