@@ -70,7 +70,7 @@ better than most commercial projects'. This matters more than it looks — see �
 | — of which have `full_description` | **0** |
 | — of which have a price | 16,981 (but as a **string**: `"12 500 Kč"`, `"Dohodou"`) |
 | Concentration | **83%** of ads (14,107) come from a single query id |
-| Publisher identities | 8,389 email ids, 9,299 phone ids |
+| Publisher identities | 8,389 email ids, 9,299 phone ids — ⚠️ but see below: **one of those email ids was a sentinel, not a seller**, and held 6.7% of all ads |
 | Dev DB (`db.sqlite3`) | 113 ads, 10 queries — not the production set |
 | Coverage | ~6–10 narrow keyword queries; no category-wide sweep |
 
@@ -78,6 +78,19 @@ better than most commercial projects'. This matters more than it looks — see �
 descriptions, with unusable price types and duplicate-prone identity. Nobody would buy
 it. It is not a bad start on a *collection habit* — but as a saleable asset today, it
 is worth approximately zero.
+
+> **Publisher-identity correction, 2026-08-10.** The 8,389 email ids above overstate the
+> real count in a way that mattered: `EmailPublisher` id 47 had `bazos_id=0` — Bazos's "this
+> ad has no email publisher" marker, stored as if it were a seller — and **1,137 ads (6.7%)
+> pointed at it, spanning 671 distinct phone ids**. It ran at a steady 6–8% of ads every
+> month, so it was a scraper behaviour, not a one-off. Any per-seller statistic computed on
+> this export before the fix was wrong on those rows, and grouping sellers transitively
+> would have merged 671 unrelated people into a single 1,408-ad "seller" (8.3% of the
+> dataset). Fixed at both ends — the scraper now writes NULL, migration `0025` removed the
+> row. Recorded here because §2.2 is cited as the measured state of the archive, and because
+> it is a concrete instance of §7.2's general point: **the identity columns need auditing
+> before anything is computed on them.** Details and the full measurements:
+> [`refactor/BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) #11.
 
 ### 2.3 The market you're pointed at (live-measured today)
 
