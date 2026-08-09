@@ -4,6 +4,7 @@ import pytest
 import requests
 from stem import Signal
 
+from bazos.exceptions import BazosBlacklistedError
 from ip_changer.dummy import DummyIPChanger
 from ip_changer.ip_changer import IPChanger
 from ip_changer.tor import TorIPChanger
@@ -91,6 +92,26 @@ def test_renew_ip_bazos_ok_retries_until_not_blacklisted():
     result = changer.renew_ip_bazos_ok("http://example.com")
     assert result == "1.2.3.4"
     assert changer.session.get.call_count == 3
+
+
+def test_renew_ip_bazos_ok_raises_after_max_attempts_exhausted():
+    """A permanently-blacklisted pool must not spin forever (P20 part b)."""
+    changer = StubIPChanger()
+    changer.session.get.return_value = MagicMock(status_code=403)
+    with pytest.raises(BazosBlacklistedError):
+        changer.renew_ip_bazos_ok("http://example.com", max_attempts=3)
+    assert changer.session.get.call_count == 3
+
+
+def test_renew_ip_bazos_ok_uses_custom_is_blacklisted_check():
+    """A caller can target a different surface than the default HTML check
+    (e.g. BazosApiScraper.check_blacklisted for the hidden API)."""
+    changer = StubIPChanger()
+    is_blacklisted = MagicMock(side_effect=[True, False])
+    result = changer.renew_ip_bazos_ok("http://example.com", is_blacklisted=is_blacklisted)
+    assert result == "1.2.3.4"
+    assert is_blacklisted.call_count == 2
+    changer.session.get.assert_not_called()
 
 
 # --- TorIPChanger ---

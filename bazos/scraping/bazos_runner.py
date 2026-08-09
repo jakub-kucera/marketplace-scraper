@@ -4,8 +4,9 @@ from pathlib import Path
 from random import uniform
 from time import sleep
 
+from bazos.exceptions import BazosBlacklistedError
 from bazos.models import Query, QueryRun
-from bazos.scraping.bazos_query_runner import BazosQueryRunner
+from bazos.scraping.bazos_query_runner import BazosQueryRunner, get_scraper
 from bazos.scraping.interval_multiplier import NightMultiplier
 from django.conf import settings
 
@@ -36,9 +37,14 @@ class BazosRunner:
             for query in queries:
                 self.log(f"running query {query}")
 
-                if self.ip_changer.check_bazos_blacklisted(query.url):
+                blacklist_check = self._blacklist_checker(query)
+                if blacklist_check(query.url):
                     self.log("IP got BLACKLISTED, attempting to change", level=logging.WARNING)
-                    self.change_ip(query.url)
+                    try:
+                        self.change_ip(query, blacklist_check)
+                    except BazosBlacklistedError:
+                        logger.exception("Query %s still blacklisted after IP rotation attempts, skipping", query)
+                        continue
 
                 if self.ip_changer.check_ip_local():
                     self.log("WARNING: IP IS LOCAL", level=logging.WARNING)
@@ -93,8 +99,14 @@ class BazosRunner:
         for discord_logger in self.discord_loggers:
             discord_logger.send_plain(message)
 
-    def change_ip(self, url):
+    def change_ip(self, query: Query, is_blacklisted=None):
         self.log(f"Changing IP, current={self.ip_changer.get_current_ip()}")
-        new_ip = self.ip_changer.renew_ip_bazos_ok(url)
+        new_ip = self.ip_changer.renew_ip_bazos_ok(query.url, is_blacklisted=is_blacklisted)
         self.log(f"NEW IP={new_ip}")
+
+    def _blacklist_checker(self, query: Query):
+        def check(url: str) -> bool:
+            assert self.ip_changer.session is not None
+            return get_scraper(query.marketplace, self.ip_changer.session).check_blacklisted(url)
+        return check
 
