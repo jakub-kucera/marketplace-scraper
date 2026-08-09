@@ -166,12 +166,9 @@ class BazosApiScraper:
         data = response.json()
         product.full_description = data.get("description")
 
-        email_id = data.get("email_id")
-        phone_id = data.get("phone_id")
-        if email_id and phone_id:
-            product.email_publisher, product.phone_publisher = BazosScraper._resolve_publishers(
-                int(email_id), int(phone_id)
-            )
+        product.email_publisher, product.phone_publisher = BazosScraper._resolve_publishers(
+            int(data.get("email_id") or 0), int(data.get("phone_id") or 0)
+        )
         return product
 
     def run_query(self, query: Query) -> Iterator[Ad]:

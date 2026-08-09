@@ -149,6 +149,61 @@ def test_resolve_publishers_is_idempotent():
     assert PhonePublisher.objects.filter(bazos_id=200).count() == 1
 
 
+@pytest.mark.django_db
+def test_resolve_publishers_stores_zero_email_id_as_null():
+    """`0` is Bazos's "no publisher" marker, not an identity — it must not become a row.
+
+    A shared bazos_id=0 row acts as a hub joining unrelated sellers: measured at 1137 ads
+    across 671 distinct phones on the 2024-03 export.
+    """
+    from bazos.models import EmailPublisher
+
+    email_pub, phone_pub = BazosScraper._resolve_publishers(0, 200)
+
+    assert email_pub is None
+    assert phone_pub.bazos_id == 200
+    assert not EmailPublisher.objects.filter(bazos_id=0).exists()
+
+
+@pytest.mark.django_db
+def test_resolve_publishers_stores_zero_phone_id_as_null():
+    from bazos.models import PhonePublisher
+
+    email_pub, phone_pub = BazosScraper._resolve_publishers(100, 0)
+
+    assert phone_pub is None
+    assert email_pub.bazos_id == 100
+    assert not PhonePublisher.objects.filter(bazos_id=0).exists()
+
+
+@pytest.mark.django_db
+def test_resolve_publishers_handles_both_ids_zero():
+    from bazos.models import EmailPublisher, PhonePublisher
+
+    assert BazosScraper._resolve_publishers(0, 0) == (None, None)
+    assert not EmailPublisher.objects.exists()
+    assert not PhonePublisher.objects.exists()
+
+
+@pytest.mark.django_db
+def test_zero_publisher_ids_do_not_link_unrelated_ads():
+    """Two ads that both lack an email publisher must not end up sharing one.
+
+    This is the regression the sentinel caused: `get_or_create(bazos_id=0)` returned the
+    same row for every such ad, so grouping by publisher merged them into one seller.
+    """
+    ad_a = BazosScraper.extract_product(
+        parse_element(make_product_html(bazos_id=1, publisher_email_id=0, publisher_phone_id=11))
+    )
+    ad_b = BazosScraper.extract_product(
+        parse_element(make_product_html(bazos_id=2, publisher_email_id=0, publisher_phone_id=22))
+    )
+
+    assert ad_a.email_publisher is None
+    assert ad_b.email_publisher is None
+    assert ad_a.phone_publisher.bazos_id != ad_b.phone_publisher.bazos_id
+
+
 # ---------------------------------------------------------------------------
 # extract_product (integration: pure parse + DB resolve)
 # ---------------------------------------------------------------------------
