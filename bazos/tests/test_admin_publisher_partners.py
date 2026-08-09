@@ -273,3 +273,68 @@ def test_ad_count_column_renders_zero_without_a_link(email_admin, rf):
     row = email_admin.get_queryset(rf.get("/")).get(bazos_id=100)
 
     assert email_admin.ad_count(row) == 0
+
+
+# ---------------------------------------------------------------------------
+# AdAdmin.seller_ad_counts — the three counts on the ad page (step 4)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def ad_admin():
+    from django.contrib.admin.sites import AdminSite
+
+    from bazos.admin import AdAdmin
+
+    return AdAdmin(Ad, AdminSite())
+
+
+@pytest.mark.django_db
+def test_ad_admin_shows_counts_and_links_both_identities(ad_admin, link_ad):
+    email = EmailPublisher.objects.create(bazos_id=100)
+    phone = PhonePublisher.objects.create(bazos_id=200)
+    link_ad(email, phone)
+    ad = link_ad(email, phone)
+
+    html = ad_admin.seller_ad_counts(ad)
+
+    assert "2 ads seen from this seller" in html
+    assert f"/admin/bazos/emailpublisher/{email.pk}/change/" in html
+    assert f"/admin/bazos/phonepublisher/{phone.pk}/change/" in html
+
+
+@pytest.mark.django_db
+def test_ad_admin_flags_a_split_identity(ad_admin, link_ad):
+    email = EmailPublisher.objects.create(bazos_id=100)
+    for bazos_id in (200, 201):
+        ad = link_ad(email, PhonePublisher.objects.create(bazos_id=bazos_id))
+
+    assert "more than one email/phone pairing" in ad_admin.seller_ad_counts(ad)
+
+
+@pytest.mark.django_db
+def test_ad_admin_handles_an_ad_with_no_publishers(ad_admin, link_ad):
+    assert ad_admin.seller_ad_counts(link_ad(None, None)) == "— (no publisher on this ad)"
+
+
+@pytest.mark.django_db
+def test_ad_admin_handles_a_missing_side(ad_admin, link_ad):
+    ad = link_ad(None, PhonePublisher.objects.create(bazos_id=200))
+
+    html = ad_admin.seller_ad_counts(ad)
+
+    assert "email: —" in html
+    assert "1 ad seen" in html
+
+
+@pytest.mark.django_db
+def test_ad_change_page_renders_the_seller_history(admin_client, link_ad):
+    email = EmailPublisher.objects.create(bazos_id=100)
+    ad = link_ad(email, PhonePublisher.objects.create(bazos_id=200))
+
+    response = admin_client.get(f"/admin/bazos/ad/{ad.pk}/change/")
+
+    assert response.status_code == 200
+    body = response.content.decode()
+    assert "Seller history" in body
+    assert "not the seller's Bazos total" in body  # the honesty caveat
+    assert "— 1 ad<" in body  # not "1 ads"

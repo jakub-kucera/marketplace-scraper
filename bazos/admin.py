@@ -186,8 +186,52 @@ class AdAdmin(admin.ModelAdmin):
     ordering = ("-publish_date",)
     list_filter = ("status", "marketplace", "query", HasFullDescriptionFilter)
     search_fields = ("name", "external_id", "url")
-    readonly_fields = ("external_id", "marketplace", "status", "filter_reason", "sent_at", "send_attempts")
+    readonly_fields = (
+        "external_id", "marketplace", "status", "filter_reason", "sent_at", "send_attempts",
+        "seller_ad_counts",
+    )
     inlines = (PriceChangeInline,)
+
+    @admin.display(description="Seller history")
+    def seller_ad_counts(self, obj):
+        """Three counts plus links to each identity — see `SellerAdCounts` for why three.
+
+        Detail page only, deliberately: this walks the identity graph (a handful of
+        queries), which is fine once per page but not once per changelist row.
+        """
+        if obj.pk is None:
+            return "—"
+        counts = obj.seller_ad_counts()
+        if not counts.combined:
+            return "— (no publisher on this ad)"
+
+        links = []
+        for publisher, label in ((obj.email_publisher, "email"), (obj.phone_publisher, "phone")):
+            if publisher is None:
+                links.append(format_html("<li>{}: —</li>", label))
+                continue
+            url = reverse(f"admin:bazos_{publisher._meta.model_name}_change", args=[publisher.pk])
+            count = counts.by_email if label == "email" else counts.by_phone
+            links.append(
+                format_html(
+                    '<li>{}: <a href="{}">{}</a> — {} ad{}</li>',
+                    label, url, publisher.bazos_id, count, "" if count == 1 else "s",
+                )
+            )
+        note = (
+            " — this seller posts under more than one email/phone pairing"
+            if counts.has_split_identity
+            else ""
+        )
+        return format_html(
+            "<b>{} ad{} seen from this seller</b>{}<ul style=\"margin:0;padding-left:1.2em\">{}</ul>"
+            "<small>Counts ads in this database (what our queries scraped), not the seller's "
+            "Bazos total.</small>",
+            counts.combined,
+            "" if counts.combined == 1 else "s",
+            note,
+            format_html("".join(links)),
+        )
 
 
 PARTNER_DISPLAY_LIMIT = 50
@@ -234,29 +278,13 @@ class PublisherAdminBase(admin.ModelAdmin):
     def partner_count(self, obj):
         return obj.partner_count
 
-    def _partner_rows(self, obj):
-        """Partner publishers sharing at least one ad, most-shared first.
-
-        One aggregate query — deliberately not a per-partner lookup, since a publisher can
-        have dozens of partners.
-        """
-        return (
-            Ad.objects.filter(**{self.own_ad_field: obj})
-            .exclude(**{self.partner_ad_field: None})
-            .values(
-                f"{self.partner_ad_field}",
-                f"{self.partner_ad_field}__bazos_id",
-                f"{self.partner_ad_field}__blocked",
-            )
-            .annotate(shared_ads=Count("id"))
-            .order_by("-shared_ads")
-        )
-
     @admin.display(description="Seen together with")
     def partners(self, obj):
         if obj.pk is None:
             return "—"
-        rows = list(self._partner_rows(obj)[: PARTNER_DISPLAY_LIMIT + 1])
+        # Query lives on the model (PublisherMixin) so the sender and any future
+        # reseller-detection code share one definition of "seen together with".
+        rows = list(obj.partner_rows()[: PARTNER_DISPLAY_LIMIT + 1])
         if not rows:
             return "— (no ads with a publisher of the other type)"
 
