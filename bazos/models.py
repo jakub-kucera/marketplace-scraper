@@ -1,4 +1,5 @@
 from random import randint
+from dataclasses import dataclass
 from typing import List
 from urllib.parse import urljoin, urlparse
 
@@ -137,6 +138,109 @@ class QueryRun(models.Model):
     error = models.TextField(null=True, blank=True)
 
 
+#: Safety bound on the identity-graph walk in :meth:`SellerAdCounts.for_ad`. Each round is
+#: 2 queries. 95.3% of publishers pair with exactly one partner (2024-03 export), so the
+#: walk almost always settles on the first round; the bound only matters for a pathological
+#: chain, where stopping early under-counts rather than hanging the sender.
+MAX_IDENTITY_ROUNDS = 5
+
+
+@dataclass(frozen=True)
+class SellerAdCounts:
+    """Ad counts for the seller behind an ad, counted three ways.
+
+    A frozen dataclass rather than a `NamedTuple` for a boring reason: as a `NamedTuple`
+    with a `for_ad(ad: "Ad")` forward reference, mypy + django-stubs fails outright with
+    `INTERNAL ERROR: maximum semantic analysis iteration count reached`. Same API, no
+    tuple-unpacking, and the type checker stays happy.
+
+    Kept as three numbers rather than one because **their disagreement is the signal**:
+    "12 by email, 3 by phone" says the seller rotates phone numbers, which is far more
+    interesting than any single total.
+
+    ``combined`` walks the identity graph transitively — ad → its email → that email's
+    other phones → those phones' other emails, to a fixpoint — because one hop is not
+    enough. Measured on the 2024-03 export, 13.7% of ads get a different answer under the
+    transitive walk than under ``max(by_email, by_phone)``.
+
+    **These count ads in *this* database, i.e. ones our own queries happened to scrape —
+    not the seller's true Bazos total.** A dealer with 500 live listings can show 2 here.
+    The real figure is `user_ads_count` on the API's detail endpoint (see
+    docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md §5.2), which is why the wording below says
+    "seen" rather than "has".
+    """
+
+    by_email: int
+    by_phone: int
+    combined: int
+
+    @classmethod
+    def for_ad(cls, ad: "Ad") -> "SellerAdCounts":
+        email_ids = {ad.email_publisher_id} if ad.email_publisher_id else set()
+        phone_ids = {ad.phone_publisher_id} if ad.phone_publisher_id else set()
+        if not email_ids and not phone_ids:
+            return cls(by_email=0, by_phone=0, combined=0)
+
+        by_email = Ad.objects.filter(email_publisher_id__in=email_ids).count() if email_ids else 0
+        by_phone = Ad.objects.filter(phone_publisher_id__in=phone_ids).count() if phone_ids else 0
+
+        # Expand both id sets until neither grows: publishers reached through a shared ad
+        # belong to the same seller. A `bazos_id=0` sentinel would merge unrelated sellers
+        # here, which is why migration 0025 removed it and the scraper now stores NULL.
+        for _ in range(MAX_IDENTITY_ROUNDS):
+            grown_phones = set(
+                Ad.objects.filter(email_publisher_id__in=email_ids)
+                .exclude(phone_publisher=None)
+                .values_list("phone_publisher_id", flat=True)
+            )
+            grown_emails = set(
+                Ad.objects.filter(phone_publisher_id__in=phone_ids)
+                .exclude(email_publisher=None)
+                .values_list("email_publisher_id", flat=True)
+            )
+            if grown_phones <= phone_ids and grown_emails <= email_ids:
+                break
+            phone_ids |= grown_phones
+            email_ids |= grown_emails
+
+        combined = (
+            Ad.objects.filter(
+                models.Q(email_publisher_id__in=email_ids) | models.Q(phone_publisher_id__in=phone_ids)
+            )
+            .distinct()
+            .count()
+        )
+        return cls(by_email=by_email, by_phone=by_phone, combined=combined)
+
+    @property
+    def has_split_identity(self) -> bool:
+        """True when the seller posts under more than one email/phone pairing.
+
+        A present side that covers only *part* of the seller's ads proves the other side
+        varies: the recruiter with one email and three phones has
+        ``by_email == combined == 3`` but ``by_phone == 1``. Note ``combined >
+        max(by_email, by_phone)`` does NOT work — it misses exactly that case.
+
+        Each side is checked only when present (``> 0``), so an ad with no email publisher
+        at all reads as "one side missing", not as a split identity.
+        """
+        return (
+            (0 < self.by_email < self.combined)
+            or (0 < self.by_phone < self.combined)
+        )
+
+    @property
+    def summary(self) -> str:
+        """One line for the Discord notification."""
+        if not self.combined:
+            return "Seller: unknown"
+        plural = "" if self.combined == 1 else "s"
+        line = f"Seller: {self.combined} ad{plural} seen"
+        if self.by_email != self.by_phone or self.has_split_identity:
+            line += f" (email {self.by_email} / phone {self.by_phone})"
+        return line
+
+
 class AdStatus(models.TextChoices):
     PENDING       = "PENDING"       # scraped, awaiting filter
     APPROVED      = "APPROVED"      # passed filters, awaiting send
@@ -187,12 +291,17 @@ class Ad(TimeStampedModel):
         verbose_name_plural = "Ads"
         constraints: List[models.BaseConstraint] = []
 
+    def seller_ad_counts(self) -> "SellerAdCounts":
+        """How many ads this seller has, counted three ways. See :class:`SellerAdCounts`."""
+        return SellerAdCounts.for_ad(self)
+
     @property
     def message(self):
         return self.name + '\n' + \
             self.price_raw + '\n' + \
             self.location + '\n' + \
-            self.short_description
+            self.short_description + '\n' + \
+            self.seller_ad_counts().summary
 
     @property
     def link(self):
@@ -208,7 +317,43 @@ class PriceChange(TimeStampedModel):
         return f"{self.ad} | {self.old_price} -> {self.new_price}"
 
 
-class PhonePublisher(TimeStampedModel):
+class PublisherMixin:
+    """Shared identity behaviour for `EmailPublisher` / `PhonePublisher`.
+
+    A seller on Bazos is identified by a *pair* of opaque ids (email_id, phone_id), and the
+    same person routinely posts under several pairings — one real email in the 2024-03
+    export pairs with 69 distinct phones. Neither id alone is the seller, so both models
+    need the same "who else appears alongside me" lookup; it lives here rather than in the
+    admin so `Ad` and the sender can reuse it.
+
+    Plain mixin, not an abstract model: it adds no fields, so it needs no migration.
+    """
+
+    #: Name of the FK on `Ad` pointing at the *other* publisher type.
+    partner_ad_field: str = ""
+
+    def partner_rows(self):
+        """Publishers of the other type sharing at least one ad, most-shared first.
+
+        One aggregate query rather than a lookup per partner — a publisher can have dozens.
+        Returns dicts keyed by ``<partner_ad_field>``, ``..._bazos_id``, ``..._blocked``
+        and ``shared_ads``.
+        """
+        return (
+            self.ads.exclude(**{self.partner_ad_field: None})  # type: ignore[attr-defined]
+            .values(
+                self.partner_ad_field,
+                f"{self.partner_ad_field}__bazos_id",
+                f"{self.partner_ad_field}__blocked",
+            )
+            .annotate(shared_ads=models.Count("id"))
+            .order_by("-shared_ads")
+        )
+
+
+class PhonePublisher(PublisherMixin, TimeStampedModel):
+    partner_ad_field = "email_publisher"
+
     bazos_id = models.IntegerField(db_index=True, unique=True)
     # Todo use phone number field. Have some conversion with prefix, so it matches FB DB. Has to be valid ob Bazos?
     phone = models.CharField(max_length=30, null=True, blank=True)
@@ -216,7 +361,9 @@ class PhonePublisher(TimeStampedModel):
     blocked = models.BooleanField(default=False)
 
 
-class EmailPublisher(TimeStampedModel):
+class EmailPublisher(PublisherMixin, TimeStampedModel):
+    partner_ad_field = "phone_publisher"
+
     bazos_id = models.IntegerField(db_index=True, unique=True)
     # Todo use email field
     email = models.CharField(max_length=30, null=True, blank=True)  # Is really unique?
