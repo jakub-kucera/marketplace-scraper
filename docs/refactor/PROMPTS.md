@@ -99,30 +99,29 @@ also done, for how rule selection is now per-query.)
 > "not working"**, so every failure mode below looks like a quiet market. Do these before any
 > feature work; they're ~1 day in total and they protect the value of everything else.
 
-### P18 — `QueryRun` is lost whenever a query raises
-```
-QueryRun rows silently vanish on failure, so there is no coverage metric.
+### ✅ P18 — `QueryRun` is lost whenever a query raises — done
+`bazos/scraping/bazos_runner.py::run` now saves the `QueryRun` row **before** the query
+executes, wraps the per-query body in `try/except/finally`, records `success=False` +
+`error` on failure, and always stamps `run_end` in the `finally`. `QueryRun.success`
+(BooleanField, default True) and `QueryRun.error` (nullable TextField) are in
+`bazos/models.py` with migration `0023_queryrun_error_queryrun_success.py`. `QueryRunAdmin`
+shows both in `list_display` and filters on `success`. Four tests in
+`bazos/tests/test_query_run_tracking.py` cover the row surviving a raise, the success path,
+one failing query not aborting the pass, and persistence-before-execution.
 
-Context: in `bazos/scraping/bazos_runner.py::run`, the QueryRun is constructed in memory,
-then `query_runner.run()` is called, and only afterwards are `run_end`/`new_ads_count` set
-and `.save()` called. Any exception from `query_runner.run()` means the row is never
-persisted at all. Combined with `run_scraper`'s default mode (which catches everything at
-the top level, logs, sleeps 60s and restarts the whole runner), the result is that a
-repeatedly-failing query leaves no trace in QueryRun — you cannot answer "was this category
-actually watched for the last 48 hours?".
+**One deliberate deviation from the original step 2:** the `except` block `continue`s
+instead of re-raising. That's the right call — re-raising would defeat step 3 — so the
+prompt's wording, not the implementation, was wrong.
 
-Steps:
-1. Save the `QueryRun` row immediately after constructing it (so it exists even if the run
-   dies), then update it with `run_end`/`new_ads_count` in a `finally` block.
-2. Add a nullable `error` (TextField) and a `success` (BooleanField) to `QueryRun`; on
-   exception, record the exception string and re-raise. Generate the migration.
-3. Wrap the per-query body in try/except/finally so one failing query does not abort the
-   whole pass (today an exception propagates out of the `for query in queries` loop and
-   kills the remaining queries in that pass — confirm this and fix it deliberately).
-4. Surface it: add `success`/`error` to `QueryRunAdmin` (see P9) and to the list filters.
-5. Write tests: a scraper that raises still produces a QueryRun row with success=False and
-   a populated error, and subsequent queries in the same pass still execute.
-```
+> ⚠️ **Residual gap, not covered by P18 — see P20.** The three IP-guard calls at the top of
+> the query loop (`check_bazos_blacklisted`, `change_ip`, `check_ip_local`) sit **outside**
+> the new `try`, so an exception there still escapes `run()` and takes down the whole
+> runner via `run_scraper`'s 60s-sleep-and-restart handler — losing the rest of the pass
+> exactly as before. **This is an observed failure, not a theoretical one** (2026-08-08:
+> `RemoteDisconnected` from `get_current_ip()`'s `icanhazip.com` call over a dead Tor
+> circuit, crashing at `bazos_runner.py:41` and `:43`). P20 owns this; note that P20 as
+> written only covers the guards *returning misleading values*, not *raising* — see its
+> own ⚠️ note.
 
 ---
 
@@ -154,9 +153,62 @@ Steps:
 
 ---
 
-### P20 — Two IP-guard failure modes: silent total skip, and an unbounded retry loop
+### P20 — Three IP-guard failure modes: silent total skip, unbounded retry loop, and raising guards
+
+> **🔶 Partially done 2026-08-09 — case (b) is largely landed.** `renew_ip_bazos_ok` now takes
+> a `max_attempts` cap (default `MAX_ATTEMPTS`), raises `BazosBlacklistedError` when
+> exhausted, and `BazosRunner.run` catches it via `logger.exception` (not `self.log` — this
+> was deliberate: `self.log`'s WARNING level only reaches the Discord log channels, and
+> Sentry's logging integration only auto-captures ERROR+, so a plain WARNING here would have
+> stayed invisible in Sentry) and **skips that query while keeping the pass**. Two tests cover
+> the bounded-retry/pluggable-check behavior in `ip_changer/tests/test_ip_changer.py`
+> (`test_renew_ip_bazos_ok_raises_after_max_attempts_exhausted`,
+> `test_renew_ip_bazos_ok_uses_custom_is_blacklisted_check`); three more in
+> `bazos/tests/test_bazos_runner_blacklist.py` cover the dispatch itself — a `bazos_api`
+> query's pre-check hits `BazosApiScraper.check_blacklisted`, a `bazos` query's hits
+> `BazosScraper.check_blacklisted`, and a query that exhausts retries is skipped without
+> aborting the rest of the pass. The `is_blacklisted` callable is also newly pluggable so a
+> query dispatched to `BazosApiScraper` is checked against the API surface rather than the
+> HTML one (via `BazosRunner._blacklist_checker`, new) — a correctness improvement beyond
+> what step 6 asked for, since the two surfaces block independently; this is what fixed the
+> `bazos_api`-marketplace query that was raising `BazosBlacklistedError` every pass in
+> production (root-caused 2026-08-08, landed 2026-08-09).
+>
+> **Still outstanding in this prompt:** case **(a)** entirely; case **(b)** step 7
+> (`tor.py:34`'s *second* unbounded `while True:` in `renew_ip_and_check_new`) and step 8
+> (backoff between rotation attempts); and **all of case (c)** — there are still no timeouts
+> anywhere in `ip_changer/`, and the exposure is actually two call sites now, not one: the
+> pre-flight `blacklist_check(query.url)` call in `BazosRunner.run` (`bazos_runner.py:40`) has
+> no try/except around it at all, and inside `change_ip` (`bazos_runner.py:102`) only
+> `BazosBlacklistedError` is caught — `get_current_ip()`'s bare `session.get(...)`
+> (`bazos_runner.py:103` → `ip_changer.py:33`) or a `ConnectionError` surfacing through
+> `is_blacklisted(url)` itself would both still escape and kill the runner.
+
+> **⚠️ Scope corrected 2026-08-08 — case (c) added.** As originally written this prompt only
+> covered the guards **returning misleading values**. It missed the case that actually
+> happened in production: the guards **raising**. Observed crash, twice in one log:
+>
+> ```
+> ip_changer.py:31 get_current_ip → session.get('https://icanhazip.com')
+> requests.exceptions.ConnectionError: ('Connection aborted.',
+>     RemoteDisconnected('Remote end closed connection without response'))
+> ```
+>
+> reached from `bazos_runner.py:41` (`change_ip`) and `bazos_runner.py:43`
+> (`check_ip_local`). Diagnosis: **not** Bazos rate-limiting — the failing host is
+> `icanhazip.com`, and `RemoteDisconnected` means no HTTP response arrived at all, unlike a
+> 403/429 which `check_bazos_blacklisted` already handles. It is a dead Tor circuit /
+> refused exit (`PROXY_ROTATION_RESEARCH.md` §2), compounded by icanhazip being
+> Cloudflare-fronted and therefore hostile to Tor exits by default.
+>
+> Two aggravating factors, both cheap to fix and both in the steps below:
+> **no timeouts anywhere** (`grep -rn timeout ip_changer/ bazos/scraping/` is empty and
+> `requests` has no default) — the observed hang was **~4 minutes** on one socket; and these
+> guard calls sit **outside** P18's new per-query `try`, so the exception still escapes
+> `run()` and costs the entire pass.
+
 ```
-Fix two guard bugs in the IP layer that can each stall the scraper invisibly.
+Fix three guard bugs in the IP layer that can each stall the scraper invisibly.
 
 Context (a) — silent total skip: `BazosRunner.run` does
 `if self.ip_changer.check_ip_local(): self.log(...); continue`. `continue` skips the query.
@@ -170,21 +222,57 @@ whole exit-node pool (the documented Tor reputation problem, see
 ../proxies/PROXY_ROTATION_RESEARCH.md §2), this spins indefinitely, hammering both Tor's
 control port and Bazos.
 
-Steps:
-1. For (a): treat a local IP as a pass-level fatal condition, not a per-query skip — break
+Context (c) — the guards RAISE, killing the whole pass: `get_current_ip` (ip_changer.py:33)
+and `check_bazos_blacklisted` (:37) do bare `session.get(...)` with NO timeout, over a Tor
+SOCKS proxy that regularly drops circuits. When one raises, the exception escapes the
+per-query try/except added by P18 (those guard calls are ABOVE it in `BazosRunner.run`), so
+`run_scraper` catches at top level, sleeps 60s, and rebuilds the entire runner — losing
+every remaining query in the pass. Observed 2026-08-08; see the note above this block. As of
+the 2026-08-09 partial fix this is now reachable from two spots in `bazos_runner.py`, neither
+guarded: the pre-flight `blacklist_check(query.url)` call (:40, no try/except at all) and
+`get_current_ip()` inside `change_ip` (:103, only `BazosBlacklistedError` is caught there).
+Note also `tor.py:34`'s SECOND unbounded `while True:` in `renew_ip_and_check_new` — if Tor
+keeps returning the same IP it loops forever at 5s/iteration. P20 previously named only
+`renew_ip_bazos_ok`'s loop.
+
+Steps — do (c) first; it is ~30 minutes and stops an active production crash loop:
+1. For (c): add explicit timeouts to EVERY request in `ip_changer/` — `timeout=(5, 15)`
+   (connect, read) on `get_current_ip`, `check_bazos_blacklisted`, and anything else doing
+   `session.get`. Prefer setting it once on the session/adapter so new call sites can't
+   forget. A 4-minute hang on a dead socket is worse than a fast failure.
+2. For (c): make `get_current_ip` resilient rather than trusting one Cloudflare-fronted host
+   over Tor — retry with fallbacks (api.ipify.org, ifconfig.me, ident.me) and raise only if
+   all fail. Consider skipping the check entirely when IP_CHANGER_TYPE=TOR, where a local
+   egress is impossible by construction (socks5h fails closed, it does not fall back to a
+   direct connection) — it is currently the most Tor-hostile request in the pipeline and it
+   guards against a case that transport makes unreachable.
+3. For (c): move the guard calls INSIDE a try/except in `BazosRunner.run` so a guard failure
+   costs one query (or one pass), not the whole runner. Record it on the QueryRun row the
+   way P18 already does for scraper failures.
+4. For (a): treat a local IP as a pass-level fatal condition, not a per-query skip — break
    out of the query loop, log at ERROR (so it reaches the Discord logging channels), and let
    the pass end so the next one retries after the normal sleep. A guard that can silently
    disable all work must be loud.
-2. For (a): also count consecutive local-IP detections and escalate (ERROR + longer backoff)
+5. For (a): also count consecutive local-IP detections and escalate (ERROR + longer backoff)
    rather than re-probing at full cadence.
-3. For (b): add a max-attempts cap to `renew_ip_bazos_ok` (reuse `MAX_ATTEMPTS` from
+6. For (b): add a max-attempts cap to `renew_ip_bazos_ok` (reuse `MAX_ATTEMPTS` from
    `bazos/const.py`, currently 5), raise `BazosBlacklistedError` when exhausted, and let the
    caller decide — do not loop forever inside the IP layer.
-4. For (b): add a bounded backoff between rotation attempts so a fully-blocked pool doesn't
+7. For (b): apply the same cap to `tor.py::renew_ip_and_check_new`'s inner `while True:`.
+8. For (b): add a bounded backoff between rotation attempts so a fully-blocked pool doesn't
    generate a tight request loop.
-5. Write tests: `check_ip_local` returning True aborts the pass loudly rather than silently
-   skipping each query; `renew_ip_bazos_ok` raises after MAX_ATTEMPTS rather than hanging.
+9. Write tests: a guard that raises does not abort the pass; timeouts are actually set on
+   the session; `check_ip_local` returning True aborts the pass loudly rather than silently
+   skipping each query; `renew_ip_bazos_ok` and `renew_ip_and_check_new` both raise after
+   MAX_ATTEMPTS rather than hanging.
 ```
+
+> **Note on the durable fix.** Steps 1–3 are damage control for a transport that is failing
+> on reputation, not on anything you're doing wrong — your volume (~6 queries × 3 requests
+> per 15–45 min) is nowhere near a rate limit. **P21b** replaces Tor entirely and makes most
+> of this moot: `HttpProxyIPChanger.renew_ip` is a no-op, so the icanhazip round-trip that
+> crashes here largely stops existing. Do P20 anyway — a guard that can take down the runner
+> is worth fixing regardless of transport — but don't expect it to make the 403s go away.
 
 ---
 
@@ -200,55 +288,128 @@ Steps:
 > this prompt is the missing executable version. It also unblocks
 > [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6, which needs the API's second-resolution timestamps.
 
-### P21 — Cut latency ~30×: production API cutover + guard collapse + rotating proxy
-> ⚠️ Do P18–P20 first — you want failure visibility *before* you increase cadence.
+### P21 — Cut latency: API cutover + guard collapse + rotating proxy
+
+> **⚠️ Split into P21a / P21b, 2026-08-08.** This was one 3–5 day unit, which hid the fact
+> that it bundles **two very different risk profiles**:
+>
+> - **P21a (Parts 1, 2, 4a)** is pure code. No external dependency, no account, no monthly
+>   cost, no unvalidated assumption.
+> - **P21b (Part 3, 4b)** needs a paid proxy provider *and* rests on a measurement that has
+>   **never been run** — `PROXY_ROTATION_RESEARCH.md` §10 calls the sustained block-rate
+>   probe *"the only missing data point."*
+>
+> **The reason the split is worth making is arithmetic, not tidiness.** Using
+> `PROXY_ROTATION_RESEARCH.md` §5's own model (`passes/day = 1200 / interval_minutes`):
+>
+> | | Bazos req/query/pass | Passes/day | **Bazos req/query/day** | Median latency |
+> |---|---|---|---|---|
+> | Today (HTML, 3 guards) | 3 | 40 (30 min avg) | **120** | ~15 min |
+> | **After P21a @ 10 min** | ~1 | 120 | **~120** | **~5 min** |
+> | After P21a @ 5 min | ~1 | 240 | ~240 (2×) | ~2.5 min |
+> | After P21a @ 2 min | ~1 | 600 | ~600 (5×) | ~1 min |
+>
+> **P21a buys a ~3× latency improvement at unchanged Bazos request volume** — the efficiency
+> gains pay for the extra cadence exactly. Bandwidth *falls* at the same time (11.2 KB → 1.1
+> KB per request, §4). So the free 3× is available with no ban-risk increase and no spend.
+>
+> Only the step from ~5 min to ~2 min actually needs a bigger IP pool. Doing P21a first makes
+> P21b an **optional, measured** step justified by an observed block rate, instead of a
+> prerequisite bought on faith. If P21b never happens, you still keep the 3×.
+>
+> **This does not change the total work or the conclusion** — P21 in full is still the
+> highest-value item in this file. It changes *when you have to spend money and trust an
+> unmeasured assumption*, which is the whole point.
+
+---
+
+#### P21a — The free 3×: API cutover + guard collapse + interval to ~10 min
+> ⚠️ Do P19–P20 first — you want failure visibility *before* you increase cadence.
+> (P18 is done.) No external dependency; nothing here costs money.
 
 ```
-Take detection latency from a ~15 min median to a ~2 min cadence. Three changes, one goal.
-Read ../proxies/PROXY_ROTATION_RESEARCH.md §5 and §8 and ../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md
-§8 Stage C first — the design decisions are already made there; this is execution.
+Take detection latency from a ~15 min median to a ~5 min median at UNCHANGED Bazos request
+volume. Read ../proxies/PROXY_ROTATION_RESEARCH.md §3 and §5 and
+../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md §8 Stage C first — the design decisions are
+already made there; this is execution.
 
 Part 1 — tunable API page size (do this first, it's the prerequisite):
-1. `BazosApiScraper` currently hardcodes `limit=API_PAGE_SIZE` (210). A steady-state dedup
-   probe only needs the newest handful. Add a `limit` parameter (default 210 for
-   backfill/deep paging) and use a small value (~10) for the routine newest-first pass.
-   Measured effect: the dominant request drops from ~15 KB to ~1.1 KB (research doc §4).
+1. `BazosApiScraper` currently hardcodes `limit=API_PAGE_SIZE` (210) at
+   `bazos/scraping/bazos/bazos_api_scraper.py`. A steady-state dedup probe only needs the
+   newest handful. Add a `limit` parameter (default 210 for backfill/deep paging) and use a
+   small value (~10) for the routine newest-first pass. Measured effect: the dominant
+   request drops from ~15 KB to ~1.1 KB (research doc §4).
 2. Keep 210 for `run_new_query` backfill and any bulk `ad_id[]=` path.
 
-Part 2 — collapse the duplicate blacklist check:
+Part 2 — collapse the duplicate guards (this is what pays for the extra cadence):
 3. Per PROXY_ROTATION_RESEARCH.md §3 there are ~3 Bazos requests per query per pass, and TWO
    of them are redundant blacklist probes: `BazosRunner.run`'s
    `ip_changer.check_bazos_blacklisted(query.url)` and the scraper-level
    `scraper.check_blacklisted(...)`. Collapse to a SINGLE probe ONCE PER PASS (not per
    query) in `BazosRunner.run`, before the query loop.
-4. `check_ip_local()` calls icanhazip.com per query — move that to once per pass too.
+4. `check_ip_local()` calls icanhazip.com per query — move that to once per pass too. This
+   also cuts the blast radius of the observed 2026-08-08 crash (see P20's ⚠️ note) by ~6×,
+   since that request is the one that died.
 5. Be careful with the interaction with P20: the guards must still be loud on failure, just
    evaluated less often.
 
+Part 4a — cut over and take the free cadence:
+6. Switch ONE canary `Query` to `marketplace="bazos_api"`, run
+   `python manage.py compare_bazos_scrapers`, confirm parity, then migrate the rest.
+7. Only after parity: lower `INTERVAL_LOWER`/`INTERVAL_UPPER` (already env-driven, no code
+   change) to ~10 min. STOP THERE in this prompt — per the table above, ~10 min is the point
+   where request volume is still at today's level. Going below it is P21b's job and needs
+   the bigger pool.
+8. Watch the P19 zero-results canary and the blacklist-probe outcome for a few days at the
+   new cadence before considering P21b. If block rate is unchanged, you have the 3× for free
+   and P21b becomes optional rather than assumed.
+9. Keep detail-endpoint calls event-driven, per PROXY_ROTATION_RESEARCH.md §5.1 — detail
+   volume, not query count, is what re-creates the old single-IP ban. This matters at every
+   cadence, including this one.
+```
+
+---
+
+#### P21b — Below 5 minutes: rotating proxy transport
+> ⚠️ Requires P21a. **Needs a paid provider account (~$3–6/mo) and a measurement that has
+> not been taken.** Do not start this until P21a's cadence has run for a few days and you
+> have an observed block rate to justify it against.
+
+```
+Go from a ~5 min median to a ~1–2 min median by replacing Tor with a rotating pool. This is
+the only part of the old P21 that costs money or rests on an unvalidated assumption.
+
+Note the independent motivation, beyond cadence: Tor is ALREADY failing in production. See
+PROXY_ROTATION_RESEARCH.md §2 ("every anti-bot vendor ships the Tor exit list") and the
+observed 2026-08-08 crash logged in P20 — Bazos 403'd the exit AND the same dead circuit
+killed the icanhazip liveness check. So this prompt may be worth doing on reliability
+grounds even if you never lower the interval further.
+
 Part 3 — rotating proxy transport:
-6. Implement `ip_changer/http_proxy.py::HttpProxyIPChanger` per the sketch in
+1. Implement `ip_changer/http_proxy.py::HttpProxyIPChanger` per the sketch in
    PROXY_ROTATION_RESEARCH.md §8 — `renew_session` points a fresh `requests.Session` at
    `settings.PROXY_URL`; `renew_ip` is a no-op (the provider rotates per request);
    `renew_ip_and_check_new` re-creates the session and returns the new IP.
-7. Add `PROXY_URL` to settings/.env (empty default) and an `HTTP_PROXY` branch in
+2. Add `PROXY_URL` to settings/.env (empty default) and an `HTTP_PROXY` branch in
    `BazosRunner.__init__` alongside `DUMMY`/`TOR`, gated on `IP_CHANGER_TYPE`. Nothing
    changes until it's set — do not alter the default.
-8. Validate with the existing tool before switching production:
-   `python experiments/bench_proxy.py --proxy <endpoint> --repeat 30 --query auto` and compare success %
-   against the current Tor baseline. This is the one measurement PROXY_ROTATION_RESEARCH.md
-   §10 flags as still missing — record the result in that doc's §10.
+3. MEASURE BEFORE SWITCHING. Run
+   `python experiments/bench_proxy.py --proxy <endpoint> --repeat 30 --query auto` against
+   (a) current Tor, (b) a Webshare datacenter trial, (c) a residential-CZ trial, and compare
+   success %. This is the one measurement PROXY_ROTATION_RESEARCH.md §10 flags as still
+   missing — RECORD THE RESULT IN THAT DOC'S §10. Do not skip this; it is the entire
+   evidential basis for spending money here, and §10's recommendation (datacenter first,
+   residential only if bans reappear) is unresolved without it.
 
-Part 4 — cut over and lower the interval:
-9. Switch ONE canary `Query` to `marketplace="bazos_api"`, run
-   `python manage.py compare_bazos_scrapers`, confirm parity, then migrate the rest.
-10. Only after parity: lower `INTERVAL_LOWER`/`INTERVAL_UPPER` (they are already env-driven,
-    no code change). Step down gradually — e.g. 15 min → 5 min → 2 min — watching the P19
-    canary and the blacklist-probe outcome at each step rather than jumping straight to 2 min.
-11. Reconsider `NightMultiplier`: at a 2-minute cadence the night ×2 is much less meaningful,
-    and BACKLOG_IDEAS.md #6 (now unblocked by the API's real timestamps) is the better
-    long-term answer than a flat multiplier.
-12. Keep detail-endpoint calls event-driven, per PROXY_ROTATION_RESEARCH.md §5.1 — detail
-    volume, not query count, is what re-creates the old single-IP ban.
+Part 4b — lower the interval the rest of the way:
+4. Step down gradually — 10 min → 5 min → 2 min — watching the P19 canary and the
+   blacklist-probe outcome at each step rather than jumping straight to 2 min.
+5. Reconsider `NightMultiplier`: at a 2-minute cadence the night ×2 is much less meaningful,
+   and BACKLOG_IDEAS.md #6 (now unblocked by the API's real timestamps) is the better
+   long-term answer than a flat multiplier.
+6. Re-check detail-endpoint volume at the new cadence (PROXY_ROTATION_RESEARCH.md §5.1) —
+   the table there shows 300 tracked ads at 5 min is already 72,000 detail req/day, which is
+   the documented ban vector. Pool size is what absorbs it.
 ```
 
 ---
@@ -599,16 +760,33 @@ a scoped rule set doesn't apply rules outside its list. Nothing left to do here.
 > project is *for*: see [`../MONETIZATION.md`](../MONETIZATION.md) §7.1. Latency, then failure
 > visibility, then data usability — features after that.
 
+> **Amended 2026-08-08:** P18 is done; P21 is split into P21a/P21b (see its own note for the
+> arithmetic); and a **zeroth** item was added that no prompt covered — there is no database
+> backup at all, which is a bigger downside than anything below it is an upside.
+
 **Do these first, in this order:**
 
-1. **P18–P20** (silent-failure defects) — ~1 day total. Get failure visibility *before* raising
-   cadence, otherwise P21 just fails faster and quieter.
-2. **P21** (latency chain) — ~3–5 days, **highest-value item in this file.** ~30× latency
-   improvement for ~$3–6/mo, using a scraper that's already built and tested.
-3. **P22** (price → int + `price_type`) — ~1 day. Unblocks everything numeric.
-4. **P24** (delisting / time-to-disappear) — ~1–2 days. The feedback signal for P23 and the
+0. **Database backups** — ~2 hours, ~$0/mo. Not a prompt in this file; see
+   [`../BACKUPS.md`](../BACKUPS.md) §8. The archive is the one asset that can't be rebuilt
+   ([`../MONETIZATION.md`](../MONETIZATION.md) §7.3) and it currently sits unbacked on a
+   single Pi SD card. Every item below assumes it still exists.
+1. **P20 case (c)** — ~30 min. Timeouts + resilient `get_current_ip` + guards inside a
+   try/except. **Do this immediately**: it is an *active* production crash loop as of
+   2026-08-08 (~5 min burned per cycle, no data collected), not a latent defect.
+2. **P19–P20** (the rest of the silent-failure defects) — ~1 day. Get failure visibility
+   *before* raising cadence, otherwise P21 just fails faster and quieter.
+3. **P21a** (free 3×: API cutover + guard collapse + ~10 min interval) — ~2 days, **no cost,
+   no external dependency.** ~15 min → ~5 min median latency at *unchanged* Bazos request
+   volume. Best value-per-day in this file.
+4. **P22** (price → int + `price_type`) — ~1 day. Unblocks everything numeric.
+5. **P21b** (rotating proxy → ~1–2 min) — ~1–2 days + ~$3–6/mo. Deliberately *after* P22:
+   it's the only item requiring a paid account and an unrun benchmark, so let P21a's
+   observed block rate decide whether it's needed. **Note the independent reliability
+   argument** — Tor is already failing (see P20's ⚠️), so this may be worth doing on those
+   grounds alone.
+6. **P24** (delisting / time-to-disappear) — ~1–2 days. The feedback signal for P23 and the
    prerequisite for any valuation or index work.
-5. **P23** (`PriceAnomalyRule`) — ~1–2 days, in shadow mode first. The first rule that finds
+7. **P23** (`PriceAnomalyRule`) — ~1–2 days, in shadow mode first. The first rule that finds
    deals rather than matching keywords.
 
 **Then, if flipping is the actual goal**, the two cheap items from
@@ -617,7 +795,7 @@ the only source of ground truth for calibrating P23) and **#10** (distance/trave
 built together with **P16** since all three touch the notification-formatting path.
 
 **Already done:** ~~P1~~ (price history), ~~P5~~ (real filter rules), ~~P17~~ (per-query filter
-registry), ~~P6~~ (Sentry), ~~P15~~ (AND/OR probe).
+registry), ~~P6~~ (Sentry), ~~P15~~ (AND/OR probe), ~~P18~~ (`QueryRun` failure tracking).
 
 **Still worthwhile, lower priority:**
 

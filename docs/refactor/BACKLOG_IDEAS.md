@@ -28,11 +28,26 @@ under the radar), not by order of appearance above.
 > 2. **#6 is blocked and was previously mislabelled "Do first"** — see its own section below.
 >
 > Neither point invalidates any idea here; they change what to pick up *first*.
+>
+> **⚠️ Amended 2026-08-08.** Three further changes, again none of them ideas in this document:
+>
+> 3. **There is no database backup**, which outranks everything — the doc that argues the
+>    archive is irreplaceable ([`../MONETIZATION.md`](../MONETIZATION.md) §7.3) never checked
+>    whether it was backed up. It isn't. See [`../BACKUPS.md`](../BACKUPS.md). ~2 hours.
+> 4. **P21 is split into P21a (free) and P21b (paid)** — the free half delivers ~3× of the
+>    latency win at unchanged request volume and no external dependency, so the two halves no
+>    longer belong in one row. Arithmetic in [`PROMPTS.md`](PROMPTS.md) P21's note.
+> 5. **Tor is actively failing in production** (observed 2026-08-08), and the guards that
+>    detect it have no timeouts and crash the whole runner. `PROMPTS.md` P20 case (c) is a
+>    ~30-minute fix for the crash; P21b is the durable fix for the cause.
 
 | # | Idea | Effort | Depends on | Priority |
 |---|---|---|---|---|
-| — | **Latency chain** — production API cutover + collapse the double blacklist check + rotating proxy pool | **M** (~3-5 days) | nothing; designed in `../proxies/` + `../bazos-api/`, scraper already built | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P21.** Not an idea in this doc; execution of two existing research docs. |
-| — | **Silent-failure defects** — `QueryRun` lost on crash, zero-results canary, `check_ip_local` skip, uncapped retry loop | **S** (~1 day total) | nothing | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P18-P20.** You currently cannot tell "no deals" from "broken". |
+| — | **DB backups** — there are none | **S** (~2 hrs) | nothing | **⚠️⚠️ Do first — [`../BACKUPS.md`](../BACKUPS.md).** Not an idea in this doc. The archive is unbacked on one Pi SD card; everything below assumes it exists. |
+| — | **Guards that raise** — no request timeouts, crash takes down the whole runner | **XS** (~30 min) | nothing | **⚠️ Do immediately — [`PROMPTS.md`](PROMPTS.md) P20 case (c).** An *active* crash loop as of 2026-08-08, not a latent defect. |
+| — | **Latency chain, free half** — production API cutover + collapse the double blacklist check + interval to ~10 min | **S/M** (~2 days) | nothing; designed in `../proxies/` + `../bazos-api/`, scraper already built | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P21a.** ~3× latency win at *unchanged* request volume, no cost, no external dependency. |
+| — | **Latency chain, paid half** — rotating proxy pool | **M** (~1-2 days + ~$3-6/mo) | P21a, plus a benchmark never yet run | **[`PROMPTS.md`](PROMPTS.md) P21b.** Split out 2026-08-08 — the only part needing money and an unvalidated assumption. Also the durable fix for the Tor failures above. |
+| — | **Silent-failure defects** — ~~`QueryRun` lost on crash~~ (done), zero-results canary, `check_ip_local` skip, uncapped retry loops | **S** (~1 day total) | nothing | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) ~~P18~~ P19-P20.** You currently cannot tell "no deals" from "broken". |
 | 7 | True AND/OR queries | **S** (probe: ~1hr; impl if real: trivial) | nothing | ✅ **Done** — probed 2026-07-26, `OR` real/`AND` fake (see §7) |
 | 3a | Thumbnail in Discord embed | **S/M** (~1-2 days) | nothing | **Do soon** — and see #10, which wants the same notification rework |
 | 9 | `AdOutcome` — record what you actually did about an ad | **S** (~half day) | nothing | **Do soon** — cheapest item here, and the only source of ground truth |
@@ -336,14 +351,16 @@ yet, unlike the Bazos-API-grounded ideas above which build on already-confirmed 
 > `Ad.created` (discovery time, not posting time) has real resolution but is quantised to the
 > pass interval, so at a 15–45 min cadence it can't resolve posting hour cleanly either.
 >
-> **Unblocked by:** the API cutover ([`PROMPTS.md`](PROMPTS.md) P21). The API's listing payload
+> **Unblocked by:** the API cutover ([`PROMPTS.md`](PROMPTS.md) **P21a** — the free half; the
+> paid proxy work in P21b is not required for this). The API's listing payload
 > carries `"from": "2026-07-19 09:45:51"` — **second resolution** (`BAZOS_HIDDEN_API_RESEARCH.md`
 > §5.1). One caveat when it lands: for **topped** ads that `from` value is *not* the real posting
 > time (§4.3 of the same doc — topped ads share a `from` equal to the request timestamp), so
 > filter `topped=False` before building any density curve.
 >
-> **Also note:** even once unblocked, this tunes *when* a 15–45 min interval fires, whereas P21
-> makes the interval ~2 minutes. Lower value than the table previously implied.
+> **Also note:** even once unblocked, this tunes *when* a 15–45 min interval fires, whereas P21a
+> makes it ~10 minutes and P21b ~2. Lower value than the table previously implied — and note the
+> value keeps *falling* as cadence rises, since a tighter loop cares less when it fires.
 
 **Source**: [#36](https://github.com/jakub-kucera/marketplace-scrapper/issues/36) ("analyse at what
 hours are posts most posted and change the interval changing logic").

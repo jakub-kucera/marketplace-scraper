@@ -11,15 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 def _build_scrapers(session: requests.Session) -> dict[str, MarketplaceScraper]:
-    """Return the registry of available scrapers, keyed by marketplace name.
-
-    Add new entries here when new marketplaces are implemented (Stage 8+).
-
-    Marketplace.BAZOS_API (BazosApiScraper, see docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md)
-    is registered for validation only — no production Query currently uses it,
-    so the normal run_scraper loop is unaffected. Compare it against Marketplace.BAZOS
-    with `python manage.py compare_bazos_scrapers`.
-    """
     return {
         Marketplace.BAZOS.value: BazosScraper(session),
         Marketplace.BAZOS_API.value: BazosApiScraper(session),
@@ -27,12 +18,15 @@ def _build_scrapers(session: requests.Session) -> dict[str, MarketplaceScraper]:
     }
 
 
+def get_scraper(marketplace: str, session: requests.Session) -> MarketplaceScraper:
+    return _build_scrapers(session)[marketplace]
+
+
 class BazosQueryRunner:
     def __init__(self, query: Query, session: requests.Session):
         self.query = query
         self.session = session
-        scrapers = _build_scrapers(session)
-        self.scraper: MarketplaceScraper = scrapers[query.marketplace]
+        self.scraper: MarketplaceScraper = get_scraper(query.marketplace, session)
         self.new_product_counter = 0
 
     def _get_known(self, product: Ad) -> Ad | None:

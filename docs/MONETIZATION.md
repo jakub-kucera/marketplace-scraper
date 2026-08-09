@@ -452,10 +452,10 @@ defensible as that gets, but keep it individually written and human-sent — nev
 **Recommendation: don't build it now, and don't build it on Bazos.** Not because the lead-gen
 version is bad — it's good — but because it would add a marketplace, a pipeline stage, and a
 business model on top of a system whose detection latency is still ~15 minutes (§7.1) and which
-cannot yet distinguish "no results" from "broken" (`refactor/PROMPTS.md` P18–P20). The LLM-judge
-stage *is* worth building; its first application should be **the deal flow you already have**
-(thousands of ads/day, where a judge earns its keep), not job ads (units/day, where you can simply
-read them). Revisit after P18–P24.
+cannot yet distinguish "no results" from "broken" (`refactor/PROMPTS.md` P19–P20; P18 is done).
+The LLM-judge stage *is* worth building; its first application should be **the deal flow you
+already have** (thousands of ads/day, where a judge earns its keep), not job ads (units/day, where
+you can simply read them). Revisit after P19–P24.
 
 ---
 
@@ -783,9 +783,16 @@ purged at 6 months — and cap **backup** retention to match, or the purge is co
 Decide, explicitly, that the current operating posture is **private use** (§3, left column).
 
 **Phase 1 — fix latency first, then make the data usable (2–4 weeks).**
-**Start with the latency chain (§7.1)** — production API cutover, collapse the double
-blacklist check, `IP_CHANGER_TYPE=HTTP_PROXY` on a rotating pool (`PROMPTS.md` P21). Nothing
+**Start with the latency chain (§7.1)** — but take it in two steps, per `PROMPTS.md` P21's
+2026-08-08 split. **P21a first**: production API cutover + collapse the double blacklist
+check + interval to ~10 min. That is ~3× of the latency win at *unchanged* Bazos request
+volume, for **no cost and no external dependency** — the efficiency gains pay for the extra
+cadence exactly. **P21b second**, and only once P21a's observed block rate justifies it:
+`IP_CHANGER_TYPE=HTTP_PROXY` on a rotating pool (~$3–6/mo) to get below 5 minutes. Nothing
 else in this plan pays off while detection runs 15 minutes behind the market.
+⚠️ P21b has a second, independent justification as of 2026-08-08: **Tor is already failing
+in production** (403s on exits plus dead circuits crashing the runner — `PROMPTS.md` P20),
+so the proxy migration is arguably reliability work, not just latency work.
 Then the data fixes in §7.2: price as integer + `price_type`; delisting/sold detection via
 bulk `ad_id[]=` + HTTP 410. **Defer** the `Ad`/`AdDelivery` split (`BACKLOG_IDEAS.md` #1
 option B) — it's a precondition for the *data/product* direction and for broad category
