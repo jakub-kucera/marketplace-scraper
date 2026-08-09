@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/4.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.1/ref/settings/
 """
+import sys
 from pathlib import Path
 from typing import Final
 
@@ -205,7 +206,12 @@ LOGGING = {
 # Sentry DSN — left empty in .env to disable entirely.
 SENTRY_DSN: str = env("SENTRY_DSN", default="")
 
-if SENTRY_DSN:
+# Never report from a test run: the suite deliberately raises and logs exceptions
+# (e.g. RuntimeError("boom") in test_query_run_tracking.py), and the default logging
+# integration would ship every one of those to Sentry as a real error.
+RUNNING_TESTS: Final[bool] = "pytest" in sys.modules
+
+if SENTRY_DSN and not RUNNING_TESTS:
     import sentry_sdk
     sentry_sdk.init(
         dsn=SENTRY_DSN,
