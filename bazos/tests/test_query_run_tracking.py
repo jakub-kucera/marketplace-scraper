@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from bazos.exceptions import BazosBlacklistedError
 from bazos.models import Query, QueryRun
 from bazos.scraping.bazos_query_runner import BazosQueryRunner
 from bazos.scraping.bazos_runner import BazosRunner
@@ -39,15 +40,27 @@ def run_one_pass(runner):
 
 
 @pytest.mark.django_db
-def test_failing_query_still_produces_queryrun_row_with_error(query):
+@pytest.mark.parametrize(
+    "exc",
+    [RuntimeError("boom"), BazosBlacklistedError()],
+    ids=["exception-with-message", "bare-blacklisted-error"],
+)
+def test_failing_query_still_produces_queryrun_row_with_error(query, exc):
+    """`str(e)` is empty for `BazosBlacklistedError()` raised with no args — the exact
+    shape of the exception that actually fires in production (bazos_scraper.py,
+    bazos_api_scraper.py). error must stay non-empty and name the exception type either way.
+    """
     runner = make_runner()
 
-    with patch.object(BazosQueryRunner, "run", side_effect=RuntimeError("boom")):
+    with patch.object(BazosQueryRunner, "run", side_effect=exc):
         run_one_pass(runner)
 
     run = QueryRun.objects.get(query=query)
     assert run.success is False
-    assert run.error is not None and "boom" in run.error
+    assert run.error
+    assert type(exc).__name__ in run.error
+    if str(exc):
+        assert str(exc) in run.error
     assert run.run_end is not None
 
 

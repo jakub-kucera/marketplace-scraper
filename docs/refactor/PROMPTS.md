@@ -776,6 +776,63 @@ a scoped rule set doesn't apply rules outside its list. Nothing left to do here.
 
 ---
 
+### P25 — `load_full_description` drops fields the API already returned
+
+> **Observed in production 2026-08-10.** Every `bazos_api` ad in the DB — **56 of 56** — has
+> `publisher_name = ''`, `short_description = ''`, `full_description IS NULL` and no
+> email/phone publisher. The detail response for one of them (`222351346`) carries
+> `name: 'Aneta'`: a field the code fetches, parses, and throws away.
+
+```
+BazosApiScraper.load_full_description reads 3 of ~30 fields from the detail response and
+discards one the Ad model has a column for.
+
+Context:
+- `bazos_api_scraper.py:166-172` reads only `description`, `email_id`, `phone_id`. The same
+  response carries `name` (the publisher name), plus `user_ads_count`, `user_reviews_count`,
+  `price`/`price_type`, `zip_code`, `latitude`/`longitude`, `category`/`section` objects and
+  `images[]` — see ../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md §5.2, verified live.
+- `BazosScraper` gets `publisher_name` from the LISTING for free (`bazos_scraper.py:117`). The
+  API listing payload has no equivalent field (§5.1), which is why this only shows up on the
+  API path.
+
+⚠️ Scope reality check before starting: this method only runs when
+`Query.load_full_description=True`. The one production `bazos_api` query has it OFF, so landing
+this prompt changes nothing there until the flag is flipped. With the flag off, those ads also
+have NULL email/phone publishers — which is why `PublisherBlocklistRule` cannot fire and
+`Ad.message` renders "Seller: unknown" for every one of them. This prompt does NOT fix that;
+only enabling the flag does, at one extra request per ad. Decide that separately, and note P13
+(filter-before-detail-fetch) is the prompt that makes that extra request affordable.
+
+Steps:
+1. After the `full_description` assignment, set
+   `product.publisher_name = (data.get("name") or "")[:100]`.
+   Both guards are load-bearing: `Ad.publisher_name` is a non-null `CharField(max_length=100)`
+   (`models.py:271`), so None fails on Postgres and an over-long value raises DataError.
+2. Apply the same None-guard reasoning to `full_description` (`data.get("description")` can be
+   None; that column is nullable so it's legal, but every consumer concatenates it).
+3. Leave the 410 early-return (`bazos_api_scraper.py:159-161`) untouched — a removed ad has
+   nothing to read. Delisting handling is P24; do not scope-creep into it here.
+4. Add a short comment recording the listing-vs-detail asymmetry from Context above, so the
+   next reader doesn't go hunting for an API listing field that doesn't exist.
+5. Explicitly OUT of scope, each worth its own task: `user_ads_count`/`user_reviews_count` are
+   the true seller volume that `SellerAdCounts`'s own docstring (`models.py:166-171`) says it
+   cannot compute — needs new model fields. `price`/`price_type` belong to P22. `images[]`
+   belongs to P16 / BACKLOG_IDEAS.md #3a. GPS and category/section objects have no consumer yet.
+6. Do NOT try to fill `short_description` from the detail payload. `ads.php` has no description
+   text at all (§5.1), so the only source is a per-ad detail call — and when that call happens,
+   the text is already in `full_description`. A truncated duplicate in a second column buys
+   nothing. If the goal is making keyword filters work on the API path, the fix belongs in
+   `filters.py:85,102`, whose haystack is `f"{ad.name} {ad.short_description}"` and should also
+   consider `full_description` — that is a separate change with its own tests.
+7. Tests: extend the `load_full_description` group in `test_bazos_api_scraper.py` (around :232)
+   with — `publisher_name` populated from `name`; `name` absent or None → `""`; a >100-char
+   `name` → truncated, not raising. `test_publishers_unset_until_detail_fetch` (:133) pins the
+   listing-side emptiness and stays valid as-is.
+```
+
+---
+
 ## Order recommendation
 
 > **Revised 2026-07-29.** The old ordering optimised for "cheapest independent win". That was
@@ -830,6 +887,8 @@ registry), ~~P6~~ (Sentry), ~~P15~~ (AND/OR probe), ~~P18~~ (`QueryRun` failure 
   `image_thumbnail` in the production payload, so it's worth doing *after* the cutover rather than
   adding HTML-scraper parsing that P21 obsoletes.
 - **P7** / **P8** / **P9** / **P12** — housekeeping, no dependencies.
+- **P25** (`load_full_description` drops the publisher name) — ~15 min, no dependencies, but it
+  only takes effect on queries with `load_full_description=True`; read its scope note first.
 - **P14** (interval tuning) — ⚠️ **blocked**, and it was previously listed here as a zero-dependency
   quick win. It isn't: `extract_date` discards the time component, so `ExtractHour("publish_date")`
   returns 0 for every row. P21 unblocks it by supplying the API's second-resolution `from` field.

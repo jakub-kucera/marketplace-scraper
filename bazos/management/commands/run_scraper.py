@@ -39,7 +39,7 @@ class Command(BaseCommand):
                 current_time = strftime("%Y%m%d-%H%M%S")
                 logger.exception("BazosRunner crashed: %s", e)
                 with open(f"{settings.LOG_DIRECTORY_PATH}{current_time}", "w") as log_file:
-                    log_file.write(str(e))
+                    log_file.write(f"{type(e).__name__}: {e}")
                     log_file.write(traceback.format_exc())
                 print("Sleeping for 60 seconds")
                 sleep(60)
