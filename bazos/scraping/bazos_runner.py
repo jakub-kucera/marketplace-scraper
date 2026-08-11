@@ -63,7 +63,7 @@ class BazosRunner:
                     query_run.new_ads_count = new_products_count
                 except Exception as e:
                     query_run.success = False
-                    query_run.error = str(e)
+                    query_run.error = f"{type(e).__name__}: {e}"
                     logger.exception("Query %s failed", query)
                     continue
                 finally:
