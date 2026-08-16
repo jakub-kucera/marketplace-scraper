@@ -14,9 +14,14 @@
 
 ## 1. TL;DR
 
-- **There is no backup of any kind today.** No `pg_dump`, no snapshot, no cron, no
+- ✅ **Implemented 2026-08-15** (§8). Everything below §2 is written in the present tense of
+  *before* that — it is the reasoning that produced the design, kept because the trade-offs
+  still explain why the thing looks the way it does. **One step remains: creating the B2 bucket
+  and setting `RESTIC_REPOSITORY`.** Until that is done the dumps never leave the Pi, which
+  covers only 3 of the 6 failures in §3.1.
+- **There was no backup of any kind before that.** No `pg_dump`, no snapshot, no cron, no
   off-host copy. Zero mentions of backup/restore across `docs/`, `README.md`, `deploy.sh`,
-  or `docker-compose.yml`. The only copies of the archive are the live `postgres_data/`
+  or `docker-compose.yml`. The only copies of the archive were the live `postgres_data/`
   bind mount on the Pi and a **2.5-year-stale** CSV export (`data_export_23_3_2024/`).
 - **The host makes this worse than average.** Production is a **Raspberry Pi** (`README.md`
   §Deployment) running Postgres on local storage. SD-card wear-out is the single most common
@@ -41,7 +46,7 @@
 
 ---
 
-## 2. Current state (read from the repo, 2026-08-08)
+## 2. State before this doc (read from the repo, 2026-08-08)
 
 **What exists:**
 
@@ -58,9 +63,10 @@ archiving, volume snapshot, cron entry, systemd timer, backup container, or off-
 replica. `grep -rni "backup\|pg_dump\|dumpdata\|restore"` over `docs/` and `*.md` returns
 nothing.
 
-**Note on the deploy path:** the workflow runs migrations against production with no dump
+**Note on the deploy path:** the workflow ran migrations against production with no dump
 taken first. A bad migration is a *more likely* data-loss event than hardware failure,
-because it happens on purpose, on a schedule, every release (§4).
+because it happens on purpose, on a schedule, every release (§4). ✅ Fixed — `deploy.yml` now
+dumps before `migrate` and aborts the deploy if the dump fails.
 
 ---
 
@@ -236,23 +242,38 @@ Neon / Supabase / RDS — backups and PITR become someone else's job.
 Three options, given the Pi already runs systemd (`deploy.sh` drives
 `marketplace-docker.service`) and Docker Compose:
 
-1. **Compose sidecar** ✅ *recommended* — a `backup` service built from `postgres:15.2` (the
-   same image, so client and server versions match by construction), running a loop or invoked
-   by the host scheduler. Inherits `env_file: .env`, so credentials aren't duplicated. Its
-   lifecycle is described in the same file as everything else, which matters when the Pi is
-   re-provisioned.
-2. **Host cron / systemd timer** — simplest, but needs a `postgres-client-15` install on the
-   Pi and a second copy of the DB credentials outside `.env`. Version skew between host client
-   and container server is a real trap on a long-lived Pi.
-3. **A `Job` in the future job queue** (`refactor/JOB_QUEUE_DESIGN.md`) — ❌ deliberately not.
+1. **One-shot compose container, scheduled by a systemd timer** ✅ *chosen* — the two options
+   below turn out not to be exclusive, and the combination avoids the drawback of each.
+   The container is a `backup` service built from `postgres:15.2` (same image, so client and
+   server versions match by construction) that dumps and **exits**; `backup/systemd/` holds a
+   timer that runs `docker compose run --rm backup` nightly. Credentials still come from
+   `env_file: .env`, and no Postgres client is installed on the host, so option 2's objections
+   don't apply. The service sits behind a compose `profiles:` key so `docker compose up -d`
+   never starts it.
+   - ⚠️ **`docker compose build` skips profiled services.** `deploy.yml` therefore builds with
+     `--profile backup`; without it the backup image silently never updates.
+2. **Long-running sidecar with an internal sleep loop** ❌ — the obvious way to do #1 with no
+   host state, and what this doc originally recommended. Rejected on reflection: it is a
+   hand-rolled scheduler with **no catch-up**, so a Pi that is rebooting or mid-deploy at 03:30
+   simply skips that night and nothing reports it. `Persistent=true` on a systemd timer runs
+   the missed backup on next boot instead. Resource cost was *not* the reason — measured at
+   1.1 MiB RSS and 0% CPU idle, with ~32 MB of image layers on top of the `postgres:15.2` the
+   Pi already has.
+3. **Host cron with a host-installed `pg_dump`** ❌ — needs `postgres-client-15` on the Pi and
+   a second copy of the DB credentials outside `.env`. Version skew between host client and
+   container server is a real trap on a long-lived Pi. This is the option #1 replaces by
+   keeping the client in the container and letting the host only *schedule*.
+4. **A `Job` in the future job queue** (`refactor/JOB_QUEUE_DESIGN.md`) — ❌ deliberately not.
    Backups must keep working when the application is broken; coupling them to the app's own
    worker means an app that won't start also stops backing up. Same reasoning `PROMPTS.md` P24
    step 5 uses to keep `check_delisted` out of the `Job` model for now.
 
-**Also add a pre-deploy dump.** Per §3.1, a bad migration is the most likely loss event, and
-`.github/workflows/deploy.yml` currently runs migrations with no dump first. One `pg_dump -Fc`
-step before `migrate`, kept for a few releases, converts the scariest routine operation into a
-reversible one. This is arguably higher value per line than the nightly job.
+**Also add a pre-deploy dump.** ✅ Done. Per §3.1, a bad migration is the most likely loss
+event, and `.github/workflows/deploy.yml` used to run migrations with no dump first. One
+`pg_dump -Fc` step before `migrate`, kept for the last 5 releases, converts the scariest
+routine operation into a reversible one. This is arguably higher value per line than the
+nightly job. It is independent of the timer above — it runs inside the deploy, so it works
+whether or not the timer is installed.
 
 ---
 
@@ -268,10 +289,45 @@ On-host only protects against 3 of the 6 failures in §3.1 — the copy has to l
 | Another machine on the LAN (`scp`/`rsync`) | free | ⚠️ Does **not** cover fire/theft, and tends to rot silently — no one notices when it stops |
 | A repo/GitHub | — | ❌ Never. PII in git history is unremovable in practice (§7) |
 
-**Tooling:** prefer **`restic`** over raw `rclone copy` — it gives deduplication (consecutive
-dumps of a mostly-append-only DB dedupe extremely well), **client-side encryption by default**
-(which §7 requires), integrity verification via `restic check`, and `forget --prune` implements
-the retention policy in one command. `borg` is equivalent but weaker on cloud backends.
+**Tooling:** prefer **`restic`** over raw `rclone copy` — **client-side encryption by default**
+(which §7 requires), integrity verification via `restic check`, deduplication across nights, and
+`forget --prune` implements the retention policy in one command. `borg` is equivalent but weaker
+on cloud backends.
+
+### 6.1 Dedup only works if `pg_dump` does *not* compress
+
+⚠️ This determines a flag in §8 and was measured, not assumed (2026-08-15, restic 0.17.3,
+a 53 MB table, one night's delta ≈ 2,000 new ads):
+
+| dump flag | night 1 stored | night 2 stored | repo after 2 nights |
+|---|---|---|---|
+| **`-Z0`** (restic compresses) | 14.7 MiB | **5.5 MiB** | **22 MB** |
+| `-Z6` (pg_dump compresses) | 15.3 MiB | **15.5 MiB** | **32 MB** |
+
+`pg_dump`'s own compression produces a different byte stream every night even when the data
+barely moved, so restic's content-defined chunking finds nothing in common and re-uploads the
+whole dump — visible above as night 2 costing full price. Dumping **`-Z0`** and letting restic
+apply its own zstd gets compression *and* dedup instead of one or the other, and the gap widens
+every night.
+
+Two caveats on that table. Restic's chunker averages ~1 MiB, so a dump **smaller than a few MB
+is a single chunk** and dedups not at all regardless of flags — the effect only appears at real
+database size. And this reverses for the pre-deploy dumps in §5: those stay on the Pi and never
+reach restic, so there `-Z6` is a pure win.
+
+### 6.2 Closing the ransomware row in §3.1
+
+§3.1 lists compromise as covered only by **immutable or append-only** storage — but `forget
+--prune` needs delete rights, so the Pi holds credentials that can erase the backup history
+along with the live DB. Either:
+
+- **B2 Object Lock** (governance mode), or a lifecycle rule retaining prior versions ~30 days,
+  so deletes are soft; or
+- **split the keys** — a write-only application key on the Pi, and run `forget --prune`
+  occasionally from a laptop with a separate key.
+
+Either is sufficient at this scale. Neither is done by default, so it is a deliberate choice
+to make, not something the §8 setup gives you.
 
 ---
 
@@ -290,9 +346,11 @@ This is the part that's easy to get wrong permanently.
   export** (listing facts only — title, price, category, locality, timestamps) with unlimited
   retention. Two different artifacts with two different policies, because they answer two
   different questions.
-- **Encrypt at rest off-host.** `restic` does this by default. Store the repo password in a
-  password manager, **not** in `.env` on the Pi — an attacker with the Pi shouldn't inherit the
-  backup history.
+- **Encrypt at rest off-host.** `restic` does this by default. Keep the repo password in a
+  password manager — **because losing it makes every backup permanently unreadable**, which is
+  the failure this actually defends against. An unattended nightly job necessarily has the
+  password on the Pi, so "keep it off the Pi" is not achievable; limit what a compromised Pi can
+  *destroy* via §6.2 instead of pretending the password isn't there.
 - **`facebook/` app interaction:** `MONETIZATION.md` §6.1 says delete the `FBUser` model and
   importer. Verified empty everywhere checked — but if it were ever populated, dropping the
   table would **not** remove it from existing backups. Do the deletion **before** starting a
@@ -302,20 +360,34 @@ This is the part that's easy to get wrong permanently.
 
 ## 8. Recommendation
 
-1. **Nightly `pg_dump -Fc -Z6`** from a `backup` compose sidecar built on `postgres:15.2`,
-   writing to `./backups/` on the Pi. *(~30 min)*
-2. **`restic` to Backblaze B2** immediately after each dump, encrypted, with
-   `forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune`. *(~45 min)*
-3. **Add a pre-`migrate` dump step** to `.github/workflows/deploy.yml`, retained for the last
-   few releases. *(~15 min — highest value per line, see §5)*
-4. **Alert on failure.** A silent backup failure is indistinguishable from a working one —
-   the exact pathology `PROMPTS.md` P19 identifies in the scraper. Reuse the existing
-   `Discord(for_logging=True)` channel: post on failure, and post a weekly "last good backup:
-   <date>, <size>" heartbeat so silence is itself informative. *(~20 min)*
-5. **Test one restore into a throwaway container**, and write the exact commands into this
-   doc's §9. An untested backup is a hypothesis. Re-test quarterly. *(~30 min)*
-6. **Optional:** monthly `manage.py dumpdata` + `pg_dumpall --globals-only` as portable
+**Implemented on 2026-08-15** — `backup/Dockerfile`, `backup/backup.sh`,
+`backup/systemd/`, the profiled `backup` service in `docker-compose.yml`, and the
+*Pre-migration backup* step in `.github/workflows/deploy.yml`.
+
+1. ✅ **Nightly `pg_dump -Fc -Z0`** from a one-shot `backup` container built on `postgres:15.2`,
+   writing to `./backups/` on the Pi. `-Z0`, not `-Z6` — see §6.1. Scheduled by a systemd timer
+   with `Persistent=true`, not a sleep loop — see §5. **Installing the timer is a manual step on
+   the Pi** (`backup/systemd/README.md`); until it is installed, only the pre-deploy dump runs.
+2. ✅ **`restic`** immediately after each dump, encrypted, with
+   `forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune`. Off-host is **opt-in at
+   runtime**: with `RESTIC_REPOSITORY` empty the backup still takes and rotates local dumps and
+   logs that nothing left the host, so it can ship before a B2 account exists.
+   **Creating the B2 bucket and setting the credentials is still outstanding** —
+   until then this covers only 3 of the 6 failures in §3.1.
+3. ✅ **Pre-`migrate` dump** in `deploy.yml`, last 5 releases retained. A failed dump aborts the
+   deploy — that is the point. *(Highest value per line, see §5.)*
+4. ✅ **Alert on failure**, plus a Monday heartbeat so silence is itself informative — the
+   pathology `PROMPTS.md` P19 identifies in the scraper. Via `BACKUP_DISCORD_WEBHOOK_URL`
+   (falling back to `DISCORD_LOGGER_WEBHOOK_URL`), **not** the `Discord(for_logging=True)` row
+   this doc originally suggested: an alert that has to read Postgres cannot report that Postgres
+   is broken.
+5. ✅ **Restore tested** end to end against throwaway containers; verified commands in §9.
+   Re-test quarterly.
+6. ⬜ **Optional:** monthly `manage.py dumpdata` + `pg_dumpall --globals-only` as portable
    secondary artifacts (§4 D/C).
+
+**Not yet decided:** §6.2 (immutability) is unaddressed — the Pi's credentials can currently
+delete the backup history.
 
 **Total ~2 hours**, ~$0/mo at current size. Given §3.1's threat model and a 2.5-year-stale
 last-known-good copy, this outranks every feature item in
@@ -327,18 +399,86 @@ hours.
 
 ## 9. Restore procedure
 
-⚠️ **Not yet written — this section is the deliverable of §8 step 5.** It must contain the
-literal, copy-pasteable commands, verified against a real restore, not a sketch. Placeholder
-shape:
+Verified 2026-08-15 against throwaway `postgres:15.2` containers (arm64, same as the Pi), on a
+252,000-row dataset. Every command below was run; the row counts are real output.
+
+**Never restore into the production database as the first step.** Restore into a scratch
+database, verify counts, then decide.
+
+### 9.1 Get a dump file
+
+Local copies are in `./backups/` (nightly) and `./backups/pre-deploy/` (per release). If the Pi
+is gone, pull one out of restic instead:
 
 ```bash
-# 1. Spin up a throwaway PG 15 instance (NOT the production compose stack)
-# 2. pg_restore -d <scratch_db> --clean --if-exists scraper-YYYY-MM-DD.dump
-# 3. Verify: row counts for bazos_ad / bazos_query / bazos_queryrun vs. expectations
-# 4. Selective case: pg_restore -d <db> -t bazos_ad --data-only <dump>
+export RESTIC_REPOSITORY=... RESTIC_PASSWORD=...
+restic snapshots                                  # pick one
+restic restore <short_id> --target /tmp/restored  # dump lands under /tmp/restored/backups/
 ```
 
-Fill this in the first time it's actually run.
+Pre-deploy dumps are `-Z6` compressed and nightly ones are `-Z0`; `pg_restore` reads both with
+no extra step.
+
+### 9.2 Full restore into a scratch database
+
+```bash
+docker compose up -d postgres
+docker compose exec postgres psql -U "$POSTGRES_USER" -c "CREATE DATABASE scratch;"
+docker compose exec -T postgres pg_restore -U "$POSTGRES_USER" -d scratch \
+    --clean --if-exists --no-owner < ./backups/scraper-YYYY-MM-DD-HHMMSS.dump
+```
+
+Verify before trusting it:
+
+```bash
+docker compose exec postgres psql -U "$POSTGRES_USER" -d scratch -c \
+  "select (select count(*) from bazos_ad)  as ads,
+          (select count(*) from bazos_query) as queries,
+          (select count(*) from bazos_queryrun) as runs,
+          (select max(created) from bazos_ad) as newest_ad;"
+```
+
+`newest_ad` is the one that matters — it tells you how much you actually lost.
+
+### 9.3 Selective restore — the bad-migration case
+
+Recovering one table without flattening the database is the reason for `-Fc` (§4 A):
+
+```bash
+docker compose exec -T postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -t bazos_ad -t bazos_ad_id_seq --data-only --no-owner < ./backups/<dump>
+```
+
+⚠️ **`-t bazos_ad` alone is a trap.** `--data-only` restores rows but *not* the sequence, so the
+sequence stays where it was and the scraper's next insert dies:
+
+```
+ERROR:  duplicate key value violates unique constraint "bazos_ad_pkey"
+DETAIL:  Key (id)=(1) already exists.
+```
+
+Naming the sequence in a second `-t` (above) fixes it. If you already restored without it:
+
+```sql
+SELECT setval(pg_get_serial_sequence('bazos_ad','id'), (SELECT MAX(id) FROM bazos_ad));
+```
+
+Both were tested; both leave `last_value` = `max(id)` and inserts working. The table must be
+emptied first (`DELETE FROM bazos_ad;`) — `--data-only` appends and will collide otherwise.
+
+### 9.4 Check the backups without restoring
+
+```bash
+sudo systemctl start marketplace-backup.service      # force a backup now
+systemctl list-timers marketplace-backup.timer       # when is the next one
+journalctl -u marketplace-backup -n 50 --no-pager    # what happened last time
+docker compose run --rm --entrypoint restic backup check   # repo integrity
+```
+
+⚠️ Watched-for failure mode: `restic backup` exits **3** when a source file can't be read but
+**still saves a snapshot** — an empty one. `backup.sh` propagates that exit code so the Discord
+alert fires, but if you ever run restic by hand, a "successful"-looking snapshot listing is not
+proof the data is in it. `restic ls <id>` to be sure.
 
 ---
 

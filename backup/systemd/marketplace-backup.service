@@ -1,0 +1,17 @@
+[Unit]
+Description=Marketplace scraper — Postgres backup (pg_dump + restic)
+Documentation=https://github.com/jakubkucera/marketplace-scrapper/blob/main/docs/BACKUPS.md
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/user/marketplace-scrapper
+
+# One-shot container: dumps, pushes to restic, exits. `run` (not `up`) so nothing
+# is left running, and --rm so no stopped containers accumulate. The `backup`
+# compose profile is enabled automatically by `run`.
+ExecStart=/usr/bin/docker compose run --rm backup
+
+# A dump on a Pi should never wedge the box; give it a generous ceiling anyway.
+TimeoutStartSec=3600

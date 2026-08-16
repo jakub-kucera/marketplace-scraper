@@ -18,8 +18,11 @@ jobs:
           git fetch --tags origin
           git checkout ${{ github.ref_name }}
 
+      # --profile backup is required: plain `docker compose build` silently skips
+      # services behind a profile, which would leave the backup image stale forever
+      # after the first deploy.
       - name: Build images
-        run: docker compose build
+        run: docker compose --profile backup build
 
       - name: Stop services
         run: docker compose down
@@ -33,6 +36,30 @@ jobs:
             echo "Waiting for postgres..."
             sleep 2
           done
+
+      # A bad migration is the likeliest data-loss event on this deployment: it is
+      # automated, runs every release, and until now ran against production with no
+      # copy taken first (docs/BACKUPS.md §3.1). This makes it reversible.
+      # If the dump fails, the deploy stops here — that is intentional.
+      - name: Pre-migration backup
+        run: |
+          mkdir -p backups/pre-deploy
+          out="backups/pre-deploy/${{ github.ref_name }}-$(date +%F-%H%M%S).dump"
+          tmp="$(mktemp)"
+          # Credentials stay inside the container: it already has them via env_file,
+          # so nothing is duplicated into the workflow. -T keeps the binary stream intact.
+          # -Z6 here (unlike the nightly sidecar) because these copies stay on the Pi
+          # and never pass through restic, so pg_dump's own compression is a pure win.
+          docker compose exec -T postgres \
+            sh -c 'pg_dump -Fc -Z6 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > "$tmp"
+          if [ ! -s "$tmp" ]; then
+            echo "Pre-migration dump is empty — refusing to migrate." >&2
+            exit 1
+          fi
+          mv "$tmp" "$out"
+          ls -lh "$out"
+          # Retain the last 5 releases' worth.
+          ls -1t backups/pre-deploy/*.dump | tail -n +6 | xargs -r rm -f
 
       - name: Run migrations
         run: docker compose run --rm --no-deps marketplace_scraper python manage.py migrate

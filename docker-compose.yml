@@ -60,6 +60,26 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
 
+  # Nightly pg_dump → ./backups/ → restic off-host. See docs/BACKUPS.md.
+  #
+  # `profiles` keeps this OUT of `docker compose up -d`: it is a one-shot task, not
+  # a service, so nothing idles waiting for 03:30. A systemd timer on the host runs
+  # it (backup/systemd/) — `docker compose run` enables the profile automatically.
+  #
+  # Deliberately NOT a Job in the app's own worker: backups have to keep working
+  # when the application is broken.
+  backup:
+    build: ./backup
+    profiles: ["backup"]
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./backups:/backups
+    depends_on:
+      - postgres
+
   adminer:
     image: adminer
     restart: always
