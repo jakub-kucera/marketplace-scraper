@@ -58,6 +58,9 @@ build/
 *.sqlite3
 postgres_data/
 logs/
+# Dumps contain seller emails and phone numbers — never commit. PII in git
+# history is unremovable in practice (docs/BACKUPS.md §7).
+backups/
 
 ### Local environment and secrets
 env_sp

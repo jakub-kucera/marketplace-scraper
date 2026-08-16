@@ -1,0 +1,17 @@
+[Unit]
+Description=Nightly marketplace scraper database backup
+Documentation=https://github.com/jakubkucera/marketplace-scrapper/blob/main/docs/BACKUPS.md
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+
+# The reason this is a timer and not a sleep loop in a sidecar: if the Pi is off
+# or mid-deploy at 03:30, Persistent=true runs the backup as soon as it is back
+# instead of silently skipping the night.
+Persistent=true
+
+# Avoid every scheduled thing firing at exactly the same second on a small box.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
