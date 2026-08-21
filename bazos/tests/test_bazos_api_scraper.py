@@ -179,11 +179,8 @@ class TestRunQuery:
 
         page1 = [make_listing_item(id=str(i)) for i in (1, 2)]
         page2 = [make_listing_item(id=str(i)) for i in (3,)]
-        check_blacklist_response = FakeResponse(status_code=200, json_data=[])
 
         def fake_get(url, params=None, headers=None):
-            if params.get("limit") == 1:
-                return check_blacklist_response
             if params["offset"] == 0:
                 return FakeResponse(status_code=200, json_data=page1, headers={"x-total-count": "3"})
             if params["offset"] == 2:
@@ -199,11 +196,8 @@ class TestRunQuery:
         scraper = self._scraper_not_blacklisted(monkeypatch)
 
         page1 = [make_listing_item(id=str(i)) for i in (1, 2)]
-        check_blacklist_response = FakeResponse(status_code=200, json_data=[])
 
         def fake_get(url, params=None, headers=None):
-            if params.get("limit") == 1:
-                return check_blacklist_response
             if params["offset"] == 0:
                 return FakeResponse(status_code=200, json_data=page1, headers={})
             return FakeResponse(status_code=200, json_data=[], headers={})
@@ -213,14 +207,33 @@ class TestRunQuery:
         ads = list(scraper.run_query(query))
         assert [ad.external_id for ad in ads] == [1, 2]
 
-    def test_raises_when_blacklisted(self, monkeypatch, query):
+    def test_single_page_query_sends_exactly_one_request(self, monkeypatch, query):
+        """No separate blacklist probe (P26) — one page of results is one ads.php request."""
+        scraper = self._scraper_not_blacklisted(monkeypatch)
+        page1 = [make_listing_item(id=str(i)) for i in (1, 2)]
+        scraper.session.get.return_value = FakeResponse(
+            status_code=200, json_data=page1, headers={"x-total-count": "2"}
+        )
+
+        ads = list(scraper.run_query(query))
+
+        assert [ad.external_id for ad in ads] == [1, 2]
+        assert scraper.sent_requests_count == 1
+
+    @pytest.mark.parametrize("status_code", [403, 429])
+    def test_raises_when_real_request_is_blocked(self, monkeypatch, query, status_code):
+        """A block is detected on the real ads.php request, not a separate probe (P26) —
+        the probe that used to sit at the top of run_query is gone.
+        """
         from bazos.exceptions import BazosBlacklistedError
 
         scraper = self._scraper_not_blacklisted(monkeypatch)
-        scraper.session.get.return_value = FakeResponse(status_code=403, json_data={})
+        scraper.session.get.return_value = FakeResponse(status_code=status_code, json_data={})
 
         with pytest.raises(BazosBlacklistedError):
             list(scraper.run_query(query))
+
+        assert scraper.sent_requests_count == 1
 
 
 # ---------------------------------------------------------------------------

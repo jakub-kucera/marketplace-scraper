@@ -204,8 +204,8 @@ class BazosScraper:
                 pass
         return response
 
-    def check_blacklisted(self, url: str = BAZOS_BLACKLIST_CHECK_URL) -> bool:
-        response = self.run_request(url)
+    def check_blacklisted(self) -> bool:
+        response = self.run_request(BAZOS_BLACKLIST_CHECK_URL)
         if response is None:
             logger.warning("check_blacklisted: request failed, assuming OK")
             return False
@@ -224,9 +224,6 @@ class BazosScraper:
         return product
 
     def run_query(self, query: Query) -> Iterator[Ad]:
-        if self.check_blacklisted(query.url):
-            raise BazosBlacklistedError()
-
         if query.category or query.section:
             url_iter = self.create_url_category(query)
         else:
@@ -243,6 +240,8 @@ class BazosScraper:
             if response is None:
                 logger.warning("Failed to load %s after %d attempts, stopping query", url, MAX_ATTEMPTS)
                 break
+            if response.status_code == 403:
+                raise BazosBlacklistedError()
 
             products = list(self.get_page_products(response))
             yield from products

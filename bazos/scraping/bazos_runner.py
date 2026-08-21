@@ -107,6 +107,6 @@ class BazosRunner:
     def _blacklist_checker(self, query: Query):
         def check(url: str) -> bool:
             assert self.ip_changer.session is not None
-            return get_scraper(query.marketplace, self.ip_changer.session).check_blacklisted(url)
+            return get_scraper(query.marketplace, self.ip_changer.session).check_blacklisted()
         return check
 

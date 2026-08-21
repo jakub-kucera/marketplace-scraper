@@ -133,6 +133,8 @@ class BazosApiScraper:
         if response is None:
             logger.warning("BazosApiScraper: no response fetching offset=%d, stopping query", offset)
             return [], None
+        if response.status_code in (403, 429):
+            raise BazosBlacklistedError()
         if response.status_code != 200:
             logger.warning("BazosApiScraper: status=%d fetching offset=%d, stopping query", response.status_code, offset)
             return [], None
@@ -140,7 +142,7 @@ class BazosApiScraper:
         total = int(total_header) if total_header is not None else None
         return response.json(), total
 
-    def check_blacklisted(self, url: str = "") -> bool:
+    def check_blacklisted(self) -> bool:
         response = self.run_request(f"{BAZOS_API_BASE_URL}/ads.php", params={"query": "iphone", "limit": 1, "offset": 0})
         if response is None:
             logger.warning("check_blacklisted: request failed, assuming OK")
@@ -172,9 +174,6 @@ class BazosApiScraper:
         return product
 
     def run_query(self, query: Query) -> Iterator[Ad]:
-        if self.check_blacklisted():
-            raise BazosBlacklistedError()
-
         params = self._build_query_params(query)
         offset = 0
         while True:
