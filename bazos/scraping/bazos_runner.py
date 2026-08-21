@@ -26,6 +26,8 @@ class BazosRunner:
         self.discord_loggers = [DiscordSender.from_model(s) for s in discord_loggers]
         ip_changer_class = DummyIPChanger if settings.IP_CHANGER_TYPE == "DUMMY" else TorIPChanger
         self.ip_changer = ip_changer_class(skip_1st_renew=False)
+        self.zero_rows_passes = 0
+        self.zero_new_ads_passes = 0
 
     def run(self):
         while True:
@@ -34,6 +36,9 @@ class BazosRunner:
             queries = Query.objects.filter(enabled=True).order_by('?')
 
             start = datetime.now(timezone.utc)
+            pass_rows_seen = 0
+            pass_new_ads = 0
+            successful_queries = 0
             for query in queries:
                 self.log(f"running query {query}")
 
@@ -61,6 +66,9 @@ class BazosRunner:
                     new_products_count = query_runner.run()
                     query.save()
                     query_run.new_ads_count = new_products_count
+                    pass_rows_seen += query_runner.rows_seen_counter
+                    pass_new_ads += new_products_count
+                    successful_queries += 1
                 except Exception as e:
                     query_run.success = False
                     query_run.error = f"{type(e).__name__}: {e}"
@@ -73,6 +81,7 @@ class BazosRunner:
 
             end = datetime.now(timezone.utc)
             self.log(f"Finished running {len(queries)} queries in {end - start}. End time: {end}")
+            self._check_zero_results_canary(pass_rows_seen, pass_new_ads, successful_queries)
             sleep_interval = self.get_next_interval()
             self.log(f"sleeping for {sleep_interval}")
             self._interruptible_sleep(sleep_interval)
@@ -93,6 +102,47 @@ class BazosRunner:
                 self.log("Force-run flag detected — skipping remaining sleep")
                 flag_path.unlink(missing_ok=True)
                 return
+
+    def _check_zero_results_canary(self, rows_seen: int, new_ads: int, successful_queries: int) -> None:
+        """Alert when the pipeline stops producing — parser drift looks exactly like a quiet market.
+
+        Never fatal: a genuinely dead category at 3am must not stop the scraper.
+        """
+        if successful_queries == 0:
+            # No query completed, so this pass carries no evidence either way. Those failures
+            # are already loud via QueryRun.success and logger.exception — don't double-alert,
+            # and don't let a crash storm masquerade as parser drift.
+            return
+
+        if rows_seen == 0:
+            self.zero_rows_passes += 1
+            if self.zero_rows_passes >= settings.ZERO_ROWS_ALERT_THRESHOLD:
+                self.log(
+                    f"CANARY: {self.zero_rows_passes} consecutive passes parsed ZERO rows across "
+                    f"{successful_queries} successful queries — the scraper is probably broken "
+                    f"(parser drift / blocked transport), not the market being quiet.",
+                    level=logging.ERROR,
+                )
+                self.zero_rows_passes = 0
+            # A zero-rows pass isn't a "rows parsed but zero new ads" pass — it's not evidence
+            # for the quiet-market signal at all, so don't let it count toward that streak either.
+            self.zero_new_ads_passes = 0
+            return
+
+        self.zero_rows_passes = 0
+
+        if new_ads == 0:
+            self.zero_new_ads_passes += 1
+            if self.zero_new_ads_passes >= settings.ZERO_NEW_ADS_ALERT_THRESHOLD:
+                self.log(
+                    f"CANARY: {self.zero_new_ads_passes} consecutive passes found zero NEW ads "
+                    f"({rows_seen} rows parsed, so scraping itself works) — either a quiet market "
+                    f"or dedup drift.",
+                    level=logging.WARNING,
+                )
+                self.zero_new_ads_passes = 0
+        else:
+            self.zero_new_ads_passes = 0
 
     def log(self, message: str, level: int = logging.INFO):
         logger.log(level, message)

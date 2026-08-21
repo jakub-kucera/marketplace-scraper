@@ -1,67 +1,168 @@
 # Stage 8 Design Notes — VintedScraper & Multi-Marketplace Queries
 
-> **Status**: Design / pre-implementation  
+> **Status**: Design / pre-implementation
 > **Referenced from**: [PIPELINE_REFACTOR.md](./PIPELINE_REFACTOR.md) — Stage 8
+> **Implementation spec**: [STAGE8_VINTED_SPEC.md](./STAGE8_VINTED_SPEC.md)
+
+> **⚠️ §1 and §2 rewritten from a live probe, 2026-08-21.** Everything in those two sections
+> was previously *asserted from the package README, never run*. It has now been measured
+> against `vinted.cz` with `vinted-scraper` **4.0.0**, and **four of the original claims were
+> wrong** — including the one the whole design rested on ("description is already in search
+> results, so `load_full_description` is a no-op"). It is not. Details inline below; the
+> superseded claims are struck through rather than deleted so the delta is visible.
+>
+> §3–§5 (the `Query` model analysis and the Option C decision) were **not** affected by the
+> probe and stand unchanged.
 
 ---
 
 ## 1. Library choice
 
-**Package**: [`vinted-scraper`](https://pypi.org/project/vinted-scraper/) by Giglium  
-**Version**: `3.1.1` (released May 2026, actively maintained)  
-**Install**: `pip install vinted-scraper`
+**Package**: [`vinted-scraper`](https://pypi.org/project/vinted-scraper/) by Giglium
+**Version**: **`4.0.0`** — ~~`3.1.1`~~. 4.0.0 is current as of 2026-08-21 and is what the probe
+below used. A `^3.1.1` constraint in `pyproject.toml` would resolve to `3.1.x` and **not** get
+this API — pin `^4.0.0`.
+**Transport**: **`httpx`**, not `requests`. This is a new dependency for this repo and it is
+also the concrete reason the library cannot accept the Tor session (see §2).
 
 ```python
 from vinted_scraper import VintedScraper
 
 scraper = VintedScraper("https://www.vinted.cz")
-items = scraper.search({"search_text": "macbook", "price_from": 5000})
-# → List[VintedItem]
+items = scraper.search({"search_text": "macbook", "order": "newest_first", "per_page": 96})
+# → List[VintedItem]     ✅ confirmed live
 ```
 
 The library manages session cookies automatically. No BeautifulSoup — the API returns JSON.
+`VintedWrapper` is the same API returning raw `dict`s instead of typed models; `VintedScraper`
+(typed) is the one to use. `AsyncVintedScraper` exists if concurrency is ever wanted
+(`BACKLOG_IDEAS.md` #2).
 
-### Key VintedItem fields
+### 1a. Measured `VintedItem` fields — search endpoint (probed 2026-08-21)
 
-| `VintedItem` field | maps to `Ad` field |
-|---|---|
-| `id` | `external_id` |
-| `title` | `name` |
-| `price` (float) + `currency` | `price_raw` (formatted string) |
-| `url` | `url` |
-| `description` | `short_description` |
-| — | `publish_date` — not available in search results |
-| — | `view_count` — not available |
-| — | `publisher_email` / `publisher_phone` — not available (`EmailPublisher` / `PhonePublisher` FKs will be `null`) |
+`search()` returns 28 attributes. These are the ones that matter, with **real values** from
+`{"search_text": "macbook"}` against `vinted.cz`:
+
+| `VintedItem` field | Example value | maps to `Ad` field |
+|---|---|---|
+| `id` | `9561743808` | `external_id` |
+| `title` | `'Apple MacBook Pro 15” (2016) \| 16 GB RAM…'` | `name` |
+| `price` | `5990.0` (float — the model flattens the raw `{"amount","currency_code"}` dict) | `price_raw` (format as string) |
+| `currency` | `'CZK'` | — (used for formatting) |
+| `total_item_price` | `6307.5` | ⚠️ see §1c — this is what a buyer actually pays |
+| `service_fee` | `317.5` | — |
+| `url` | full absolute URL | `url` |
+| `promoted` | `True` / `False` | **`topped`** ✅ — the concept exists after all |
+| `status` | `'Velmi dobrý'` | item condition — no `Ad` column today |
+| `brand_title` | `'Apple'` | — |
+| `favourite_count` | `90` | — (closest thing to interest signal) |
+| `photo` / `photos` | dict / list, incl. `url` + `thumbnails[]` | thumbnail is **free here** — relevant to P16 |
+| `user` | `VintedUser(id, login, business, profile_url, photo)` | see §1d |
+| `description` | **`None`** | ⚠️ **not populated in search** — see §1b |
+| `view_count` | **`0` on every row** | `view_count` — present but always zero, treat as unavailable |
+| — | **no date field of any kind** in the payload | `publish_date` — genuinely unavailable ⚠️ |
+
+~~`description` maps to `short_description` from search results.~~ It does not.
+
+### 1b. ⚠️ `load_full_description` is NOT a no-op — the original design's central error
+
+The doc previously said the description "is already in search results", making
+`load_full_description` a no-op. **Measured: `description` is `None` on every search result.**
+
+A detail call `scraper.item(str(item_id))` does return a description — but it is scraping
+**OpenGraph meta tags off the item page**, not an API, and it is **unreliable**:
+
+```
+probed 8 consecutive item() calls on live ids:
+  description present on 5/8
+  the other 3 returned literally {'id'} — no exception, no error, just nothing
+```
+
+Consequences for the implementation:
+
+1. `load_full_description` must actually make a request (one per ad), so the Vinted path costs
+   the same as the Bazos HTML path, not zero.
+2. It must **tolerate a missing description silently** — a `{'id'}`-only response is normal,
+   not an error. Do not raise, do not retry in a loop.
+3. `Ad.short_description` will be **empty for every Vinted ad**, since the only description
+   source is the detail call and that text belongs in `full_description`. This matters because
+   `BlocklistKeywordRule` / `RequiredKeywordRule` match on
+   `f"{ad.name} {ad.short_description}"` — **on Vinted they effectively match on the title
+   alone.** Given §1e below, that is a real filtering weakness, not a cosmetic one.
+
+### 1c. ⚠️ Cross-border results and converted prices — unanticipated, and it matters
+
+A `macbook` search on **`vinted.cz`** returns mostly **Polish** listings with prices converted
+into CZK. Measured, 5 of the first 6 newest results:
+
+```
+price=1385.41 CZK  conversion={'seller_price': '245.0', 'seller_currency': 'PLN',
+                               'buyer_currency': 'CZK', 'fx_rounded_rate': '5.65',
+                               'fx_markup_rate': '0.012'}
+```
+
+Three implications the design never considered:
+
+- **Prices are non-round floats** (`1385.41`), because they are FX conversions. `Ad.price_raw`
+  is a `CharField(max_length=30)`, so formatting must be decided explicitly, and P22's
+  integer-price work has to cope with a decimal source on this marketplace.
+- **`price` excludes buyer protection; `total_item_price` includes it** (5990.0 vs 6307.5, ~5%).
+  For a deal-hunting use case `total_item_price` is the honest number. **Decide deliberately.**
+- **The item may ship from another country.** Distance/travel-cost scoring
+  (`BACKLOG_IDEAS.md` #10) is meaningless here, which that idea already anticipated
+  ("gate the rule on `marketplace`") — this is the live confirmation.
+
+### 1d. Seller identity is *better* than Bazos, not absent
+
+The original table said publisher info is "not available". Measured: every item carries
+`user` → `VintedUser(id=199717601, login='kristyna_cerhova', business=False, profile_url=...)`.
+
+That is a **stable, non-opaque seller id plus a business/dealer flag** — strictly better than
+Bazos's opaque `email_id`/`phone_id` pairing, and it makes `SellerAdCounts`-style analysis
+trivial on this marketplace. There is still no email/phone, so
+`EmailPublisher`/`PhonePublisher` stay `null` and `PublisherBlocklistRule` cannot fire.
+
+**Out of scope for the first implementation** — it needs a new model (`VintedSeller` or a
+generic `Publisher`) and a decision about GDPR retention (`MONETIZATION.md` §6.1's retention
+rule applies: `login` and `profile_url` are personal data). Record it, don't build it yet.
+
+### 1e. Search relevance is loose
+
+`{"search_text": "macbook"}` returned **`'Torebka Mango'`** (a Mango handbag) inside the first
+6 newest results. Vinted's text match is much fuzzier than Bazos's. `RequiredKeywordRule` is
+therefore close to mandatory on Vinted queries — note it in the admin `help_text` for
+`extra_params`.
 
 ---
 
 ## 2. Behavioural differences from BazosScraper
 
+Corrected against the probe. Changed rows are marked ⚠️.
+
 | Concern | BazosScraper | VintedScraper |
 |---|---|---|
-| Transport | HTML + BeautifulSoup | REST JSON via `vinted-scraper` lib |
+| Transport | HTML + BeautifulSoup over `requests` | ⚠️ REST JSON via `vinted-scraper`, which uses **`httpx`** |
 | Session management | Caller passes `requests.Session` | Library manages cookies internally |
 | Tor / IP rotation | Required — Bazos bans IPs | **Must NOT use** — Vinted bans proxies/VPNs |
 | `check_blacklisted()` | Real HTTP 403 probe | Always returns `False` (no equivalent) |
-| `load_full_description()` | Fetches second detail page | No-op — description already in search results |
-| Pagination | Manual URL construction, stop on empty page | `per_page` param, stop when fewer results than page size |
-| Publisher tracking | `EmailPublisher` / `PhonePublisher` FKs | Both FKs will be `null` (Vinted does not expose contact info) |
-| "topped" ads | `topped=True` if ad is promoted | No `topped` concept — all results chronological; always `topped=False` |
+| `load_full_description()` | Fetches a second detail page | ⚠️ **Also fetches** — one `item()` call per ad, OpenGraph-scraped, **succeeds ~5/8 of the time**. Not a no-op. |
+| Pagination | Manual URL construction, stop on empty page | ⚠️ `per_page`, **server-capped at 96** (asked 200, got 96) |
+| Ordering | Newest-first by default | ⚠️ **Must pass `order: "newest_first"` explicitly** — default order is relevance, which silently breaks the dedup walk |
+| Publisher tracking | `EmailPublisher` / `PhonePublisher` FKs | ⚠️ Both FKs `null`, but a real `user` object exists — see §1d |
+| "topped" ads | `topped=True` if promoted | ⚠️ **`promoted` exists** and behaves the same way — maps directly to `topped` |
+| Rate limiting | Bazos 403s a blocked IP | ⚠️ 6 rapid searches: **all 200, ~0.30s each, no 429.** No aggressive limiting observed at this volume |
+| `publish_date` | parsed from listing | ⚠️ **No date field exists at all** — see the spec's NOT NULL handling |
 
 ### Tor implications
 
-`BazosRunner` passes `self.ip_changer.session` into `BazosQueryRunner`, which forwards it to `BazosScraper`.
-For Vinted queries, `VintedScraper` constructs its own session — the passed `session` argument must be ignored.
-The `_build_scrapers(session)` factory in `bazos_query_runner.py`:
+`BazosRunner` passes `self.ip_changer.session` into `BazosQueryRunner`, which forwards it to the
+scraper. `VintedScraper` builds its own `httpx` client, so the passed `session` argument must be
+ignored — meaning **Vinted requests egress from the host's real IP**, not through Tor. That is
+intended (Vinted bans proxy traffic), but it should be a conscious decision, not an accident.
 
-```python
-def _build_scrapers(session: requests.Session) -> dict[str, MarketplaceScraper]:
-    return {
-        "bazos": BazosScraper(session),
-        "vinted": VintedScraper("https://www.vinted.cz"),  # session ignored intentionally
-    }
-```
+Note the class-name collision this creates: the library's class is *also* called
+`VintedScraper`. Alias it on import — the spec mandates
+`from vinted_scraper import VintedScraper as VintedApiClient`.
 
 ---
 
@@ -158,25 +259,64 @@ def url(self):
 Migration adds `extra_params = JSONField(default=dict, blank=True)` to `Query`.
 A `VintedCategory` model can be added later as a proper lookup for admin autocomplete if needed.
 
+
 ---
 
 ## 6. Files to create / modify
+
+Corrected 2026-08-21 — the original table predated the `Marketplace` enum (`03b3546`) and the
+`check_blacklisted` rework (`2fb37f8`), and its migration number was stale by six.
 
 | File | Change |
 |---|---|
 | `bazos/scraping/vinted/__init__.py` | [NEW] empty |
 | `bazos/scraping/vinted/vinted_scraper.py` | [NEW] `VintedScraper` implementing `MarketplaceScraper` |
-| `bazos/scraping/bazos_query_runner.py` | uncomment `"vinted"` in `_build_scrapers` |
-| `bazos/models.py` | add `extra_params` to `Query`; update `url` property |
-| `bazos/migrations/0019_query_extra_params.py` | [NEW] migration |
-| `bazos/admin.py` | `QueryAdmin`: show `extra_params`, `marketplace` fields |
-| `pyproject.toml` | add `vinted-scraper = "^3.1.1"` |
-| `bazos/scraping/vinted/tests/test_vinted_scraper.py` | [NEW] tests (mock `vinted_scraper.VintedScraper.search`) |
+| `bazos/models.py` | ⚠️ **uncomment `Marketplace.VINTED`** (line ~45) — missing from the original table; add `extra_params` to `Query`; update the `url` property |
+| `bazos/models.py` | ⚠️ make `Ad.view_count` / `Ad.publish_date` nullable — see the spec; without this every Vinted ad raises `IntegrityError` on save |
+| `bazos/migrations/00NN_…` | [NEW] ⚠️ next free number is **`0026`** (latest is `0025_drop_sentinel_publishers.py`), not `0019` — **verify at write time** |
+| `bazos/scraping/bazos_query_runner.py` | uncomment the `Marketplace.VINTED.value` line in `_build_scrapers` |
+| `bazos/admin.py` | `QueryAdmin`: expose `extra_params` (with `help_text`), confirm `marketplace` in `list_display` |
+| `pyproject.toml` | ⚠️ add `vinted-scraper = "^4.0.0"` — **not** `^3.1.1`; pulls in `httpx` |
+| `bazos/tests/test_vinted_scraper.py` | [NEW] ⚠️ flat path, matching the other 20 test files — **not** `bazos/scraping/vinted/tests/` |
 
 ---
 
-## 7. Open questions
+## 7. Open questions — ✅ all three answered by the 2026-08-21 probe
 
-- [ ] **Czech vs Slovak domain**: `vinted.cz` vs `vinted.sk`? Should the domain be per-query (stored in `extra_params` as `"base_url"`) or a Django setting?
-- [ ] **"Bumped" listings**: Vinted has promoted listings (`promoted` flag in API response) — does the stopping logic from `BazosQueryRunner.run_existing_query` (break on first non-topped known ad) need a Vinted-specific variant, or should Vinted always scan the full page?
-- [ ] **Rate limiting**: Vinted's unofficial API rate-limits aggressively. Should `VintedScraper` have its own back-off delay, or rely on the existing runner sleep intervals?
+- [x] **Czech vs Slovak domain.** Per-query, in `extra_params["base_url"]`, defaulting to
+  `https://www.vinted.cz`. The probe settles the argument: `vinted.cz` already returns
+  cross-border (Polish) inventory with FX-converted prices (§1c), so the domain selects
+  *pricing currency and buyer context*, not *seller geography*. That is a per-query concern,
+  not a global setting. P3 already specifies `extra_params["base_url"]` — it is the right call.
+
+- [x] **"Bumped" listings.** `promoted` is a real boolean on every search result and behaves
+  exactly like Bazos's `topped`: with `order=newest_first`, promoted items appear
+  **interleaved out of chronological order** (measured: index 7 of 8 was the promoted one).
+  So map `promoted → Ad.topped` and reuse `run_existing_query`'s existing logic unchanged —
+  `continue` past known topped ads, `break` on the first known non-topped one. **No
+  Vinted-specific variant is needed**, provided `order: "newest_first"` is always sent.
+
+- [x] **Rate limiting.** Not observed. 6 back-to-back searches all returned HTTP 200 in ~0.30s
+  with no `429` and no backoff. At this project's volume (one search per query per pass) the
+  existing runner sleep is sufficient — **do not add a bespoke backoff**. Revisit only if a
+  `429` is ever actually seen; note this was a single point-in-time observation and the
+  unofficial API can change without notice.
+
+---
+
+## 8. Reproducing the probe
+
+```bash
+python3 -m venv /tmp/vintedenv && /tmp/vintedenv/bin/pip install vinted-scraper
+/tmp/vintedenv/bin/python - <<'PY'
+from vinted_scraper import VintedScraper
+s = VintedScraper("https://www.vinted.cz")
+items = s.search({"search_text": "macbook", "order": "newest_first", "per_page": 8})
+for x in items:
+    print(x.id, x.promoted, x.price, x.currency, repr(x.description), x.view_count, x.title[:40])
+print(s.item(str(items[0].id)).json_data.keys())   # OpenGraph only, often just {'id'}
+PY
+```
+
+Re-run this before implementing if more than a few weeks have passed — it is an unofficial API
+with no stability guarantee, and 4.0.0 landed after this doc's original 3.1.1 claim.

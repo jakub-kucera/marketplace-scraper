@@ -29,6 +29,8 @@ def make_runner():
     runner.ip_changer.check_bazos_blacklisted.return_value = False
     runner.ip_changer.check_ip_local.return_value = False
     runner.ip_changer.session = MagicMock()
+    runner.zero_rows_passes = 0
+    runner.zero_new_ads_passes = 0
     return runner
 
 

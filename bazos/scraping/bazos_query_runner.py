@@ -28,6 +28,7 @@ class BazosQueryRunner:
         self.session = session
         self.scraper: MarketplaceScraper = get_scraper(query.marketplace, session)
         self.new_product_counter = 0
+        self.rows_seen_counter = 0
 
     def _get_known(self, product: Ad) -> Ad | None:
         return Ad.objects.filter(
@@ -50,6 +51,7 @@ class BazosQueryRunner:
 
         counter = 0
         for product in self.scraper.run_query(self.query):
+            self.rows_seen_counter += 1
             if not product.topped:
                 counter += 1
                 if counter >= NEW_PRODUCT_LOAD_MAX:
@@ -64,6 +66,7 @@ class BazosQueryRunner:
 
     def run_existing_query(self):
         for product in self.scraper.run_query(self.query):
+            self.rows_seen_counter += 1
             existing = self._get_known(product)
             if existing is None:
                 product.query = self.query
