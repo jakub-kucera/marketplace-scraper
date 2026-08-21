@@ -125,31 +125,17 @@ prompt's wording, not the implementation, was wrong.
 
 ---
 
-### P19 — No zero-results canary (parser drift is invisible)
-```
-A Bazos HTML change would silently zero the deal flow and look identical to a quiet market.
-
-Context: `BazosScraper._parse_product` depends on hardcoded CSS class names
-(`inzeratynadpis`, `nadpis`, `velikost10`, `popis`, `inzeratycena`, `inzeratylok`,
-`inzeratyview`, `inzeratyakce`) and an `assert int(bazos_id) == product_id`. If Bazos
-renames a class, parsing fails or yields nothing, `run_scraper`'s outer handler swallows it,
-and the logs show a scraper that keeps running and finding no new ads — which is exactly what
-a genuinely quiet period looks like. There is no alert for this today.
-
-Steps:
-1. Add a check after each pass in `BazosRunner.run`: track consecutive passes in which the
-   total new-ad count across all queries was zero.
-2. When that counter crosses a threshold (make it a setting, default e.g. 6 consecutive
-   passes), emit a WARNING via `self.log` — which already fans out to the `for_logging`
-   Discord channels — and reset the counter after alerting so it doesn't spam every pass.
-3. Consider a second, stronger signal: a pass where every query returned zero *parsed rows*
-   (not just zero *new* ads) is much more suspicious than zero new ads, since a live listing
-   page essentially always parses to >0 rows. Prefer this if `run_query` can cheaply report
-   rows-seen alongside new-ads-found.
-4. Do NOT make this fatal — it's an alert, not a crash. A genuinely dead category at 3am
-   should not stop the scraper.
-5. Write tests for the counter/threshold/reset logic with a mocked scraper returning zero rows.
-```
+### ✅ P19 — No zero-results canary (parser drift is invisible) — done
+Implemented per the executable spec, now archived at
+[`archive/P19_ZERO_RESULTS_CANARY.md`](archive/P19_ZERO_RESULTS_CANARY.md). Two in-memory
+counters on `BazosRunner` (`zero_rows_passes`, `zero_new_ads_passes`), evaluated once per
+pass in `_check_zero_results_canary`: zero **parsed rows** across a pass alerts at ERROR
+after `ZERO_ROWS_ALERT_THRESHOLD` (default 2) consecutive passes (near-certain defect —
+Sentry only auto-captures ERROR+); zero **new** ads with rows parsed alerts at WARNING after
+`ZERO_NEW_ADS_ALERT_THRESHOLD` (default 10) consecutive passes (weak signal — quiet markets
+look identical). `BazosQueryRunner.rows_seen_counter` feeds the first signal. Neither alert
+is fatal, and a pass where every query raised counts as neither (P18's `QueryRun.success`
+already covers that case loudly). 10 tests in `bazos/tests/test_zero_results_canary.py`.
 
 ---
 

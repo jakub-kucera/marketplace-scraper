@@ -162,6 +162,18 @@ LOCAL_IP_SUBNET = env("LOCAL_IP_SUBNET", default="0.0.0.0/24")
 INTERVAL_LOWER = env("INTERVAL_LOWER", default=15*60)
 INTERVAL_UPPER = env("INTERVAL_UPPER", default=45*60)
 
+# ---------------------------------------------------------------------------
+# Zero-results canary (P19)
+# ---------------------------------------------------------------------------
+# Consecutive passes parsing NO rows at all before alerting. A live listing page
+# essentially always parses to >0 rows, so this is a near-certain defect signal
+# (parser drift / blocked transport) — keep the threshold low.
+ZERO_ROWS_ALERT_THRESHOLD = env("ZERO_ROWS_ALERT_THRESHOLD", default=2)
+
+# Consecutive passes that parsed rows but found zero NEW ads. Weak signal — a
+# genuinely quiet market is indistinguishable — so the threshold is high.
+ZERO_NEW_ADS_ALERT_THRESHOLD = env("ZERO_NEW_ADS_ALERT_THRESHOLD", default=10)
+
 
 # ---------------------------------------------------------------------------
 # Logging
