@@ -12,7 +12,7 @@ from django.utils.html import format_html
 from django.utils.http import urlencode
 
 from bazos.filters import RULE_REGISTRY
-from bazos.models import Query, Ad, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
+from bazos.models import Query, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
 class CategoryInline(admin.TabularInline):
@@ -72,7 +72,7 @@ class SectionAdmin(admin.ModelAdmin):
 def ad_changelist_url(ad_fk_name: str, pk) -> str:
     """URL of the Ad changelist filtered to one related row.
 
-    `ad_fk_name` is the FK on `Ad` — "query", "email_publisher", "phone_publisher".
+    `ad_fk_name` is the FK on `Ad` — "email_publisher", "phone_publisher".
     A link rather than an inline everywhere it's used: inlines render every row on the
     page, and the biggest seller in the 2024-03 export has 369 ads (a broad query, far
     more). The changelist is paginated and inherits `AdAdmin.ordering` (newest first).
@@ -130,12 +130,12 @@ class QueryAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         # annotate last_run as the latest run_end if present, otherwise run_start
-        # ad_count needs distinct=True: it aggregates over `ads` while last_run aggregates
-        # over `runs`, and the two joins multiply rows. (Max is unaffected by that
-        # duplication; a plain Count would over-count.)
+        # ad_count needs distinct=True: it aggregates over `deliveries` while last_run
+        # aggregates over `runs`, and the two joins multiply rows. (Max is unaffected by
+        # that duplication; a plain Count would over-count.)
         return qs.annotate(
             last_run=Coalesce(Max('runs__run_end'), Max('runs__run_start')),
-            ad_count=Count('ads', distinct=True),
+            ad_count=Count('deliveries', distinct=True),
         )
 
     def last_run(self, obj):
@@ -206,28 +206,45 @@ class PriceChangeInline(admin.TabularInline):
     can_delete = False
 
 
+class AdDeliveryInline(admin.TabularInline):
+    model = AdDelivery
+    extra = 0
+    fields = ("query", "status", "filter_reason", "sent_at", "send_attempts", "created")
+    readonly_fields = ("query", "status", "filter_reason", "sent_at", "send_attempts", "created")
+    can_delete = False
+
+
 @admin.register(Ad)
 class AdAdmin(admin.ModelAdmin):
     list_display = (
         "name",
         "marketplace",
         "external_id",
-        "status",
         "topped",
         "price_raw",
         "publish_date",
         "url",
-        "query",
+        "query_count",
         "created",
     )
     ordering = ("-publish_date",)
-    list_filter = ("status", "marketplace", "query", HasFullDescriptionFilter)
+    list_filter = ("marketplace", "deliveries__query", HasFullDescriptionFilter)
     search_fields = ("name", "external_id", "url")
     readonly_fields = (
-        "external_id", "marketplace", "status", "filter_reason", "sent_at", "send_attempts",
+        "external_id", "marketplace",
         "seller_ad_counts",
     )
-    inlines = (PriceChangeInline,)
+    inlines = (AdDeliveryInline, PriceChangeInline)
+
+    def get_queryset(self, request):
+        # distinct=True: an Ad matching several queries has one delivery per query, and
+        # without it the join would multiply rows the same way QueryAdmin.ad_count's
+        # comment describes for the mirror-image annotation.
+        return super().get_queryset(request).annotate(query_count=Count('deliveries', distinct=True))
+
+    @admin.display(description="Queries", ordering="query_count")
+    def query_count(self, obj):
+        return obj.query_count
 
     @admin.display(description="Seller history")
     def seller_ad_counts(self, obj):
@@ -269,6 +286,17 @@ class AdAdmin(admin.ModelAdmin):
             note,
             format_html("".join(links)),
         )
+
+
+@admin.register(AdDelivery)
+class AdDeliveryAdmin(admin.ModelAdmin):
+    """The pipeline view: one row per (ad, query), where `Ad.status` used to live."""
+
+    list_display = ("ad", "query", "status", "filter_reason", "sent_at", "send_attempts", "created")
+    list_filter = ("status", "query")
+    search_fields = ("ad__name", "ad__external_id")
+    ordering = ("-created",)
+    readonly_fields = ("ad", "query", "status", "filter_reason", "sent_at", "send_attempts")
 
 
 PARTNER_DISPLAY_LIMIT = 50

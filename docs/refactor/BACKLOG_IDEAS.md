@@ -107,6 +107,12 @@ under the radar), not by order of appearance above.
 
 ## 1. Cross-query `Ad` dedup (M:N `Ad`↔`Query`)
 
+> **Promoted to an executable spec 2026-08-21: [`AD_DELIVERY_SPLIT_SPEC.md`](AD_DELIVERY_SPLIT_SPEC.md).**
+> Option B below is the one specced; the option analysis here remains the rationale. The spec
+> stages it into four PRs and pre-decides the traps — chiefly that the scrape-time dedup break
+> must key on the per-query `AdDelivery`, not on global `Ad` existence, or a brand-new query
+> breaks on page 1 and never backfills.
+
 > **Referenced by** [`LLM_AD_REVIEW_DESIGN.md`](../refactor/LLM_AD_REVIEW_DESIGN.md) §3
 > (2026-07-24) — LLM review/outreach opt-ins are properties of a *query's* interest in an ad,
 > which today's single-`Ad`-row model can't represent per-query. Not a blocker for a first

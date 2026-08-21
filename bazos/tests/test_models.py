@@ -91,7 +91,8 @@ def test_section_category_constraint_allows_both_null(db):
     query.validate_constraints()  # should not raise
 
 
-# --- Stage 1: Ad status fields ---
+# --- Ad/AdDelivery split: pipeline state lives on AdDelivery, not Ad ---
+# (see docs/refactor/AD_DELIVERY_SPLIT_SPEC.md)
 
 def test_ad_status_choices():
     assert {c.value for c in AdStatus} == {
@@ -101,28 +102,32 @@ def test_ad_status_choices():
 
 
 @pytest.mark.django_db
-def test_ad_default_status_is_pending(make_ad, query):
+def test_delivery_default_status_is_pending(make_ad, make_delivery, query):
     ad = make_ad(query, bazos_id=999)
     ad.save()
-    assert ad.status == AdStatus.PENDING
+    delivery = make_delivery(ad, query)
+    assert delivery.status == AdStatus.PENDING
 
 
 @pytest.mark.django_db
-def test_ad_send_attempts_defaults_to_zero(make_ad, query):
+def test_delivery_send_attempts_defaults_to_zero(make_ad, make_delivery, query):
     ad = make_ad(query, bazos_id=999)
     ad.save()
-    assert ad.send_attempts == 0
+    delivery = make_delivery(ad, query)
+    assert delivery.send_attempts == 0
 
 
 @pytest.mark.django_db
-def test_ad_filter_reason_is_optional(make_ad, query):
+def test_delivery_filter_reason_is_optional(make_ad, make_delivery, query):
     ad = make_ad(query, bazos_id=999)
     ad.save()
-    assert ad.filter_reason is None
+    delivery = make_delivery(ad, query)
+    assert delivery.filter_reason is None
 
 
 @pytest.mark.django_db
-def test_ad_sent_at_is_optional(make_ad, query):
+def test_delivery_sent_at_is_optional(make_ad, make_delivery, query):
     ad = make_ad(query, bazos_id=999)
     ad.save()
-    assert ad.sent_at is None
+    delivery = make_delivery(ad, query)
+    assert delivery.sent_at is None

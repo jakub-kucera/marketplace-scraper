@@ -252,7 +252,7 @@ class AdStatus(models.TextChoices):
 
 
 class Ad(TimeStampedModel):
-    external_id = models.IntegerField(db_index=True)  # TODO unique=True (requires M:N to queries)
+    external_id = models.IntegerField(db_index=True)
     marketplace = models.CharField(max_length=20, choices=Marketplace.choices, default=Marketplace.BAZOS, db_index=True)
     url = models.URLField(max_length=1024)  # TODO unique=True
 
@@ -274,22 +274,15 @@ class Ad(TimeStampedModel):
 
     # do_send = Column(Boolean, nullable=False, default=True)  # not used
 
-    # TODO m:n relationship with Query (+ senders)
-    # query_id = Column(Integer, ForeignKey('query.id'), nullable=False)
-    query = models.ForeignKey(Query, on_delete=models.PROTECT, related_name='ads')
-
-    status = models.CharField(max_length=20, choices=AdStatus.choices, default=AdStatus.PENDING)
-    filter_reason = models.CharField(max_length=255, null=True, blank=True)
-    sent_at = models.DateTimeField(null=True, blank=True)
-    send_attempts = models.IntegerField(default=0)
-
     def __str__(self):
         return f"{self.name} | {self.price_raw} | {self.location}"
 
     class Meta:
         verbose_name = "Ad"
         verbose_name_plural = "Ads"
-        constraints: List[models.BaseConstraint] = []
+        constraints: List[models.BaseConstraint] = [
+            models.UniqueConstraint(fields=["marketplace", "external_id"], name="unique_ad_per_marketplace"),
+        ]
 
     def seller_ad_counts(self) -> "SellerAdCounts":
         """How many ads this seller has, counted three ways. See :class:`SellerAdCounts`."""
@@ -306,6 +299,34 @@ class Ad(TimeStampedModel):
     @property
     def link(self):
         return self.url
+
+
+class AdDelivery(TimeStampedModel):
+    """One query's interest in one ad, and the delivery state machine for it.
+
+    Split out from `Ad` because delivery is a property of (ad, query, sender): the same
+    real-world listing matching two queries must notify both channels. `Ad` holds the
+    scraped facts; this holds everything the pipeline does about them.
+    """
+    ad = models.ForeignKey(Ad, on_delete=models.CASCADE, related_name="deliveries")
+    query = models.ForeignKey(Query, on_delete=models.PROTECT, related_name="deliveries")
+
+    status = models.CharField(
+        max_length=20, choices=AdStatus.choices, default=AdStatus.PENDING, db_index=True
+    )
+    filter_reason = models.CharField(max_length=255, null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    send_attempts = models.IntegerField(default=0)
+
+    class Meta:
+        verbose_name = "Ad delivery"
+        verbose_name_plural = "Ad deliveries"
+        constraints = [
+            models.UniqueConstraint(fields=["ad", "query"], name="unique_delivery_per_ad_query"),
+        ]
+
+    def __str__(self):
+        return f"{self.ad} → {self.query} [{self.status}]"
 
 
 class PriceChange(TimeStampedModel):

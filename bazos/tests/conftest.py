@@ -1,7 +1,7 @@
 import pytest
 from django.utils import timezone
 
-from bazos.models import Ad, Category, Query, Section
+from bazos.models import Ad, AdDelivery, AdStatus, Category, Query, Section
 
 
 @pytest.fixture
@@ -31,6 +31,11 @@ def query(category):
 
 @pytest.fixture
 def make_ad():
+    """`query` is not stored on `Ad` (it moved to `AdDelivery` in the Ad/AdDelivery
+    split — see docs/refactor/AD_DELIVERY_SPLIT_SPEC.md) but stays a required parameter
+    here: call sites pass it through to `make_delivery(ad, query)` right after, and
+    keeping the same signature avoids a mechanical rename across ~120 call sites.
+    """
     def _factory(query, bazos_id, topped=False):
         return Ad(
             external_id=bazos_id,
@@ -44,6 +49,16 @@ def make_ad():
             topped=topped,
             short_description="Short desc",
             publisher_name="Seller",
-            query=query,
         )
+    return _factory
+
+
+@pytest.fixture
+def make_delivery():
+    """Create (and by default save) the AdDelivery for an already-saved `ad`."""
+    def _factory(ad, query, status=AdStatus.PENDING, save=True):
+        delivery = AdDelivery(ad=ad, query=query, status=status)
+        if save:
+            delivery.save()
+        return delivery
     return _factory

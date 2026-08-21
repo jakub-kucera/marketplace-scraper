@@ -20,15 +20,17 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 | Doc | What it's for |
 |---|---|
 | [`PIPELINE_REFACTOR.md`](refactor/PIPELINE_REFACTOR.md) | **Start here.** The live, authoritative stage-by-stage plan (Stages 1–9). Checkmarks are kept in sync with the code. |
-| [`STAGE8_VINTED_DESIGN.md`](refactor/STAGE8_VINTED_DESIGN.md) | Design doc for Stage 8 (VintedScraper + multi-marketplace `Query`), referenced from Stage 8 above. |
-| [`PROMPTS.md`](refactor/PROMPTS.md) | Ready-to-run prompts for implementing not-yet-done stages, ordered by dependency. |
+| [`STAGE8_VINTED_DESIGN.md`](refactor/STAGE8_VINTED_DESIGN.md) | Design doc for Stage 8 (VintedScraper + multi-marketplace `Query`). §3–§5 (the `Query` model fork, Option C) are the durable part. **§1–§2 were rewritten from a live probe on 2026-08-21** — `vinted-scraper` **4.0.0**, not 3.1.1; `description` is **not** in search results (so `load_full_description` is not a no-op); `promoted` maps to `topped`; no date field exists at all; and `vinted.cz` returns mostly Polish listings at FX-converted prices. §8 has a repro script. |
+| [`STAGE8_VINTED_SPEC.md`](refactor/STAGE8_VINTED_SPEC.md) | **Executable spec for Stage 8 — use this, not `PROMPTS.md` P3/P4**, which it supersedes. Four PRs. Leads with two schema blockers that crash on Postgres while passing on SQLite: `Ad.external_id` is an `IntegerField` and Vinted ids are 4.5× over `int4` max, and `publish_date`/`view_count` are NOT NULL with no default. Also pins the `parse_price` decimal trap (a `"6307.5"` price string parses to **63075**) and the two distinct `load_full_description` failure modes. |
+| [`AD_DELIVERY_SPLIT_SPEC.md`](refactor/AD_DELIVERY_SPLIT_SPEC.md) | **Executable spec for [`BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) #1 option B** — split `Ad` (scraped facts, globally unique on `(marketplace, external_id)`) from `AdDelivery` (per-`(ad, query)` pipeline state). Four staged PRs — **Stages A and C landed 2026-08-21** (`0026`, `0027`), Stage D outstanding; §3 pre-decides the six places where the plausible choice is wrong, notably that the dedup break must key on the **delivery**, not on global `Ad` existence, or a new query never backfills. The trigger for doing it is **before** broadening query scope. |
+| [`PROMPTS.md`](refactor/PROMPTS.md) | Ready-to-run prompts for implementing not-yet-done stages, ordered by dependency. ⚠️ **P3/P4 (Vinted) are superseded** — they predate the live probe and are wrong in nine ways that crash rather than degrade; the entry there lists them and points at `STAGE8_VINTED_SPEC.md`. |
 | [`BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) | Deeper dives on ideas mined from the GitHub issue tracker that aren't part of any numbered stage — cross-query dedup, async scraping, images, price/CV enrichment, interval tuning, query syntax. **#11 (done, 2026-08-10)** records the shipped seller-identity work — transitive `(email_id, phone_id)` resolution, per-seller counts in the admin and Discord, and the `bazos_id=0` sentinel discovery that made 6.7% of ads share one fake seller. |
 | [`LLM_AD_REVIEW_DESIGN.md`](refactor/LLM_AD_REVIEW_DESIGN.md) | Proposal (not scheduled): an LLM-based ad judge as its own pipeline stage, and draft-only seller-outreach messages via Discord. Explicitly recommends against auto-sending messages to sellers without a separate decision. Its per-query multi-filter mechanism (§1) was independently built — see `PROMPTS.md` P17 (done). §2f now carries researched free-tier cost/ops figures and the Gemini EEA data-terms carve-out that makes a free tier viable for public ad text — added 2026-07-30 from [`MONETIZATION.md`](MONETIZATION.md) §4.7, which independently re-derived §2's "own stage, not a `FilterRule`" conclusion. |
 | [`DISCORD_BOT_DESIGN.md`](refactor/DISCORD_BOT_DESIGN.md) | Proposal (not scheduled): replace webhook-only notifications with a real Discord bot (gateway-based, not a public HTTP endpoint — see §1 for why) enabling per-ad watch/mute/favorite/blocklist buttons, seller lookups, on-demand full-description fetch, and query control from Discord. Connects to and partly supersedes `LLM_AD_REVIEW_DESIGN.md` §4.2's outreach delivery mechanism — see its §5 for the full cross-reference map. |
 | [`JOB_QUEUE_DESIGN.md`](refactor/JOB_QUEUE_DESIGN.md) | Proposal (not scheduled): generalize `run_filter`/`run_sender`'s DB-polling pattern into a generic `Job` model + registry + `run_jobs` worker, so new recurring/on-demand work (`AdWatch`, full-rescan, seller enrichment, LLM review, ...) becomes a new job type instead of a new hand-rolled process/docker-compose service. Catalogs candidate jobs sourced from `BACKLOG_IDEAS.md` #6/#8, `DISCORD_BOT_DESIGN.md`, `BAZOS_API_DISCOVERY_PIPELINE.md`, and `LLM_AD_REVIEW_DESIGN.md`. |
 | `archive/` | Superseded drafts, kept for history only — see banners in each file. |
 
-**Current stage status** (verified against code, 2026-07-24):
+**Current stage status** (verified against code, 2026-07-24; Stage 8 row refreshed 2026-08-21):
 
 | Stage | Status |
 |---|---|
@@ -36,7 +38,7 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 | 4 · Price history (`PriceChange` model) | ✅ done |
 | 5 · Query priority | not started |
 | 6–7 · Marketplace abstraction (`external_id`/`marketplace` rename, `MarketplaceScraper`/`Sendable` protocols) | ✅ done |
-| 8 · VintedScraper | not started (design ready, see `STAGE8_VINTED_DESIGN.md`) |
+| 8 · VintedScraper | not started — **spec ready and library probed live** (2026-08-21), see `STAGE8_VINTED_SPEC.md`. Two schema blockers must land first. |
 | 9 · Real filter rules (`PriceRangeRule`, `BlocklistKeywordRule`, `RequiredKeywordRule`, `PublisherBlocklistRule`, `PriceDropRule`) | ✅ done |
 
 ## `bazos-api/` — Bazos's undocumented mobile JSON API

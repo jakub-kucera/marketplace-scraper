@@ -35,48 +35,35 @@ Steps:
 
 ---
 
-### P3 — Stage 8: VintedScraper (Query model prep)
-```
-Implement the Query model changes needed for Stage 8 (see STAGE8_VINTED_DESIGN.md).
+### ⚠️ P3 + P4 — Stage 8: Vinted — **superseded by a spec, do not run these prompts**
 
-Steps:
-1. Add `extra_params = models.JSONField(default=dict, blank=True)` to `Query` in `bazos/models.py`.
-2. Update the `url` property on `Query`: if `marketplace == "vinted"`, return the value from
-   `self.extra_params.get("base_url", "https://www.vinted.cz")`.
-3. Generate migration `0020_query_extra_params.py` (or next available number after P1/P2).
-4. Update `QueryAdmin` to expose `extra_params` and add `marketplace` to list_display if not already there.
-5. Write a test that a Vinted query with `extra_params={"base_url": "https://www.vinted.sk"}` returns the correct URL.
+> **Replaced 2026-08-21 by [`STAGE8_VINTED_SPEC.md`](STAGE8_VINTED_SPEC.md).** Both prompts were
+> written against `STAGE8_VINTED_DESIGN.md`'s *asserted* field mapping, which had never been run.
+> The library was probed live that day (`vinted-scraper` 4.0.0 against `vinted.cz`) and the
+> prompts below are wrong in ways that crash rather than degrade. They are kept only as a record.
+>
+> **Use the spec. Do not paste these into a model.**
 
-Do not implement VintedScraper itself yet — that is a separate prompt (P4).
-```
+**What P4 got wrong** — nine items, verified against live responses:
 
----
+| P4 said | Reality |
+|---|---|
+| `publish_date=None, view_count=None` | Both columns are **NOT NULL with no default** → `IntegrityError` on the first save. Must be made nullable first. |
+| *(nothing about `external_id`)* | Vinted ids are ~9.7 billion — **4.5× over Postgres `int4` max**. `Ad.external_id` is an `IntegerField` → `NumericValueOutOfRange`. Needs `BigIntegerField`. **Neither failure is caught by the test suite**, which runs on SQLite. |
+| `load_full_description` — "no-op, return ad unchanged" | `description` is **`None` on every search result**. The detail call is required, succeeds ~5/8, and has **two** failure modes — a sparse `{'id'}` dict on 200, and a raised `RuntimeError` on non-200 (sold/deleted listing). Uncaught, the second one truncates the query's whole pass. |
+| `short_description=item.description or ""` | Always `""` for the above reason — which means keyword rules match on the **title alone** on Vinted. |
+| `price_raw=str(item.price)` | Vinted prices are FX-converted **decimals** (`6307.5`). `parse_price` strips non-digits, so that string parses to **63075** — a silent 10× error. Must round to an integer. Also `price` excludes the buyer-protection fee; `total_item_price` is what a buyer pays. |
+| `topped=False` | **`promoted` exists** and behaves exactly like Bazos's topped ads. Hardcoding `False` breaks the dedup walk. |
+| `marketplace = "vinted"` | `Marketplace.VINTED` is **commented out** in `models.py` and must be uncommented; use `Marketplace.VINTED.value`. |
+| `__init__(self)` instantiating `VintedScraper(base_url)` | The library's class is **also** called `VintedScraper` — the prompt is ambiguous about which is which. The spec mandates `import VintedScraper as VintedApiClient`. |
+| `check_blacklisted(url: str = "")` | Signature changed in `2fb37f8`; it now takes no `url`. |
+| step 5: add a `marketplace_vinted` compose service | Not needed — `run_scraper` already dispatches on `query.marketplace`. **Resolved: confirmed.** |
 
-### P4 — Stage 8: VintedScraper implementation
-> ⚠️ Requires P3. Also requires `vinted-scraper` added to pyproject.toml first.
+**What P3 got wrong** — less severe, but still: migration `0020` (stale by eight — the split took `0026`/`0027`, so Vinted's is `0028`), and "update `QueryAdmin` to expose `extra_params`",
+which is a no-op because `QueryAdminForm.Meta.fields = "__all__"` already picks it up.
 
-```
-Implement VintedScraper for Stage 8 (see STAGE8_VINTED_DESIGN.md).
-
-Prerequisite: `vinted-scraper` package must already be installed (`pip install vinted-scraper`).
-
-Steps:
-1. Create `bazos/scraping/vinted/__init__.py` (empty).
-2. Create `bazos/scraping/vinted/vinted_scraper.py` implementing `MarketplaceScraper`:
-   - `marketplace = "vinted"`
-   - `__init__(self)` — instantiates `VintedScraper(base_url)` from the `vinted_scraper` package internally
-   - `run_query(query: Query) -> Iterator[Ad]`:
-     - Builds params dict from `query.text`, `query.price_lower/upper`, and `query.extra_params`
-     - Calls `self._client.search(params)`
-     - Maps each `VintedItem` to an `Ad` (external_id=item.id, marketplace="vinted", name=item.title,
-       price_raw=str(item.price), url=item.url, short_description=item.description or "",
-       topped=False, publish_date=None, view_count=None)
-   - `load_full_description(ad: Ad) -> Ad` — no-op, return ad unchanged
-   - `check_blacklisted(url: str = "") -> bool` — always return False
-3. Uncomment `"vinted": VintedScraper()` in `_build_scrapers` in `bazos_query_runner.py`.
-4. Write tests mocking `vinted_scraper.VintedScraper.search` — test field mapping and empty-result handling.
-5. Add a `marketplace_vinted` service to `docker-compose.yml` running `run_scraper` filtered to Vinted queries (or confirm the existing scraper handles all marketplaces).
-```
+P3's substance — add `extra_params`, branch `Query.url` on marketplace — survives intact and is
+carried forward as §3 of the spec.
 
 ---
 
@@ -865,8 +852,12 @@ registry), ~~P6~~ (Sentry), ~~P15~~ (AND/OR probe), ~~P18~~ (`QueryRun` failure 
 
 **Still worthwhile, lower priority:**
 
-- **P3** (Query `extra_params`) — 15 min, unblocks Vinted. Cheap regardless of direction, and
-  multi-marketplace is the concentration-risk hedge (`../MONETIZATION.md` §7.4).
+- **Stage 8 / Vinted** — see [`STAGE8_VINTED_SPEC.md`](STAGE8_VINTED_SPEC.md), which replaces
+  ~~P3~~/~~P4~~. Re-estimated after the 2026-08-21 live probe: **not** the "15 minutes" P3
+  claimed. Two schema blockers must land first (`Ad.external_id` → `BigIntegerField`,
+  `publish_date`/`view_count` → nullable), both of which fail on Postgres while passing on
+  SQLite. Still worth doing — multi-marketplace is the concentration-risk hedge
+  (`../MONETIZATION.md` §7.4) — but budget ~2–3 days, not an afternoon.
 - **P10** (coverage audit) — quick wins on confidence.
 - **P13** (filter-before-detail-fetch) — matters more once cadence rises.
 - **P16** (Discord thumbnail) — best visible payoff; P21 makes it nearly free by putting
@@ -879,5 +870,10 @@ registry), ~~P6~~ (Sentry), ~~P15~~ (AND/OR probe), ~~P18~~ (`QueryRun` failure 
   quick win. It isn't: `extract_date` discards the time component, so `ExtractHour("publish_date")`
   returns 0 for every row. P21 unblocks it by supplying the API's second-resolution `from` field.
   See [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6 for the full correction.
-- **P2** (Stage 5 query priority), **P4** (VintedScraper), **P11** (multi-marketplace `Ad.message`)
-  — feature work; sequence against whichever direction you pick.
+- **P2** (Stage 5 query priority) and **P11** (multi-marketplace `Ad.message`) — feature work;
+  sequence against whichever direction you pick. Note P11 stops being cosmetic the moment Vinted
+  ships: every Vinted ad renders a "0 ads seen" seller summary, since both publisher FKs are null.
+- **`Ad`/`AdDelivery` split** — [`AD_DELIVERY_SPLIT_SPEC.md`](AD_DELIVERY_SPLIT_SPEC.md), the
+  executable form of [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #1. **In progress as of 2026-08-21** —
+  Stages A and C have landed (`0026`, `0027`); Stage D (dropping the dead `Ad` columns) is the
+  remaining work.
