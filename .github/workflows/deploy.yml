@@ -14,7 +14,10 @@ jobs:
 
     steps:
       - name: Checkout tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/jakub-kucera/marketplace-scrapper.git
           git fetch --tags origin
           git checkout ${{ github.ref_name }}
 
