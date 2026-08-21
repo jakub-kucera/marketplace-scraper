@@ -182,9 +182,11 @@ def query_admin():
 
 
 @pytest.mark.django_db
-def test_ad_count_counts_this_querys_ads(query_admin, query, make_ad, rf):
+def test_ad_count_counts_this_querys_ads(query_admin, query, make_ad, make_delivery, rf):
     for bazos_id in (1, 2, 3):
-        make_ad(query, bazos_id).save()
+        ad = make_ad(query, bazos_id)
+        ad.save()
+        make_delivery(ad, query)
 
     row = query_admin.get_queryset(rf.get("/")).get(pk=query.pk)
 
@@ -192,16 +194,19 @@ def test_ad_count_counts_this_querys_ads(query_admin, query, make_ad, rf):
 
 
 @pytest.mark.django_db
-def test_ad_count_is_not_inflated_by_query_runs(query_admin, query, make_ad, rf):
-    """`ad_count` aggregates over `ads` while `last_run` aggregates over `runs` in the same
-    queryset — the two joins multiply rows, so a non-distinct Count would report 6 here.
+def test_ad_count_is_not_inflated_by_query_runs(query_admin, query, make_ad, make_delivery, rf):
+    """`ad_count` aggregates over `deliveries` while `last_run` aggregates over `runs` in
+    the same queryset — the two joins multiply rows, so a non-distinct Count would report
+    6 here.
     """
     from django.utils import timezone
 
     from bazos.models import QueryRun
 
     for bazos_id in (1, 2, 3):
-        make_ad(query, bazos_id).save()
+        ad = make_ad(query, bazos_id)
+        ad.save()
+        make_delivery(ad, query)
     for _ in range(2):
         QueryRun.objects.create(query=query, run_start=timezone.now(), run_end=timezone.now())
 

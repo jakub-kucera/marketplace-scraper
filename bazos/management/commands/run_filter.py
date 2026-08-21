@@ -1,8 +1,8 @@
 """Management command: run_filter
 
-Polls ads with status PENDING or PRICE_CHANGED and applies the filter rule
-engine. Approved ads become APPROVED (ready for run_sender). Rejected ads
-become REJECTED and are recorded with a reason.
+Polls deliveries with status PENDING or PRICE_CHANGED and applies the filter rule
+engine. Approved deliveries become APPROVED (ready for run_sender). Rejected
+deliveries become REJECTED and are recorded with a reason.
 
 Usage:
     python manage.py run_filter
@@ -15,38 +15,38 @@ from django.db import transaction
 
 from bazos.const import FILTER_BATCH_SIZE, FILTER_POLL_INTERVAL
 from bazos.filters import FilterResult, build_rule_engine
-from bazos.models import Ad, AdStatus
+from bazos.models import AdDelivery, AdStatus
 
 logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Polls PENDING/PRICE_CHANGED ads and applies filter rules"
+    help = "Polls PENDING/PRICE_CHANGED deliveries and applies filter rules"
 
     def handle(self, *args, **options):
         logger.info("run_filter started")
         while True:
             with transaction.atomic():
-                ads = list(
-                    Ad.objects
+                deliveries = list(
+                    AdDelivery.objects
                     .select_for_update(skip_locked=True, of=("self",))
                     .filter(status__in=[AdStatus.PENDING, AdStatus.PRICE_CHANGED])
-                    .select_related("query", "email_publisher", "phone_publisher")
+                    .select_related("ad", "query", "ad__email_publisher", "ad__phone_publisher")
                     .order_by("created")[:FILTER_BATCH_SIZE]
                 )
-                for ad in ads:
-                    result, reason = build_rule_engine(ad.query).apply(ad)
+                for delivery in deliveries:
+                    result, reason = build_rule_engine(delivery.query).apply(delivery)
                     if result != FilterResult.REJECT:
-                        ad.status = AdStatus.APPROVED
+                        delivery.status = AdStatus.APPROVED
                     else:
-                        ad.status = AdStatus.REJECTED
-                    ad.filter_reason = reason
-                    ad.save(update_fields=["status", "filter_reason"])
+                        delivery.status = AdStatus.REJECTED
+                    delivery.filter_reason = reason
+                    delivery.save(update_fields=["status", "filter_reason"])
                     logger.info(
-                        "Filtered ad %d → %s%s",
-                        ad.pk, ad.status,
+                        "Filtered delivery %d (ad %d) → %s%s",
+                        delivery.pk, delivery.ad_id, delivery.status,
                         f" ({reason})" if reason else "",
                     )
 
-            if not ads:
+            if not deliveries:
                 sleep(FILTER_POLL_INTERVAL)

@@ -1,6 +1,6 @@
 """Filter rule engine for the ad pipeline.
 
-Rules are applied per-ad in the ``run_filter`` management command.
+Rules are applied per-delivery in the ``run_filter`` management command.
 A rule returns one of three outcomes:
 
 - ``FilterResult.APPROVE`` — the ad should be sent
@@ -16,7 +16,7 @@ import re
 from enum import Enum
 from typing import Protocol
 
-from bazos.models import Ad, AdStatus, Query
+from bazos.models import AdDelivery, AdStatus, Query
 
 
 class FilterResult(Enum):
@@ -29,7 +29,7 @@ class FilterRule(Protocol):
     """Structural protocol every filter rule must satisfy."""
     name: str
 
-    def apply(self, ad: Ad) -> tuple[FilterResult, str | None]:
+    def apply(self, delivery: AdDelivery) -> tuple[FilterResult, str | None]:
         """Return (result, reason). reason is None unless result is REJECT."""
         ...
 
@@ -38,7 +38,7 @@ class PassthroughRule:
     """Approves everything. Useful as a no-op RuleEngine baseline (e.g. in tests)."""
     name = "passthrough"
 
-    def apply(self, ad: Ad) -> tuple[FilterResult, str | None]:
+    def apply(self, delivery: AdDelivery) -> tuple[FilterResult, str | None]:
         return FilterResult.APPROVE, None
 
 
@@ -59,11 +59,11 @@ class PriceRangeRule:
     """
     name = "price_range"
 
-    def apply(self, ad: Ad) -> tuple[FilterResult, str | None]:
-        query = ad.query
+    def apply(self, delivery: AdDelivery) -> tuple[FilterResult, str | None]:
+        query = delivery.query
         if query.price_lower == 0 and query.price_upper == 0:
             return FilterResult.PASS, None
-        price = parse_price(ad.price_raw)
+        price = parse_price(delivery.ad.price_raw)
         if price is None:
             return FilterResult.PASS, None
         if price < query.price_lower or price > query.price_upper:
@@ -78,11 +78,11 @@ class BlocklistKeywordRule:
     """
     name = "blocklist_keyword"
 
-    def apply(self, ad: Ad) -> tuple[FilterResult, str | None]:
-        blocklist = ad.query.filter_blocklist
+    def apply(self, delivery: AdDelivery) -> tuple[FilterResult, str | None]:
+        blocklist = delivery.query.filter_blocklist
         if not blocklist:
             return FilterResult.PASS, None
-        haystack = f"{ad.name} {ad.short_description}".lower()
+        haystack = f"{delivery.ad.name} {delivery.ad.short_description}".lower()
         for phrase in blocklist:
             if phrase.lower() in haystack:
                 return FilterResult.REJECT, f"blocklisted keyword: {phrase}"
@@ -95,11 +95,11 @@ class RequiredKeywordRule:
     """
     name = "required_keyword"
 
-    def apply(self, ad: Ad) -> tuple[FilterResult, str | None]:
-        required = ad.query.filter_required
+    def apply(self, delivery: AdDelivery) -> tuple[FilterResult, str | None]:
+        required = delivery.query.filter_required
         if not required:
             return FilterResult.PASS, None
-        haystack = f"{ad.name} {ad.short_description}".lower()
+        haystack = f"{delivery.ad.name} {delivery.ad.short_description}".lower()
         if any(phrase.lower() in haystack for phrase in required):
             return FilterResult.PASS, None
         return FilterResult.REJECT, "missing required keyword"
@@ -109,7 +109,8 @@ class PublisherBlocklistRule:
     """Rejects ads from a blocked email or phone publisher."""
     name = "publisher_blocklist"
 
-    def apply(self, ad: Ad) -> tuple[FilterResult, str | None]:
+    def apply(self, delivery: AdDelivery) -> tuple[FilterResult, str | None]:
+        ad = delivery.ad
         if ad.email_publisher_id and ad.email_publisher.blocked:
             return FilterResult.REJECT, "blocked email publisher"
         if ad.phone_publisher_id and ad.phone_publisher.blocked:
@@ -125,10 +126,10 @@ class PriceDropRule:
     """
     name = "price_drop"
 
-    def apply(self, ad: Ad) -> tuple[FilterResult, str | None]:
-        if ad.status != AdStatus.PRICE_CHANGED:
+    def apply(self, delivery: AdDelivery) -> tuple[FilterResult, str | None]:
+        if delivery.status != AdStatus.PRICE_CHANGED:
             return FilterResult.PASS, None
-        latest_change = ad.price_history.order_by("-created").first()
+        latest_change = delivery.ad.price_history.order_by("-created").first()
         if latest_change is None:
             return FilterResult.PASS, None
         old_price = parse_price(latest_change.old_price)
@@ -150,9 +151,9 @@ class RuleEngine:
     def __init__(self, rules: list[FilterRule]) -> None:
         self.rules = rules
 
-    def apply(self, ad: Ad) -> tuple[FilterResult, str | None]:
+    def apply(self, delivery: AdDelivery) -> tuple[FilterResult, str | None]:
         for rule in self.rules:
-            result, reason = rule.apply(ad)
+            result, reason = rule.apply(delivery)
             if result != FilterResult.PASS:
                 return result, reason
         return FilterResult.APPROVE, None

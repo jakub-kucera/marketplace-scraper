@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bazos.models import Ad, AdStatus, PriceChange
+from bazos.models import Ad, AdDelivery, AdStatus, PriceChange
 from bazos.scraping.bazos_query_runner import BazosQueryRunner
 
 
@@ -18,7 +18,17 @@ def test_existing_query_saves_new_ad(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_existing_query()
-    assert Ad.objects.filter(query=query, external_id=111).exists()
+    assert Ad.objects.filter(external_id=111).exists()
+
+
+@pytest.mark.django_db
+def test_existing_query_creates_a_delivery_for_new_ad(query, make_ad):
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_existing_query()
+    ad = Ad.objects.get(external_id=111)
+    assert AdDelivery.objects.filter(ad=ad, query=query).exists()
 
 
 @pytest.mark.django_db
@@ -31,8 +41,10 @@ def test_existing_query_counts_new_ads(query, make_ad):
 
 
 @pytest.mark.django_db
-def test_existing_query_stops_on_known_non_topped_ad(query, make_ad):
-    make_ad(query, bazos_id=111).save()
+def test_existing_query_stops_on_known_non_topped_ad(query, make_ad, make_delivery):
+    known = make_ad(query, bazos_id=111)
+    known.save()
+    make_delivery(known, query)
     products = [
         make_ad(query, bazos_id=111, topped=False),  # known, not TOP → stop
         make_ad(query, bazos_id=222, topped=False),  # would be new, but never reached
@@ -40,13 +52,15 @@ def test_existing_query_stops_on_known_non_topped_ad(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter(products)):
         runner.run_existing_query()
-    assert not Ad.objects.filter(query=query, external_id=222).exists()
+    assert not Ad.objects.filter(external_id=222).exists()
     assert runner.new_product_counter == 0
 
 
 @pytest.mark.django_db
-def test_existing_query_does_not_stop_on_known_topped_ad(query, make_ad):
-    make_ad(query, bazos_id=111).save()
+def test_existing_query_does_not_stop_on_known_topped_ad(query, make_ad, make_delivery):
+    known = make_ad(query, bazos_id=111)
+    known.save()
+    make_delivery(known, query)
     products = [
         make_ad(query, bazos_id=111, topped=True),   # known but TOP → continue
         make_ad(query, bazos_id=222, topped=False),  # new → should be saved
@@ -54,17 +68,19 @@ def test_existing_query_does_not_stop_on_known_topped_ad(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter(products)):
         runner.run_existing_query()
-    assert Ad.objects.filter(query=query, external_id=222).exists()
+    assert Ad.objects.filter(external_id=222).exists()
     assert runner.new_product_counter == 1
 
 
 @pytest.mark.django_db
-def test_existing_query_does_not_save_duplicate(query, make_ad):
-    make_ad(query, bazos_id=111).save()
+def test_existing_query_does_not_save_duplicate(query, make_ad, make_delivery):
+    known = make_ad(query, bazos_id=111)
+    known.save()
+    make_delivery(known, query)
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([make_ad(query, bazos_id=111, topped=True)])):
         runner.run_existing_query()
-    assert Ad.objects.filter(query=query, external_id=111).count() == 1
+    assert Ad.objects.filter(external_id=111).count() == 1
 
 
 # --- run_new_query ---
@@ -87,7 +103,7 @@ def test_new_query_with_ignore_first_run_saves_but_does_not_count(query, make_ad
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter(products)):
         runner.run_new_query()
-    assert Ad.objects.filter(query=query).count() == 3
+    assert Ad.objects.count() == 3
     assert runner.new_product_counter == 0
 
 
@@ -114,7 +130,7 @@ def test_new_query_stops_before_max_non_topped_ads(query, make_ad, monkeypatch):
         runner.run_new_query()
     # products 1 and 2 are saved; product 3 causes break (saved as per loop logic? let's check)
     # The break fires after counter reaches limit, BEFORE save() for that product
-    assert Ad.objects.filter(query=query).count() == 2
+    assert Ad.objects.count() == 2
 
 
 @pytest.mark.django_db
@@ -131,33 +147,36 @@ def test_new_query_topped_ads_do_not_count_toward_limit(query, make_ad, monkeypa
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter(products)):
         runner.run_new_query()
-    assert Ad.objects.filter(query=query, external_id=1).exists()
-    assert Ad.objects.filter(query=query, external_id=2).exists()
-    assert Ad.objects.filter(query=query, external_id=3).exists()
-    assert not Ad.objects.filter(query=query, external_id=4).exists()
+    assert Ad.objects.filter(external_id=1).exists()
+    assert Ad.objects.filter(external_id=2).exists()
+    assert Ad.objects.filter(external_id=3).exists()
+    assert not Ad.objects.filter(external_id=4).exists()
 
 
 # --- Stage 3: status transitions after cut-over ---
-# The scraper now only writes PENDING. Sending is handled by run_filter + run_sender.
+# The scraper now only writes PENDING/SUPPRESSED deliveries. Sending is handled by
+# run_filter + run_sender, which operate on AdDelivery (see AD_DELIVERY_SPLIT_SPEC.md).
 
 # run_existing_query
 
 @pytest.mark.django_db
-def test_existing_query_new_ad_is_marked_pending(query, make_ad):
+def test_existing_query_new_ad_delivery_is_marked_pending(query, make_ad):
     product = make_ad(query, bazos_id=111)
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_existing_query()
-    assert Ad.objects.get(query=query, external_id=111).status == AdStatus.PENDING
+    ad = Ad.objects.get(external_id=111)
+    assert AdDelivery.objects.get(ad=ad, query=query).status == AdStatus.PENDING
 
 
 @pytest.mark.django_db
-def test_existing_query_new_ad_has_no_sent_at(query, make_ad):
+def test_existing_query_new_ad_delivery_has_no_sent_at(query, make_ad):
     product = make_ad(query, bazos_id=111)
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_existing_query()
-    assert Ad.objects.get(query=query, external_id=111).sent_at is None
+    ad = Ad.objects.get(external_id=111)
+    assert AdDelivery.objects.get(ad=ad, query=query).sent_at is None
 
 
 @pytest.mark.django_db
@@ -175,14 +194,15 @@ def test_existing_query_does_not_instantiate_discord_sender(query, make_ad):
 # run_new_query — ignore_first_run=True
 
 @pytest.mark.django_db
-def test_new_query_ignore_first_run_saves_as_suppressed(query, make_ad):
+def test_new_query_ignore_first_run_saves_delivery_as_suppressed(query, make_ad):
     query.ignore_first_run = True
     query.save()
     product = make_ad(query, bazos_id=111)
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_new_query()
-    assert Ad.objects.get(query=query, external_id=111).status == AdStatus.SUPPRESSED
+    ad = Ad.objects.get(external_id=111)
+    assert AdDelivery.objects.get(ad=ad, query=query).status == AdStatus.SUPPRESSED
 
 
 @pytest.mark.django_db
@@ -193,20 +213,22 @@ def test_new_query_ignore_first_run_does_not_set_sent_at(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_new_query()
-    assert Ad.objects.get(query=query, external_id=111).sent_at is None
+    ad = Ad.objects.get(external_id=111)
+    assert AdDelivery.objects.get(ad=ad, query=query).sent_at is None
 
 
 # run_new_query — ignore_first_run=False
 
 @pytest.mark.django_db
-def test_new_query_without_ignore_first_run_is_marked_pending(query, make_ad):
+def test_new_query_without_ignore_first_run_delivery_is_marked_pending(query, make_ad):
     query.ignore_first_run = False
     query.save()
     product = make_ad(query, bazos_id=111)
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_new_query()
-    assert Ad.objects.get(query=query, external_id=111).status == AdStatus.PENDING
+    ad = Ad.objects.get(external_id=111)
+    assert AdDelivery.objects.get(ad=ad, query=query).status == AdStatus.PENDING
 
 
 @pytest.mark.django_db
@@ -217,7 +239,8 @@ def test_new_query_without_ignore_first_run_has_no_sent_at(query, make_ad):
     runner = make_runner(query)
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_new_query()
-    assert Ad.objects.get(query=query, external_id=111).sent_at is None
+    ad = Ad.objects.get(external_id=111)
+    assert AdDelivery.objects.get(ad=ad, query=query).sent_at is None
 
 
 @pytest.mark.django_db
@@ -233,30 +256,31 @@ def test_new_query_without_ignore_first_run_does_not_call_discord(query, make_ad
     mock_send.assert_not_called()
 
 
-# --- Stage 4: price-change detection (_get_known) ---
+# --- Stage 4: price-change detection (_get_known_delivery) ---
 
 @pytest.mark.django_db
-def test_get_known_returns_none_for_unseen_ad(query, make_ad):
+def test_get_known_delivery_returns_none_for_unseen_ad(query, make_ad):
     runner = make_runner(query)
     product = make_ad(query, bazos_id=111)
-    assert runner._get_known(product) is None
+    assert runner._get_known_delivery(product) is None
 
 
 @pytest.mark.django_db
-def test_get_known_returns_existing_ad(query, make_ad):
+def test_get_known_delivery_returns_existing_delivery(query, make_ad, make_delivery):
     existing = make_ad(query, bazos_id=111)
     existing.save()
+    delivery = make_delivery(existing, query)
     runner = make_runner(query)
     product = make_ad(query, bazos_id=111)
-    assert runner._get_known(product) == existing
+    assert runner._get_known_delivery(product) == delivery
 
 
 @pytest.mark.django_db
-def test_existing_query_creates_price_change_on_price_drop(query, make_ad):
+def test_existing_query_creates_price_change_on_price_drop(query, make_ad, make_delivery):
     existing = make_ad(query, bazos_id=111)
     existing.price_raw = "1 000 Kč"
-    existing.status = AdStatus.SENT
     existing.save()
+    make_delivery(existing, query, status=AdStatus.SENT)
 
     product = make_ad(query, bazos_id=111, topped=False)
     product.price_raw = "800 Kč"
@@ -271,11 +295,11 @@ def test_existing_query_creates_price_change_on_price_drop(query, make_ad):
 
 
 @pytest.mark.django_db
-def test_existing_query_updates_price_raw_and_status_on_price_change(query, make_ad):
+def test_existing_query_updates_price_raw_on_ad_and_flips_delivery_status(query, make_ad, make_delivery):
     existing = make_ad(query, bazos_id=111)
     existing.price_raw = "1 000 Kč"
-    existing.status = AdStatus.SENT
     existing.save()
+    delivery = make_delivery(existing, query, status=AdStatus.SENT)
 
     product = make_ad(query, bazos_id=111, topped=False)
     product.price_raw = "800 Kč"
@@ -285,16 +309,17 @@ def test_existing_query_updates_price_raw_and_status_on_price_change(query, make
         runner.run_existing_query()
 
     existing.refresh_from_db()
+    delivery.refresh_from_db()
     assert existing.price_raw == "800 Kč"
-    assert existing.status == AdStatus.PRICE_CHANGED
+    assert delivery.status == AdStatus.PRICE_CHANGED
 
 
 @pytest.mark.django_db
-def test_existing_query_does_not_create_price_change_when_price_unchanged(query, make_ad):
+def test_existing_query_does_not_create_price_change_when_price_unchanged(query, make_ad, make_delivery):
     existing = make_ad(query, bazos_id=111)
     existing.price_raw = "1 000 Kč"
-    existing.status = AdStatus.SENT
     existing.save()
+    delivery = make_delivery(existing, query, status=AdStatus.SENT)
 
     product = make_ad(query, bazos_id=111, topped=False)
     product.price_raw = "1 000 Kč"
@@ -304,16 +329,17 @@ def test_existing_query_does_not_create_price_change_when_price_unchanged(query,
         runner.run_existing_query()
 
     existing.refresh_from_db()
+    delivery.refresh_from_db()
     assert not PriceChange.objects.filter(ad=existing).exists()
-    assert existing.status == AdStatus.SENT
+    assert delivery.status == AdStatus.SENT
 
 
 @pytest.mark.django_db
-def test_existing_query_price_change_on_topped_ad_still_continues_scan(query, make_ad):
+def test_existing_query_price_change_on_topped_ad_still_continues_scan(query, make_ad, make_delivery):
     existing = make_ad(query, bazos_id=111)
     existing.price_raw = "1 000 Kč"
-    existing.status = AdStatus.SENT
     existing.save()
+    make_delivery(existing, query, status=AdStatus.SENT)
 
     changed_product = make_ad(query, bazos_id=111, topped=True)
     changed_product.price_raw = "800 Kč"
@@ -324,5 +350,179 @@ def test_existing_query_price_change_on_topped_ad_still_continues_scan(query, ma
         runner.run_existing_query()
 
     assert PriceChange.objects.filter(ad=existing).exists()
-    assert Ad.objects.filter(query=query, external_id=222).exists()
+    assert Ad.objects.filter(external_id=222).exists()
     assert runner.new_product_counter == 1
+
+
+# --- Cross-query dedup — the reason for the split (AD_DELIVERY_SPLIT_SPEC.md) ---
+
+@pytest.mark.django_db
+def test_two_queries_matching_one_listing_create_one_ad_and_two_deliveries(query, category, make_ad):
+    from bazos.models import Query
+    other_query = Query.objects.create(
+        text="thinkpad",
+        category=category,
+        location_center="12345",
+        location_radius=25,
+        price_lower=0,
+        price_upper=0,
+        new_query=False,
+        ignore_first_run=True,
+    )
+
+    product_a = make_ad(query, bazos_id=111)
+    runner_a = make_runner(query)
+    with patch.object(runner_a.scraper, "run_query", return_value=iter([product_a])):
+        runner_a.run_existing_query()
+
+    product_b = make_ad(other_query, bazos_id=111)
+    runner_b = make_runner(other_query)
+    with patch.object(runner_b.scraper, "run_query", return_value=iter([product_b])):
+        runner_b.run_existing_query()
+
+    assert Ad.objects.filter(marketplace="bazos", external_id=111).count() == 1
+    ad = Ad.objects.get(marketplace="bazos", external_id=111)
+    assert AdDelivery.objects.filter(ad=ad).count() == 2
+    assert set(AdDelivery.objects.filter(ad=ad).values_list("query_id", flat=True)) == {query.pk, other_query.pk}
+
+
+@pytest.mark.django_db
+def test_second_query_rediscovering_a_known_ad_does_not_refetch_full_description(query, category, make_ad):
+    from bazos.models import Query
+    query.load_full_description = True
+    query.save()
+    other_query = Query.objects.create(
+        text="thinkpad",
+        category=category,
+        location_center="12345",
+        location_radius=25,
+        price_lower=0,
+        price_upper=0,
+        new_query=False,
+        ignore_first_run=True,
+        load_full_description=True,
+    )
+
+    product_a = make_ad(query, bazos_id=111)
+    runner_a = make_runner(query)
+    with patch.object(runner_a.scraper, "run_query", return_value=iter([product_a])), \
+         patch.object(runner_a.scraper, "load_full_description") as fetch_a:
+        runner_a.run_existing_query()
+    fetch_a.assert_called_once()
+
+    product_b = make_ad(other_query, bazos_id=111)
+    runner_b = make_runner(other_query)
+    with patch.object(runner_b.scraper, "run_query", return_value=iter([product_b])), \
+         patch.object(runner_b.scraper, "load_full_description") as fetch_b:
+        runner_b.run_existing_query()
+    fetch_b.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_price_change_flips_every_delivery_of_that_ad(query, category, make_ad, make_delivery):
+    from bazos.models import Query
+    other_query = Query.objects.create(
+        text="thinkpad",
+        category=category,
+        location_center="12345",
+        location_radius=25,
+        price_lower=0,
+        price_upper=0,
+        new_query=False,
+        ignore_first_run=True,
+    )
+
+    existing = make_ad(query, bazos_id=111)
+    existing.price_raw = "1 000 Kč"
+    existing.save()
+    delivery_a = make_delivery(existing, query, status=AdStatus.SENT)
+    delivery_b = make_delivery(existing, other_query, status=AdStatus.SENT)
+
+    product = make_ad(query, bazos_id=111, topped=False)
+    product.price_raw = "800 Kč"
+
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_existing_query()
+
+    delivery_a.refresh_from_db()
+    delivery_b.refresh_from_db()
+    assert delivery_a.status == AdStatus.PRICE_CHANGED
+    assert delivery_b.status == AdStatus.PRICE_CHANGED
+
+
+@pytest.mark.django_db
+def test_price_change_unsuppresses_a_suppressed_delivery(query, make_ad, make_delivery):
+    """Preserves pre-split behaviour exactly, including the part that looks wrong: a
+    SUPPRESSED delivery (e.g. from ignore_first_run) is unconditionally flipped to
+    PRICE_CHANGED too. See AD_DELIVERY_SPLIT_SPEC.md §3.2 — this is a known, deliberately
+    unfixed quirk, not something to "improve" here.
+    """
+    existing = make_ad(query, bazos_id=111)
+    existing.price_raw = "1 000 Kč"
+    existing.save()
+    delivery = make_delivery(existing, query, status=AdStatus.SUPPRESSED)
+
+    product = make_ad(query, bazos_id=111, topped=False)
+    product.price_raw = "800 Kč"
+
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_existing_query()
+
+    delivery.refresh_from_db()
+    assert delivery.status == AdStatus.PRICE_CHANGED
+
+
+@pytest.mark.django_db
+def test_new_query_backfills_even_when_another_query_already_knows_the_ad(query, category, make_ad, make_delivery):
+    """§3.1's failure mode: the dedup break must key on THIS query's delivery, not on
+    global Ad existence — otherwise a brand-new query breaks on page 1 the moment any
+    other query has already seen the listing, and never backfills.
+    """
+    from bazos.models import Query
+    other_query = Query.objects.create(
+        text="thinkpad",
+        category=category,
+        location_center="12345",
+        location_radius=25,
+        price_lower=0,
+        price_upper=0,
+        new_query=False,
+        ignore_first_run=True,
+    )
+    known_elsewhere = make_ad(other_query, bazos_id=111)
+    known_elsewhere.save()
+    make_delivery(known_elsewhere, other_query)
+
+    # `query` is new and has never seen ad 111, even though `other_query` has.
+    products = [
+        make_ad(query, bazos_id=111, topped=False),
+        make_ad(query, bazos_id=222, topped=False),
+    ]
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter(products)):
+        runner.run_existing_query()
+
+    ad_111 = Ad.objects.get(marketplace="bazos", external_id=111)
+    assert AdDelivery.objects.filter(ad=ad_111, query=query).exists()
+    assert Ad.objects.filter(marketplace="bazos", external_id=222).exists()
+    assert runner.new_product_counter == 2
+
+
+@pytest.mark.django_db
+def test_dedup_break_still_stops_on_first_known_non_topped_ad_for_this_query(query, make_ad, make_delivery):
+    known = make_ad(query, bazos_id=111)
+    known.save()
+    make_delivery(known, query)
+
+    products = [
+        make_ad(query, bazos_id=111, topped=False),  # known to THIS query, not TOP → stop
+        make_ad(query, bazos_id=222, topped=False),  # never reached
+    ]
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter(products)):
+        runner.run_existing_query()
+
+    assert not Ad.objects.filter(external_id=222).exists()
+    assert runner.new_product_counter == 0

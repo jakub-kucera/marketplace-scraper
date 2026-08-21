@@ -2,7 +2,7 @@ import logging
 import requests
 
 from bazos.const import NEW_PRODUCT_LOAD_MAX
-from bazos.models import Ad, AdStatus, Marketplace, PriceChange, Query
+from bazos.models import Ad, AdDelivery, AdStatus, Marketplace, PriceChange, Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 from bazos.scraping.marketplace import MarketplaceScraper
@@ -30,21 +30,43 @@ class BazosQueryRunner:
         self.new_product_counter = 0
         self.rows_seen_counter = 0
 
-    def _get_known(self, product: Ad) -> Ad | None:
-        return Ad.objects.filter(
-            query=self.query,
-            marketplace=product.marketplace,
-            external_id=product.external_id,
+    def _get_known_delivery(self, product: Ad) -> AdDelivery | None:
+        """Has THIS query already seen this listing? Keys the dedup break."""
+        return (
+            AdDelivery.objects
+            .filter(
+                query=self.query,
+                ad__marketplace=product.marketplace,
+                ad__external_id=product.external_id,
+            )
+            .select_related("ad")
+            .first()
+        )
+
+    def _resolve_ad(self, product: Ad) -> tuple[Ad, bool]:
+        """Global listing identity, shared across queries. Returns (ad, is_new_ad)."""
+        existing = Ad.objects.filter(
+            marketplace=product.marketplace, external_id=product.external_id
         ).first()
+        if existing is not None:
+            return existing, False
+        product.save()
+        return product, True
 
     def _handle_new_product(self, product: Ad):
+        """This query has found a listing it doesn't have a delivery for yet.
+
+        Resolves/creates the global Ad, fetches its full description only when nobody
+        has seen it before (a second query rediscovering a known listing must not re-pay
+        for the detail request), and creates this query's PENDING delivery.
+        """
         logger.info("New product %s", product)
         self.new_product_counter += 1
-        product.status = AdStatus.PENDING
-        product.save()
-        if self.query.load_full_description:
-            self.scraper.load_full_description(product)
-            product.save()
+        ad, is_new_ad = self._resolve_ad(product)
+        if is_new_ad and self.query.load_full_description:
+            self.scraper.load_full_description(ad)
+            ad.save()
+        AdDelivery.objects.create(ad=ad, query=self.query, status=AdStatus.PENDING)
 
     def run_new_query(self):
         self.query.new_query = False
@@ -57,34 +79,36 @@ class BazosQueryRunner:
                 if counter >= NEW_PRODUCT_LOAD_MAX:
                     break
 
-            product.query = self.query
             if self.query.ignore_first_run:
-                product.status = AdStatus.SUPPRESSED
-                product.save()
+                ad, _ = self._resolve_ad(product)
+                AdDelivery.objects.create(ad=ad, query=self.query, status=AdStatus.SUPPRESSED)
             else:
                 self._handle_new_product(product)
 
     def run_existing_query(self):
         for product in self.scraper.run_query(self.query):
             self.rows_seen_counter += 1
-            existing = self._get_known(product)
-            if existing is None:
-                product.query = self.query
+            known_delivery = self._get_known_delivery(product)
+            if known_delivery is None:
                 self._handle_new_product(product)
             else:
-                if existing.price_raw != product.price_raw:
+                known_ad = known_delivery.ad
+                if known_ad.price_raw != product.price_raw:
                     logger.info(
-                        "Price changed for ad %d: %s -> %s", existing.pk, existing.price_raw, product.price_raw
+                        "Price changed for ad %d: %s -> %s", known_ad.pk, known_ad.price_raw, product.price_raw
                     )
                     PriceChange.objects.create(
-                        ad=existing,
-                        old_price=existing.price_raw,
+                        ad=known_ad,
+                        old_price=known_ad.price_raw,
                         new_price=product.price_raw,
                     )
-                    existing.price_raw = product.price_raw
-                    existing.status = AdStatus.PRICE_CHANGED
-                    existing.save(update_fields=["price_raw", "status"])
-                logger.debug("Product already exists %s", existing)
+                    known_ad.price_raw = product.price_raw
+                    known_ad.save(update_fields=["price_raw"])
+                    # A price change is a fact about the AD — every query watching it re-enters
+                    # the filter. Unconditional, matching pre-split behaviour (including
+                    # un-suppressing a SUPPRESSED delivery — see AD_DELIVERY_SPLIT_SPEC.md §3.2).
+                    AdDelivery.objects.filter(ad=known_ad).update(status=AdStatus.PRICE_CHANGED)
+                logger.debug("Product already exists %s", known_ad)
                 if product.topped:
                     logger.debug("TOP product — continuing")
                 else:

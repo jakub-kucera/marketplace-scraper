@@ -83,9 +83,10 @@ def test_rows_seen_counter_counts_every_parsed_row(query, make_ad):
 
 
 @pytest.mark.django_db
-def test_rows_seen_counter_counts_the_row_that_breaks_dedup(query, make_ad):
+def test_rows_seen_counter_counts_the_row_that_breaks_dedup(query, make_ad, make_delivery):
     known = make_ad(query, bazos_id=1, topped=False)
     known.save()
+    make_delivery(known, query)
 
     runner_query_runner = BazosQueryRunner(query, MagicMock())
     repeat_of_known = make_ad(query, bazos_id=1, topped=False)
