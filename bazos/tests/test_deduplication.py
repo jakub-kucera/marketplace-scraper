@@ -386,8 +386,17 @@ def test_two_queries_matching_one_listing_create_one_ad_and_two_deliveries(query
     assert set(AdDelivery.objects.filter(ad=ad).values_list("query_id", flat=True)) == {query.pk, other_query.pk}
 
 
+def _fake_load_full_description(ad):
+    """Stand-in for the real scraper method's side effect: it mutates `ad` in place, and
+    the caller (`_handle_new_product`) persists it with `ad.save()` right after."""
+    ad.full_description = "fetched description"
+
+
 @pytest.mark.django_db
 def test_second_query_rediscovering_a_known_ad_does_not_refetch_full_description(query, category, make_ad):
+    """The redundant fetch is skipped because the description is actually present after the
+    first fetch — not merely because the first query "won" the discovery race. See the
+    asymmetric-flags test below for the case this distinction protects against."""
     from bazos.models import Query
     query.load_full_description = True
     query.save()
@@ -406,16 +415,56 @@ def test_second_query_rediscovering_a_known_ad_does_not_refetch_full_description
     product_a = make_ad(query, bazos_id=111)
     runner_a = make_runner(query)
     with patch.object(runner_a.scraper, "run_query", return_value=iter([product_a])), \
-         patch.object(runner_a.scraper, "load_full_description") as fetch_a:
+         patch.object(runner_a.scraper, "load_full_description", side_effect=_fake_load_full_description) as fetch_a:
         runner_a.run_existing_query()
     fetch_a.assert_called_once()
 
     product_b = make_ad(other_query, bazos_id=111)
     runner_b = make_runner(other_query)
     with patch.object(runner_b.scraper, "run_query", return_value=iter([product_b])), \
-         patch.object(runner_b.scraper, "load_full_description") as fetch_b:
+         patch.object(runner_b.scraper, "load_full_description", side_effect=_fake_load_full_description) as fetch_b:
         runner_b.run_existing_query()
     fetch_b.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_second_query_with_load_full_description_fetches_even_when_first_query_did_not(query, category, make_ad):
+    """Regression test for a real bug: gating the fetch on "did THIS query discover the ad
+    first" (rather than "is the description actually missing") meant a query with
+    load_full_description=True got permanently starved if a different, non-fetching query
+    happened to discover the ad first — nothing would ever fetch it.
+    """
+    from bazos.models import Query
+    query.load_full_description = False
+    query.save()
+    other_query = Query.objects.create(
+        text="thinkpad",
+        category=category,
+        location_center="12345",
+        location_radius=25,
+        price_lower=0,
+        price_upper=0,
+        new_query=False,
+        ignore_first_run=True,
+        load_full_description=True,
+    )
+
+    product_a = make_ad(query, bazos_id=111)
+    runner_a = make_runner(query)
+    with patch.object(runner_a.scraper, "run_query", return_value=iter([product_a])), \
+         patch.object(runner_a.scraper, "load_full_description", side_effect=_fake_load_full_description) as fetch_a:
+        runner_a.run_existing_query()
+    fetch_a.assert_not_called()
+
+    product_b = make_ad(other_query, bazos_id=111)
+    runner_b = make_runner(other_query)
+    with patch.object(runner_b.scraper, "run_query", return_value=iter([product_b])), \
+         patch.object(runner_b.scraper, "load_full_description", side_effect=_fake_load_full_description) as fetch_b:
+        runner_b.run_existing_query()
+    fetch_b.assert_called_once()
+
+    ad = Ad.objects.get(marketplace="bazos", external_id=111)
+    assert ad.full_description == "fetched description"
 
 
 @pytest.mark.django_db
@@ -630,3 +679,79 @@ def test_default_streak_is_one_when_scraper_does_not_define_it(query):
     """
     runner = make_runner(query)
     assert not hasattr(runner.scraper, "dedup_break_streak")
+
+
+# --- Interrupted-and-replayed run_new_query (idempotent delivery creation) ---
+# Regression tests for a real BLOCKER: unlike run_existing_query (which checks
+# _get_known_delivery before creating anything), run_new_query used to create AdDelivery
+# rows unconditionally. A pass interrupted mid-pagination (blacklist hit, a raise from
+# load_full_description, SIGTERM) leaves partial rows behind — nothing wraps the loop in a
+# transaction, and query.new_query is only persisted by the caller (BazosRunner.run) AFTER
+# a successful return. The next pass replays from page 1 and used to raise IntegrityError on
+# unique_delivery_per_ad_query for every already-delivered product, forever.
+
+@pytest.mark.django_db
+def test_run_new_query_replay_after_interruption_does_not_raise(query, make_ad):
+    query.ignore_first_run = False
+    query.save()
+
+    products = [make_ad(query, bazos_id=i) for i in (1, 2, 3)]
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter(products[:2])):
+        runner.run_new_query()
+    assert runner.new_product_counter == 2
+    assert AdDelivery.objects.count() == 2
+
+    # Replay: the scraper yields the SAME first two products again (as it would on a fresh
+    # backfill from page 1), plus the one the interrupted pass never reached.
+    replay_products = [make_ad(query, bazos_id=i) for i in (1, 2, 3)]
+    runner2 = make_runner(query)
+    with patch.object(runner2.scraper, "run_query", return_value=iter(replay_products)):
+        runner2.run_new_query()  # must not raise IntegrityError
+
+    assert AdDelivery.objects.count() == 3
+    assert runner2.new_product_counter == 1  # only product 3 is genuinely new to this query
+
+
+@pytest.mark.django_db
+def test_run_new_query_replay_does_not_double_count_or_refetch(query, make_ad):
+    query.ignore_first_run = False
+    query.load_full_description = True
+    query.save()
+
+    product = make_ad(query, bazos_id=111)
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])), \
+         patch.object(runner.scraper, "load_full_description", side_effect=_fake_load_full_description) as fetch:
+        runner.run_new_query()
+    fetch.assert_called_once()
+    assert runner.new_product_counter == 1
+
+    replay_product = make_ad(query, bazos_id=111)
+    runner2 = make_runner(query)
+    with patch.object(runner2.scraper, "run_query", return_value=iter([replay_product])), \
+         patch.object(runner2.scraper, "load_full_description", side_effect=_fake_load_full_description) as fetch2:
+        runner2.run_new_query()
+    fetch2.assert_not_called()  # already has a description, and already has a delivery
+    assert runner2.new_product_counter == 0
+    assert AdDelivery.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_run_new_query_ignore_first_run_replay_does_not_raise(query, make_ad):
+    """Same replay hazard, for the SUPPRESSED (ignore_first_run) branch."""
+    query.ignore_first_run = True
+    query.save()
+
+    products = [make_ad(query, bazos_id=i) for i in (1, 2)]
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter(products)):
+        runner.run_new_query()
+    assert AdDelivery.objects.filter(status=AdStatus.SUPPRESSED).count() == 2
+
+    replay_products = [make_ad(query, bazos_id=i) for i in (1, 2)]
+    runner2 = make_runner(query)
+    with patch.object(runner2.scraper, "run_query", return_value=iter(replay_products)):
+        runner2.run_new_query()  # must not raise IntegrityError
+
+    assert AdDelivery.objects.filter(status=AdStatus.SUPPRESSED).count() == 2

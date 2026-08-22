@@ -806,6 +806,119 @@ Steps:
 
 ---
 
+### P26 — `Ad`/`AdDelivery` split: deferred review findings
+
+> **Source**: an independent code review of commit `9d20b91` ("wip AdDelivery"), reproduced
+> rather than inferred (scratch-tree checkout, `pytest`/`ruff`/`mypy`/fresh-`migrate` all run
+> for real). Its BLOCKER and HIGH findings, plus three MEDIUM ones, were fixed the same day —
+> see [`AD_DELIVERY_SPLIT_SPEC.md`](AD_DELIVERY_SPLIT_SPEC.md)'s status banner and §7 for what
+> landed (idempotent `run_new_query`, the `load_full_description` gate, `0028`'s irreversibility
+> now documented instead of silently discoverable only by trying it, `show_full_result_count`,
+> and the status-precedence collision tie-break in `0027`). What's below is what was
+> **deliberately left open**, each with a reason, not an oversight.
+
+> **⚠️ One of these (price-change fan-out) is explicitly NOT a bug to silently patch** — see
+> its own note below. Don't fix it as a drive-by while picking up the others.
+
+```
+Four independent follow-ups from the AdDelivery-split review. Pick up any subset; none blocks
+another.
+
+### 1. Price-change fan-out can overwrite another query's in-flight delivery state
+
+Context: `bazos_query_runner.py::run_existing_query` does
+`AdDelivery.objects.filter(ad=known_ad).update(status=AdStatus.PRICE_CHANGED)` — unconditional,
+unlocked, across EVERY delivery of that ad. If query A's delivery is APPROVED (decided, awaiting
+`run_sender`) and query B sees a price bump on the same listing, this flips A to PRICE_CHANGED
+too. A then re-enters `run_filter`; if `PriceDropRule` doesn't recognise the change as a genuine
+drop (e.g. it went up, not down), A gets REJECTED with "price did not drop" — and A's original
+new-ad notification is silently lost. Window is small (filter polls every 30s, sender every 10s)
+but real.
+
+⚠️ **Do NOT fix this as a side effect of anything else.** This is not a new bug from the split —
+the pre-split code did the identical unconditional flip on a single `Ad.status`; the split's
+only change is FAN-OUT (one price change can now perturb multiple queries' deliveries instead of
+one). `AD_DELIVERY_SPLIT_SPEC.md` §3.2 explicitly decided to preserve this exact "looks wrong"
+behaviour for the closely-related SUPPRESSED→PRICE_CHANGED case and recorded fixing it as a
+follow-up rather than folding it into the structural refactor. Apply the same discipline here:
+this prompt IS that follow-up, a fix here is in scope, but decide the fix deliberately (see
+below), don't sneak a narrower change in under a different task.
+
+Steps:
+1. Decide the actual fix before writing code — options include: exclude currently-APPROVED
+   deliveries from the blind flip (`.exclude(status=AdStatus.APPROVED)` — narrowest, but an
+   APPROVED delivery for an ad whose price then drops further never gets the drop
+   re-evaluated); or `select_for_update()` the deliveries before flipping, inside a
+   transaction, so a concurrent `run_sender` batch is serialized rather than raced (closer to
+   correct, more invasive — the query runner has no explicit transaction today). Write down
+   the tradeoff you picked and why.
+2. Write the regression test first: query A's delivery is APPROVED; a price change arrives via
+   query B watching the same ad; assert whatever the chosen fix guarantees (either A stays
+   APPROVED, or A correctly re-enters PRICE_CHANGED and is re-evaluated without being lost).
+3. Also decide, explicitly, whether the SUPPRESSED→PRICE_CHANGED un-suppression (§3.2's
+   original deferred item) should be fixed in the same pass — same root cause, same
+   discipline question.
+
+### 2. `_resolve_ad` never refreshes an existing ad's scraped facts
+
+Context: `bazos_query_runner.py::run_existing_query`'s known-ad branch only ever writes
+`price_raw` back to the `Ad` row:
+```python
+known_ad.price_raw = product.price_raw
+known_ad.save(update_fields=["price_raw"])
+```
+Every other freshly-scraped field on `product` — `view_count`, `topped`, `url`,
+`publisher_name`, `email_publisher`/`phone_publisher` — is silently discarded once an `Ad` is
+first discovered. `topped` and `view_count` go stale from the first rediscovery onward. This
+predates the split (the old single-`Ad`-row code had the same gap) but compounds it: migration
+`0027`'s merge explicitly declined to reconcile these fields across duplicate rows on the
+premise that "the ads all get re-scraped on the next pass anyway" — which is only true for
+fields this loop actually refreshes. `full_description` already got its own fix (P26's gate
+change, see AD_DELIVERY_SPLIT_SPEC.md §7) so it's no longer permanently stuck; the rest are
+still stuck.
+
+Steps:
+1. Decide, per field, whether it should refresh on every rediscovery (`view_count`, `topped`,
+   `url` — cheap, no downside) versus only when currently null (`publisher_name`,
+   `email_publisher`, `phone_publisher` — a later scrape finding a publisher a former one
+   missed is a strict improvement; overwriting a known publisher with a differently-parsed one
+   needs more thought, since publisher identity feeds `SellerAdCounts`).
+2. Extend the known-ad branch's `update_fields` list and the fields actually copied from
+   `product` accordingly.
+3. Tests: each refreshed field changes on rediscovery; fields intentionally NOT refreshed
+   (decide if any) stay put; a rediscovery that changes nothing doesn't fire a spurious save.
+
+### 3. Test coverage gaps identified by the review, not yet closed
+
+- `bazos/tests/test_run_filter.py` / `test_run_sender.py` reimplement the poll loop by hand
+  (`_run_filter_once`/`_run_sender_once`) and never invoke the real management commands. Add at
+  least one test per command that calls `Command().handle()` (or extracts the loop body into a
+  testable function both the command and the test call) — even on SQLite, where
+  `select_for_update(skip_locked=...)` is silently dropped from the SQL, this would still catch
+  a bad `select_related`/`filter` construction against `AdDelivery`'s actual shape, which the
+  hand-rolled simulations can't.
+- No end-to-end test proves the split's headline claim: one `Ad` matching two `Query` rows
+  produces two `AdDelivery` rows that BOTH actually get sent (to potentially two different
+  `Discord` channels). Today it's tested at the scraper (`test_two_queries_matching_one_listing_
+  create_one_ad_and_two_deliveries`) but never carried through `run_filter` + `run_sender`.
+  Write that test.
+- Migration tests never touch Postgres (root `conftest.py` forces SQLite for the whole suite —
+  see CLAUDE.md's Testing section). This is a known, accepted project-wide limitation, not
+  specific to this split, but worth naming here since it's exactly what hid `0028`'s
+  irreversibility (the test `Ad` table is empty at rollback time) until someone ran it by hand.
+
+### 4. Before actually deploying this split: run the Stage C dry run
+
+Not a code change — a reminder that `AD_DELIVERY_SPLIT_SPEC.md` §6 already mandates this and it
+has not been done: run the `0027` merge read-only against a restored copy of the production dump
+and report the counts (groups merged, delivery collisions resolved, groups with differing
+`price_raw`). If the merged-group count is surprisingly large, stop and investigate before
+running it for real — `0027` is the migration in this split that is genuinely irreversible in
+substance (see `AD_DELIVERY_SPLIT_SPEC.md` §7's note on why `0028` inherits that).
+```
+
+---
+
 ## Order recommendation
 
 > **Revised 2026-07-29.** The old ordering optimised for "cheapest independent win". That was
@@ -874,6 +987,13 @@ registry), ~~P6~~ (Sentry), ~~P15~~ (AND/OR probe), ~~P18~~ (`QueryRun` failure 
   sequence against whichever direction you pick. Note P11 stops being cosmetic the moment Vinted
   ships: every Vinted ad renders a "0 ads seen" seller summary, since both publisher FKs are null.
 - **`Ad`/`AdDelivery` split** — [`AD_DELIVERY_SPLIT_SPEC.md`](AD_DELIVERY_SPLIT_SPEC.md), the
-  executable form of [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #1. **In progress as of 2026-08-21** —
-  Stages A and C have landed (`0026`, `0027`); Stage D (dropping the dead `Ad` columns) is the
-  remaining work.
+  executable form of [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #1. **✅ Done, 2026-08-22** — all four
+  stages landed (`0026`–`0028`); `Ad.status`/`filter_reason`/`sent_at`/`send_attempts`/`query` no
+  longer exist on `Ad`, pipeline state lives entirely on `AdDelivery`. A post-merge review found
+  and fixed a blocker plus several defects — **P26**, below, both what was fixed and what's
+  deliberately deferred.
+- **P26** (`Ad`/`AdDelivery` split — deferred review findings) — four independent follow-ups,
+  none blocking another: price-change fan-out overwriting another query's in-flight delivery
+  (explicitly NOT a drive-by fix, read its own note first), `_resolve_ad` never refreshing
+  `view_count`/`topped`/`url`/publisher facts on rediscovery, two test-coverage gaps, and the
+  still-outstanding Stage C dry run before this is actually deployed.

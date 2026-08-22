@@ -327,9 +327,7 @@ class AdDelivery(TimeStampedModel):
     ad = models.ForeignKey(Ad, on_delete=models.CASCADE, related_name="deliveries")
     query = models.ForeignKey(Query, on_delete=models.PROTECT, related_name="deliveries")
 
-    status = models.CharField(
-        max_length=20, choices=AdStatus.choices, default=AdStatus.PENDING, db_index=True
-    )
+    status = models.CharField(max_length=20, choices=AdStatus.choices, default=AdStatus.PENDING)
     filter_reason = models.CharField(max_length=255, null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     send_attempts = models.IntegerField(default=0)
@@ -339,6 +337,14 @@ class AdDelivery(TimeStampedModel):
         verbose_name_plural = "Ad deliveries"
         constraints = [
             models.UniqueConstraint(fields=["ad", "query"], name="unique_delivery_per_ad_query"),
+        ]
+        indexes = [
+            # Both pollers do filter(status__in=[...]).order_by("created")[:BATCH] — a
+            # leading-status composite index serves the filter+sort in one scan and also
+            # covers a plain status= lookup, making a standalone status index redundant.
+            # AdDelivery accumulates at N-per-query-per-ad rather than Ad's old 1-per-ad
+            # rate, so this matters more here than a single-column index would have.
+            models.Index(fields=["status", "created"], name="addelivery_status_created_idx"),
         ]
 
     def __str__(self):

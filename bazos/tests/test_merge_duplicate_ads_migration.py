@@ -156,6 +156,31 @@ def test_delivery_collision_keeps_lowest_pk_and_deletes_the_other(old_state):
 
 
 @pytest.mark.django_db
+def test_delivery_collision_prefers_sent_over_pending_regardless_of_pk(old_state):
+    """A SENT delivery must survive a collision with a PENDING one even when the PENDING
+    delivery happens to have the lower pk — losing a SENT delivery to raw pk order would
+    silently re-announce an already-delivered ad once the surviving PENDING delivery flows
+    back through run_filter/run_sender.
+    """
+    query, other_query = _old_fixtures(old_state)
+    first = _old_ad(old_state, query, 111)
+    second = _old_ad(old_state, query, 111)
+
+    # Lower pk, but PENDING — must lose despite being created first.
+    pending_delivery = _old_delivery(old_state, first, other_query, status="PENDING")
+    # Higher pk, but SENT — must survive.
+    sent_delivery = _old_delivery(old_state, second, other_query, status="SENT")
+    assert pending_delivery.pk < sent_delivery.pk
+
+    migrate_to_0027()
+
+    canonical = Ad.objects.get(marketplace="bazos", external_id=111)
+    survivor = AdDelivery.objects.get(ad=canonical, query=other_query.pk)
+    assert survivor.pk == sent_delivery.pk
+    assert survivor.status == "SENT"
+
+
+@pytest.mark.django_db
 def test_groups_with_differing_price_are_merged_without_error(old_state):
     """Accepted consequence, not solved here: the canonical row's price_raw may be staler
     than a duplicate's. The merge must not crash or try to reconcile it."""

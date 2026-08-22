@@ -6,12 +6,21 @@
 > **Grounded against the code on 2026-08-21** (HEAD `2fb37f8`). Line references and field lists
 > were read from the tree, not from memory.
 >
-> **⚠️ Status, 2026-08-21: Stages A and C have landed** — `0026_addelivery.py` (CreateModel +
-> `unique_delivery_per_ad_query` + backfill) and `0027_merge_duplicate_ads.py` (merge +
-> `unique_ad_per_marketplace`), with `bazos/tests/test_addelivery_migration.py` and
-> `test_merge_duplicate_ads_migration.py` alongside them. Stage B's reader/writer moves are in
-> the working tree. **Stage D (dropping the dead `Ad` columns) is still outstanding** — §7 is
-> the remaining work. Verify against the tree rather than trusting this banner.
+> **⚠️ Status, 2026-08-22: all four stages have landed** — `0026_addelivery.py` (Stage A),
+> Stage B's reader/writer moves (no migration — `run_filter`/`run_sender`/
+> `bazos_query_runner`/`admin.py` all read/write `AdDelivery` now), `0027_merge_duplicate_ads.py`
+> (Stage C), and `0028_drop_ad_pipeline_fields.py` (Stage D — `Ad.status`/`filter_reason`/
+> `sent_at`/`send_attempts`/`query` no longer exist on `Ad` at all). Full suite green, `ruff
+> check .` and `mypy .` clean, verified against a fresh `migrate` from zero.
+>
+> **A post-merge review (`PROMPTS.md` P26) found one BLOCKER and several real defects, since
+> fixed** — an interrupted first run of a `new_query` used to wedge that query permanently
+> (`run_new_query` created `AdDelivery` rows without checking for an existing one, unlike
+> `run_existing_query`), migration `0028` was never safely reversible on a populated table (now
+> documented in its own docstring and §7 below, not "fixed" — there's nothing to fix), and
+> `load_full_description` was gated on the wrong condition. See P26 for the full list, including
+> what was deliberately left as a follow-up rather than folded in here. Verify against the tree
+> rather than trusting this banner.
 
 ---
 
@@ -406,6 +415,18 @@ Known breakages to fix in the same PR:
   a historical migration operating on a historical model state — **do not edit it.** If it breaks
   under a fresh `migrate` from zero, that means it is using the real model instead of
   `apps.get_model`; fix it that way, not by deleting the migration.
+
+⚠️ **This migration is not safely reversible on a populated database, and there is no fix for
+that — only honesty about it.** `RemoveField`'s auto-reverse is `AddField` with the *original*
+field definition; `query` was a non-null FK with no default, so reversing against any table with
+existing `Ad` rows raises `IntegrityError: NOT NULL constraint failed` (confirmed against both
+SQLite and Postgres — the test suite doesn't catch this because the test `Ad` table is empty at
+rollback time). There's no default to backfill `query_id` with even if Django could ask for
+one: Stage C already deleted the duplicate rows that carried the alternate `query` values, so
+that data is gone as of `0027`, not `0028` — this migration only makes the loss visible by being
+the first to touch the column. **Do not attempt a `migrate`-based rollback of a deployed Stage D
+against production** — see §0's backup instruction and `docs/BACKUPS.md` §9; restore-from-dump is
+the only recovery path once this has run against real data.
 
 Full-suite green plus `ruff check .` and `mypy .` is the gate.
 

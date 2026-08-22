@@ -3,6 +3,34 @@
 from django.db import migrations, models
 from django.db.models import Count
 
+#: Delivery-collision tie-break precedence (lower = keep this one over a higher-numbered
+#: status). Ranked by how far along the pipeline the delivery is, not by pk: a SENT delivery
+#: losing to a PENDING one on an arbitrary pk tie-break would silently re-announce an ad the
+#: sender already delivered. String literals rather than importing AdStatus — this is a
+#: historical migration and should stay isolated from the live model, same reasoning as not
+#: editing 0016 to use the current model (see AD_DELIVERY_SPLIT_SPEC.md §7).
+_STATUS_MERGE_PRECEDENCE = {
+    "SENT": 0,
+    "FAILED": 1,
+    "APPROVED": 2,
+    "PRICE_CHANGED": 3,
+    "PENDING": 4,
+    "SUPPRESSED": 5,
+    "REJECTED": 6,
+}
+
+
+def _keep_delivery(a, b):
+    """Which of two colliding deliveries for the same (ad, query) to keep. Ties within the
+    same status fall back to the lower pk — deterministic and boring beats clever, matching
+    the rest of this migration's philosophy.
+    """
+    rank_a = _STATUS_MERGE_PRECEDENCE.get(a.status, 99)
+    rank_b = _STATUS_MERGE_PRECEDENCE.get(b.status, 99)
+    if rank_a != rank_b:
+        return a if rank_a < rank_b else b
+    return a if a.pk < b.pk else b
+
 
 def merge_duplicate_ads(apps, schema_editor):
     """Merge duplicate `Ad` rows sharing a (marketplace, external_id), pre-split leftovers
@@ -50,7 +78,9 @@ def merge_duplicate_ads(apps, schema_editor):
             # A delivery collision (both duplicate rows have a delivery for the same
             # query) shouldn't happen, but the data is years old — see the bazos_id=0
             # sentinel in migration 0025 for a prior surprise of this shape. Deterministic
-            # rule: keep whichever delivery has the lower pk, drop the other.
+            # rule: keep the delivery ranked higher by _STATUS_MERGE_PRECEDENCE (falling
+            # back to lower pk on a tie), not just the lower pk outright — see its docstring
+            # for why raw pk order isn't safe on its own.
             for delivery in list(AdDelivery.objects.filter(ad=dup).order_by("pk")):
                 collision = AdDelivery.objects.filter(ad=canonical, query_id=delivery.query_id).first()
                 if collision is None:
@@ -59,7 +89,7 @@ def merge_duplicate_ads(apps, schema_editor):
                     continue
 
                 delivery_collisions_resolved += 1
-                if delivery.pk < collision.pk:
+                if _keep_delivery(delivery, collision) is delivery:
                     collision.delete()
                     delivery.ad_id = canonical.pk
                     delivery.save(update_fields=["ad"])
