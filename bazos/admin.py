@@ -250,6 +250,12 @@ class AdAdmin(admin.ModelAdmin):
         "seller_ad_counts",
     )
     inlines = (AdDeliveryInline, PriceChangeInline)
+    # query_count's Count(...) annotation forces a GROUP BY over the whole ad × addelivery
+    # join. Without this, the changelist paginator's separate "N results" count query runs
+    # that GROUP BY as a subquery aggregate over the FULL table on every page load — cheap
+    # today, not at scale. This only drops the extra full-table count; the displayed page's
+    # own query (bounded by page size) still pays the join, same as QueryAdmin.ad_count.
+    show_full_result_count = False
 
     def get_queryset(self, request):
         # distinct=True: an Ad matching several queries has one delivery per query, and

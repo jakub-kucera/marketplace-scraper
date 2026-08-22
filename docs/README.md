@@ -22,7 +22,8 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 | [`PIPELINE_REFACTOR.md`](refactor/PIPELINE_REFACTOR.md) | **Start here.** The live, authoritative stage-by-stage plan (Stages 1–9). Checkmarks are kept in sync with the code. |
 | [`STAGE8_VINTED_DESIGN.md`](refactor/STAGE8_VINTED_DESIGN.md) | Design doc for Stage 8 (VintedScraper + multi-marketplace `Query`). §3–§5 (the `Query` model fork, Option C) are the durable part. **§1–§2 were rewritten from a live probe on 2026-08-21** — `vinted-scraper` **4.0.0**, not 3.1.1; `description` is **not** in search results (so `load_full_description` is not a no-op); `promoted` maps to `topped`; no date field exists at all; and `vinted.cz` returns mostly Polish listings at FX-converted prices. §8 has a repro script. |
 | [`STAGE8_VINTED_SPEC.md`](refactor/STAGE8_VINTED_SPEC.md) | **Executable spec for Stage 8 — use this, not `PROMPTS.md` P3/P4**, which it supersedes. Four PRs. Leads with two schema blockers that crash on Postgres while passing on SQLite: `Ad.external_id` is an `IntegerField` and Vinted ids are 4.5× over `int4` max, and `publish_date`/`view_count` are NOT NULL with no default. Also pins the `parse_price` decimal trap (a `"6307.5"` price string parses to **63075**) and the two distinct `load_full_description` failure modes. |
-| [`AD_DELIVERY_SPLIT_SPEC.md`](refactor/AD_DELIVERY_SPLIT_SPEC.md) | **Executable spec for [`BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) #1 option B** — split `Ad` (scraped facts, globally unique on `(marketplace, external_id)`) from `AdDelivery` (per-`(ad, query)` pipeline state). Four staged PRs — **Stages A and C landed 2026-08-21** (`0026`, `0027`), Stage D outstanding; §3 pre-decides the six places where the plausible choice is wrong, notably that the dedup break must key on the **delivery**, not on global `Ad` existence, or a new query never backfills. The trigger for doing it is **before** broadening query scope. |
+| [`STAGE10_SBAZAR_SPEC.md`](refactor/STAGE10_SBAZAR_SPEC.md) | **Executable spec for Stage 10 (`SbazarScraper`)**, written to be followed literally — complete code, exact endpoints, verification command per step. Response shape re-verified live before finalising. Leads with a **blocking Tor pre-flight (§1.5)**: every measurement behind it was taken over a direct residential connection, but the scraper runs on the Tor-proxied shared session, so §3.2 carries a Vinted-style escape hatch if that probe fails. §6 pins four silent traps — the price-by-agreement flag that would otherwise reject every negotiable ad, a `short_description` that overflows its column on Postgres but not SQLite, and the reminder that Sbazar's integer prices need **neither** Aukro's float fix nor Zboží's hundredths fix. |
+| [`AD_DELIVERY_SPLIT_SPEC.md`](refactor/AD_DELIVERY_SPLIT_SPEC.md) | **Executable spec for [`BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) #1 option B** — split `Ad` (scraped facts, globally unique on `(marketplace, external_id)`) from `AdDelivery` (per-`(ad, query)` pipeline state). Four staged PRs — **all four landed 2026-08-21/22** (`0026`–`0028`); §3 pre-decides the six places where the plausible choice is wrong, notably that the dedup break must key on the **delivery**, not on global `Ad` existence, or a new query never backfills. `Ad.status`/`filter_reason`/`sent_at`/`send_attempts`/`query` no longer exist on `Ad` — pipeline state lives entirely on `AdDelivery`. **Post-merge review found and fixed a blocker** (an interrupted first run of a new query wedged permanently — see `PROMPTS.md` P26) plus several deferred follow-ups, also P26. |
 | [`PROMPTS.md`](refactor/PROMPTS.md) | Ready-to-run prompts for implementing not-yet-done stages, ordered by dependency. ⚠️ **P3/P4 (Vinted) are superseded** — they predate the live probe and are wrong in nine ways that crash rather than degrade; the entry there lists them and points at `STAGE8_VINTED_SPEC.md`. |
 | [`BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) | Deeper dives on ideas mined from the GitHub issue tracker that aren't part of any numbered stage — cross-query dedup, async scraping, images, price/CV enrichment, interval tuning, query syntax. **#11 (done, 2026-08-10)** records the shipped seller-identity work — transitive `(email_id, phone_id)` resolution, per-seller counts in the admin and Discord, and the `bazos_id=0` sentinel discovery that made 6.7% of ads share one fake seller. |
 | [`LLM_AD_REVIEW_DESIGN.md`](refactor/LLM_AD_REVIEW_DESIGN.md) | Proposal (not scheduled): an LLM-based ad judge as its own pipeline stage, and draft-only seller-outreach messages via Discord. Explicitly recommends against auto-sending messages to sellers without a separate decision. Its per-query multi-filter mechanism (§1) was independently built — see `PROMPTS.md` P17 (done). §2f now carries researched free-tier cost/ops figures and the Gemini EEA data-terms carve-out that makes a free tier viable for public ad text — added 2026-07-30 from [`MONETIZATION.md`](MONETIZATION.md) §4.7, which independently re-derived §2's "own stage, not a `FilterRule`" conclusion. |
@@ -40,12 +41,58 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 | 6–7 · Marketplace abstraction (`external_id`/`marketplace` rename, `MarketplaceScraper`/`Sendable` protocols) | ✅ done |
 | 8 · VintedScraper | ✅ done (2026-08-21/22) — `VintedScraper` registered, `Marketplace.VINTED` live, migrations through `0029_vinted_support`. Built from `STAGE8_VINTED_SPEC.md` after a live library probe. |
 | 9 · Real filter rules (`PriceRangeRule`, `BlocklistKeywordRule`, `RequiredKeywordRule`, `PublisherBlocklistRule`, `PriceDropRule`) | ✅ done |
+| 10 · `SbazarScraper` | spec'd, not started — [`STAGE10_SBAZAR_SPEC.md`](refactor/STAGE10_SBAZAR_SPEC.md). Gated on the §1.5 Tor pre-flight. |
 
 ## `marketplaces/` — which marketplace to add next
 
+**Study completed 2026-08-22.** 13 candidates assessed live under hard per-site request caps, in
+two tracks: Track A (CZ marketplaces to scrape) and Track B (reference-price sources, which produce
+no `Ad` rows and are ranked separately). **Verdict: build Sbazar.cz next**, then re-evaluate Aukro
+against three cheap probes.
+
 | Doc | What it's for |
 |---|---|
-| [`RESEARCH_BRIEF.md`](marketplaces/RESEARCH_BRIEF.md) | **A brief to hand to a research agent**, not a findings doc. Scopes an assessment of Czech marketplaces worth implementing after Bazos and Vinted — scale triage, the legal gate, transport discovery (official API → decompiled-app hidden API → web-app internals → HTML), fit against the current schema, and **what new workflows each marketplace would unlock that Bazos cannot**. Flags Aukro's auction format as the standout hypothesis, since completed auctions publish **realised** prices — the gap [`MONETIZATION.md`](MONETIZATION.md) §7.2c calls the single biggest one in the project. Notes that **Sbazar and Aukro currently have zero mentions anywhere in this repo**. Runs in **two passes** (scale-triage everything, then full workup on the top 3 only) under hard per-site request caps, and in **two tracks**: Track A, CZ marketplaces to scrape; Track B (§2c), reference-price sources — eBay completed listings and Heureka/Zboží — which close the same realised-price gap but produce no `Ad` rows and so are ranked separately. Output lands as `docs/marketplaces/<NAME>.md` plus a ranked `RECOMMENDATION.md`. |
+| [`RECOMMENDATION.md`](marketplaces/RECOMMENDATION.md) | **Start here.** The ranked answer, both tracks, with the argument for Sbazar-first spelled out *including the counter-argument that would flip it*. §3.4 lists the three probes that decide Aukro; §6 records the five methodology corrections the study produced. |
+| [`SUMMARY_TABLE.md`](marketplaces/SUMMARY_TABLE.md) | One-page table of all 13 candidates — verdict, measured scale, new capability, effort, legal posture — plus a technical comparison of the three survivors and the vantage-point table. |
+| [`SBAZAR.md`](marketplaces/SBAZAR.md) | **VIABLE — the recommended build.** Full workup: the unauthenticated `/api/v1/items/search` JSON API (no auth, `limit=1000`, **newest-first by default**), the mandatory field-mapping table, and the schema verdict — `id` is an integer, so **zero `Ad` migrations are needed**. |
+| [`AUKRO.md`](marketplaces/AUKRO.md) | **VIABLE — the capability play.** Aukro publishes **realised prices**: ended auctions are readable unauthenticated ≥2.75 years back, and `biddersCount > 0` + `price` is what an item actually sold for — the gap [`MONETIZATION.md`](MONETIZATION.md) §7.2c calls the single biggest in the project. §6a.1 tempers it: **~11% of sampled ended items had bids**, and buy-now listings expose no sold signal at all. |
+| [`RESEARCH_BRIEF.md`](marketplaces/RESEARCH_BRIEF.md) | The brief the study was run from — methodology, not findings. Still the reference for *how* to assess a marketplace: two passes, hard request caps, measured-vs-assumed discipline, and the §5b schema-fit checklist. |
+| [`pass1/`](marketplaces/pass1/) | Per-candidate triage files and the two Track B assessments. [`METHOD_CALIBRATION.md`](marketplaces/pass1/METHOD_CALIBRATION.md) is the one worth reading on its own — see below. [`RANKING.md`](marketplaces/pass1/RANKING.md) is the pre-Pass-2 commitment, kept with its corrections visible. |
+
+**What the study found, in five lines:**
+
+- **Sbazar** clears the bar and is cheap: `stavebnictvi-naradi` holds **26,738** active listings —
+  **3.4× Bazos's `naradi`** — behind a clean unauthenticated JSON API needing **no migrations**. It
+  adds **no new capability**, and has the **worst legal posture** of the three (`Disallow: /` plus
+  `Disallow: /api/`).
+- **Aukro** is the bigger prize and the better legal footing (899-byte `robots.txt`, cart/account
+  paths only), but its realised-price data is **sparse and auction-only**, it needs
+  [`PROMPTS.md`](refactor/PROMPTS.md) **P22 as a hard prerequisite** (its prices are floats —
+  `861.0` parses to `8610`, 10× too large), and it may be **incompatible with the Tor stack**.
+- **`bazos.sk` / `.at` / `.pl`** work and are near-zero engineering (`.sk` notebook 7,225 = 0.92× `.cz`),
+  but all three refused an IP `.cz` accepted *in the same minute* — **cheap breadth, not a hedge**.
+- **Track B is premature, with a named unblock condition**: both eBay and Heureka/Zboží fail on the
+  *near* side — `Ad` has no brand/model field to join *from*. eBay additionally has no route at all
+  (`findCompletedItems` decommissioned 2025-02-05; Insights is invitation-only).
+- **Everything else was rejected on measured scale or category fit** — Hyperinzerce, Annonce,
+  Mimibazar, Avizo, TipCars, Sauto, Sreality, Bezrealitky, Remix, Facebook Marketplace.
+
+⚠️ **Methodology lessons that outlive the verdicts** — all in
+[`pass1/METHOD_CALIBRATION.md`](marketplaces/pass1/METHOD_CALIBRATION.md) and
+[`RECOMMENDATION.md`](marketplaces/RECOMMENDATION.md) §6, and worth reading before the next study:
+
+1. The brief's own new/day method **failed twice on Bazos before working** — `topped` is the
+   *string* `"true"` (a truthiness check marks 100% of ads promoted), the method is impossible at
+   default page size (0 organic ads in 30), and **diurnal bias is ~2×**.
+2. **Sitemap `<lastmod>` overstated new/day by ~4×** — it conflates edits with creations.
+3. **A vendored third-party API spec is not evidence about the live service.** Pass 1 concluded
+   Aukro had no realised prices, reasoning from an Allegro WSDL found on GitHub; two of its three
+   inferences were later measured false.
+4. **A site's own headline count can be a trap** — Annonce reported 1,568 notebooks, of which
+   **1,544 were job ads** mentioning a laptop as a perk.
+5. **Vantage point changes answers.** Aukro, Sbazar and `bazos.sk` all refused a datacenter VPN IP
+   and cleared instantly from residential — but **eBay blocked the residential line just as hard**.
+   A residential IP is not a master key.
 
 ## `bazos-api/` — Bazos's undocumented mobile JSON API
 

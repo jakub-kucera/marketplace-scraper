@@ -46,30 +46,42 @@ class BazosQueryRunner:
             .first()
         )
 
-    def _resolve_ad(self, product: Ad) -> tuple[Ad, bool]:
-        """Global listing identity, shared across queries. Returns (ad, is_new_ad)."""
+    def _resolve_ad(self, product: Ad) -> Ad:
+        """Global listing identity, shared across queries."""
         existing = Ad.objects.filter(
             marketplace=product.marketplace, external_id=product.external_id
         ).first()
         if existing is not None:
-            return existing, False
+            return existing
         product.save()
-        return product, True
+        return product
 
     def _handle_new_product(self, product: Ad):
         """This query has found a listing it doesn't have a delivery for yet.
 
-        Resolves/creates the global Ad, fetches its full description only when nobody
-        has seen it before (a second query rediscovering a known listing must not re-pay
-        for the detail request), and creates this query's PENDING delivery.
+        Resolves/creates the global Ad, fetches its full description if it's still missing
+        — gated on the description, not on "did this query discover the ad first": a query
+        with load_full_description=True must not go without it forever just because a
+        different, non-fetching query happened to find the ad first — and creates this
+        query's PENDING delivery.
+
+        Idempotent via get_or_create: a `run_new_query` pass interrupted mid-pagination
+        (blacklist hit, a raise from `load_full_description`, SIGTERM) leaves partial rows
+        behind with no wrapping transaction, and the next pass replays from page 1. Without
+        get_or_create, the replay's second `AdDelivery` for an already-delivered ad violates
+        `unique_delivery_per_ad_query` and the query is wedged forever, raising the same
+        IntegrityError every pass.
         """
-        logger.info("New product %s", product)
-        self.new_product_counter += 1
-        ad, is_new_ad = self._resolve_ad(product)
-        if is_new_ad and self.query.load_full_description:
+        ad = self._resolve_ad(product)
+        if self.query.load_full_description and ad.full_description is None:
             self.scraper.load_full_description(ad)
             ad.save()
-        AdDelivery.objects.create(ad=ad, query=self.query, status=AdStatus.PENDING)
+        _, created = AdDelivery.objects.get_or_create(
+            ad=ad, query=self.query, defaults={"status": AdStatus.PENDING}
+        )
+        if created:
+            logger.info("New product %s", product)
+            self.new_product_counter += 1
 
     def run_new_query(self):
         self.query.new_query = False
@@ -83,8 +95,13 @@ class BazosQueryRunner:
                     break
 
             if self.query.ignore_first_run:
-                ad, _ = self._resolve_ad(product)
-                AdDelivery.objects.create(ad=ad, query=self.query, status=AdStatus.SUPPRESSED)
+                ad = self._resolve_ad(product)
+                # get_or_create, not create: same replay hazard as _handle_new_product — an
+                # interrupted-then-replayed backfill pass must not re-raise on a product
+                # this query already suppressed.
+                AdDelivery.objects.get_or_create(
+                    ad=ad, query=self.query, defaults={"status": AdStatus.SUPPRESSED}
+                )
             else:
                 self._handle_new_product(product)
 

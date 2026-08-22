@@ -691,6 +691,37 @@ and no IP was rotated. One seller's public shop page was fetched to characterise
 endpoint; the real name it returned is **redacted everywhere in this file** (§3.3) and no personal
 data was written to disk in this repository. Item titles quoted here are public listing text.
 
+## 8.5 Tor compatibility — measured 2026-08-22 ✅
+
+Closes the gap §9 flagged. The production stack runs `IP_CHANGER_TYPE=TOR`, so the scraper's
+requests egress through Tor, whereas every other measurement in this document was taken over a
+direct residential connection.
+
+```bash
+docker compose up -d tor_proxy
+curl -s --socks5-hostname 127.0.0.1:9050 https://icanhazip.com     # -> 192.42.116.110 (Tor exit)
+curl -s                                   https://icanhazip.com     # -> 88.146.116.43  (direct)
+
+curl -s -o /dev/null -w '%{http_code}\n' --socks5-hostname 127.0.0.1:9050 \
+  -H 'Accept: application/json' \
+  'https://www.sbazar.cz/api/v1/items/search?category_id=143&limit=3'
+```
+
+| Attempt | Status | Time |
+|---|---|---|
+| 1 | **200** | 0.47 s |
+| 2 | **200** | 0.34 s |
+| 3 | **200** | 0.43 s |
+
+**Sbazar's API serves Tor exit nodes normally.** No 403, no challenge, no rate limiting across
+3 requests. `SbazarScraper` can use the shared Tor-proxied session with no carve-out — unlike
+`VintedScraper`, and unlike Aukro, which was `403 cf-mitigated: challenge` on 3/3 through the same
+circuit (`AUKRO.md` §4.1).
+
+⚠️ Still not measured: sustained volume through Tor, and whether a *specific* exit node could be
+blocked where this one was not. Three requests through one circuit is a green light, not a
+guarantee.
+
 ## 9. Open questions / what I could not determine
 
 **Ranked by how much they would change a build decision.**
@@ -711,7 +742,7 @@ data was written to disk in this repository. Item titles quoted here are public 
    — it rules out an outright Tor IP-range block but is not the burst/sustained-load test this
    item still asks for, and exit-node rotation was not exercised. `SbazarScraper` therefore ships
    using the shared Tor-proxied session (no Vinted-style opt-out); see
-   `docs/refactor/STAGE9_SBAZAR_SPEC.md` §1.5 for the probe and §3.2 for the escape hatch that
+   `docs/refactor/STAGE10_SBAZAR_SPEC.md` §1.5 for the probe and §3.2 for the escape hatch that
    would apply if a future, larger probe finds otherwise.
 3. ⚠️ **Whether the API accepts a batch of ids in one request.** Bazos takes 210 `ad_id[]=` values,
    which is the whole reason P24's delisting design is affordable. **NOT OBSERVED for Sbazar.** If
