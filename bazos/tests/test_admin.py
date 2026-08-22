@@ -4,14 +4,17 @@ Covers the admin-friendly checkbox UI for `Query.filter_rule_names`, backed by
 `bazos.filters.RULE_REGISTRY` (see PROMPTS.md P17).
 """
 import json
+from datetime import timedelta
 
 import pytest
 from django import forms as dj_forms
 from django.contrib.auth import get_user_model
 from django.forms import model_to_dict
+from django.utils import timezone
 
-from bazos.admin import QueryAdminForm
+from bazos.admin import AdAdmin, QueryAdminForm
 from bazos.filters import RULE_REGISTRY
+from bazos.models import Ad
 from senders.models import Discord
 
 
@@ -117,6 +120,45 @@ def test_form_rejects_unknown_rule_name(query, valid_query_data):
 
     assert not form.is_valid()
     assert "filter_rule_names" in form.errors
+
+
+# ---------------------------------------------------------------------------
+# JSONField "empty value" gotcha — an emptied widget round-trips as None, not
+# {}/[], which would violate the NOT NULL column. clean_extra_params /
+# clean_filter_blocklist / clean_filter_required all guard against this.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_form_saves_blank_extra_params_widget_as_empty_dict(query, valid_query_data):
+    valid_query_data["extra_params"] = ""  # a real, genuinely-cleared Textarea
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.extra_params == {}
+
+
+@pytest.mark.django_db
+def test_form_saves_blank_filter_blocklist_widget_as_empty_list(query, valid_query_data):
+    valid_query_data["filter_blocklist"] = ""
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.filter_blocklist == []
+
+
+@pytest.mark.django_db
+def test_form_saves_blank_filter_required_widget_as_empty_list(query, valid_query_data):
+    valid_query_data["filter_required"] = ""
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.filter_required == []
 
 
 # ---------------------------------------------------------------------------
@@ -231,3 +273,33 @@ def test_changelist_renders_the_ad_count_column(admin_client_logged_in, query, m
 
     assert response.status_code == 200
     assert "column-ad_count" in response.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# AdAdmin.ordering — nulls_last (Vinted ads carry no publish_date)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_ad_admin_ordering_puts_null_publish_date_last():
+    """Plain "-publish_date" would put every null (Vinted) ad above the newest dated
+    (Bazos) ad — Postgres's DESC defaults to NULLS FIRST. AdAdmin.ordering must use
+    nulls_last so the changelist's "newest first" reads correctly once Vinted ads exist.
+    """
+    now = timezone.now()
+
+    def make(external_id, marketplace, publish_date):
+        return Ad.objects.create(
+            external_id=external_id, marketplace=marketplace,
+            url=f"https://example.test/{external_id}", name="x", price_raw="1 Kč",
+            location="", publish_date=publish_date, short_description="", publisher_name="",
+        )
+
+    older = make(1, "bazos", now - timedelta(days=1))
+    newer = make(2, "bazos", now)
+    no_date = make(3, "vinted", None)
+
+    # getattr, not AdAdmin.ordering directly: mypy can't resolve the attribute's type
+    # through the base class's `# type: ignore[assignment]` on the F().desc() value.
+    ordered_ids = list(Ad.objects.order_by(*getattr(AdAdmin, "ordering")).values_list("pk", flat=True))
+
+    assert ordered_ids == [newer.pk, older.pk, no_date.pk]

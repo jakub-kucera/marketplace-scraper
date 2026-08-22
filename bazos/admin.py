@@ -109,9 +109,15 @@ class QueryAdminForm(forms.ModelForm):
 
     def clean_extra_params(self):
         # `{}` is one of Django's JSONField "empty values" (like `[]` for
-        # filter_blocklist/filter_required), so an emptied widget round-trips as None
-        # rather than `{}` — which would violate the NOT NULL column.
+        # filter_blocklist/filter_required below), so an emptied widget round-trips as
+        # None rather than `{}` — which would violate the NOT NULL column.
         return self.cleaned_data.get("extra_params") or {}
+
+    def clean_filter_blocklist(self):
+        return self.cleaned_data.get("filter_blocklist") or []
+
+    def clean_filter_required(self):
+        return self.cleaned_data.get("filter_required") or []
 
 
 @admin.register(Query)
@@ -233,7 +239,10 @@ class AdAdmin(admin.ModelAdmin):
         "query_count",
         "created",
     )
-    ordering = ("-publish_date",)
+    # Plain "-publish_date" would put every Vinted ad (publish_date is always null —
+    # see STAGE8_VINTED_SPEC.md §2.2) above the newest Bazos ads: Postgres's DESC
+    # defaults to NULLS FIRST. nulls_last keeps "newest first" meaning what it says.
+    ordering = (models.F("publish_date").desc(nulls_last=True),)  # type: ignore[assignment]  # django-stubs types ordering as Sequence[str]; F().desc() is valid at runtime
     list_filter = ("marketplace", "deliveries__query", HasFullDescriptionFilter)
     search_fields = ("name", "external_id", "url")
     readonly_fields = (

@@ -9,10 +9,19 @@ from unittest.mock import MagicMock
 import pytest
 from vinted_scraper.models import VintedItem
 
+import bazos.scraping.vinted.vinted_scraper as vinted_scraper_module
 from bazos.const import VINTED_BASE_URL, VINTED_PAGE_SIZE
 from bazos.filters import parse_price
 from bazos.models import Ad, Marketplace
 from bazos.scraping.vinted.vinted_scraper import VintedScraper
+
+
+@pytest.fixture(autouse=True)
+def no_sleep(monkeypatch):
+    """load_full_description paces itself (VINTED_DETAIL_WAIT_TIME) — don't actually
+    wait in the test suite. Individual tests can re-patch `sleep` again to observe calls.
+    """
+    monkeypatch.setattr(vinted_scraper_module, "sleep", lambda s: None)
 
 
 def make_item(**overrides) -> VintedItem:
@@ -30,12 +39,12 @@ def make_item(**overrides) -> VintedItem:
     return VintedItem(**defaults)
 
 
-def make_ad_stub(external_id: int, full_description=None) -> Ad:
+def make_ad_stub(external_id: int, full_description=None, url: str | None = None) -> Ad:
     """A plain, unsaved Ad — enough for load_full_description, no DB needed."""
     return Ad(
         external_id=external_id,
         marketplace=Marketplace.VINTED.value,
-        url=f"https://www.vinted.cz/items/{external_id}-x",
+        url=url or f"https://www.vinted.cz/items/{external_id}-x",
         name="x",
         price_raw="1 CZK",
         location="",
@@ -98,9 +107,30 @@ class TestMapItem:
         reloaded = Ad.objects.get(pk=ad.pk)
         assert reloaded.external_id == 9734229070
 
+    def test_external_id_field_is_widened_to_biginteger(self):
+        """The save/reload round trip above proves nothing by itself — SQLite has no
+        fixed-width integer columns, so it would pass identically against a plain
+        IntegerField too (see STAGE8_VINTED_SPEC.md §2.1; Postgres is what actually
+        enforces int4's 2,147,483,647 cap). Pin the field type directly.
+        """
+        assert Ad._meta.get_field("external_id").get_internal_type() == "BigIntegerField"
+
+    def test_skips_item_missing_id(self):
+        assert VintedScraper._map_item(make_item(id=None)) is None
+
+    def test_skips_item_missing_title(self):
+        assert VintedScraper._map_item(make_item(title=None)) is None
+
+    def test_skips_item_missing_url(self):
+        assert VintedScraper._map_item(make_item(url=None)) is None
+
+    def test_skips_item_with_no_usable_price(self):
+        item = make_item(total_item_price=None, price=None)
+        assert VintedScraper._map_item(item) is None
+
 
 # ---------------------------------------------------------------------------
-# _format_price — the decimal trap
+# _format_price — the decimal trap, and missing-data guards
 # ---------------------------------------------------------------------------
 
 class TestFormatPrice:
@@ -114,9 +144,21 @@ class TestFormatPrice:
         item = make_item(total_item_price=None, price=100.0, currency="CZK")
         assert VintedScraper._format_price(item) == "100 CZK"
 
+    def test_returns_none_when_both_prices_missing(self):
+        item = make_item(total_item_price=None, price=None)
+        assert VintedScraper._format_price(item) is None
+
+    def test_returns_none_when_currency_missing(self):
+        """Never fall back to the literal string "None" as a unit — that's both
+        cosmetically broken and, since price_raw comparison is a plain string compare
+        (run_existing_query), a currency flip alone would register as a price change.
+        """
+        item = make_item(currency=None)
+        assert VintedScraper._format_price(item) is None
+
 
 # ---------------------------------------------------------------------------
-# run_query — params, base_url handling, pagination
+# run_query — params, base_url handling, pagination, malformed rows
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
@@ -130,6 +172,23 @@ class TestRunQuery:
 
         params = fake_client.search.call_args.args[0]
         assert params["order"] == "newest_first"
+
+    def test_extra_params_cannot_override_mandatory_order_and_per_page(self, query):
+        """extra_params is spread into the params dict for pass-through keys like
+        catalog_ids, but order/per_page are mandatory — dedup assumes newest-first and
+        the pagination sentinel assumes VINTED_PAGE_SIZE exactly. A query with
+        extra_params={"order": ...} must not be able to silently defeat either.
+        """
+        query.extra_params = {"order": "relevance", "per_page": 10}
+        fake_client = MagicMock()
+        fake_client.search.return_value = []
+        scraper = scraper_with_client(fake_client)
+
+        list(scraper.run_query(query))
+
+        params = fake_client.search.call_args.args[0]
+        assert params["order"] == "newest_first"
+        assert params["per_page"] == VINTED_PAGE_SIZE
 
     def test_base_url_is_stripped_from_search_params(self, query):
         query.extra_params = {"base_url": "https://www.vinted.sk"}
@@ -177,9 +236,24 @@ class TestRunQuery:
         assert fake_client.search.call_count == 2
         assert len(ads) == VINTED_PAGE_SIZE
 
+    def test_malformed_row_is_skipped_without_aborting_the_pass(self, query):
+        """One bad row (plausible under the anti-bot throttling STAGE8_VINTED_DESIGN.md
+        §1a measured) must not raise out of the generator — that would abort the rest of
+        the pass, the exact failure mode load_full_description's try/except exists to
+        avoid one function over.
+        """
+        items = [make_item(id=1), make_item(id=None), make_item(id=3)]
+        fake_client = MagicMock()
+        fake_client.search.return_value = items
+        scraper = scraper_with_client(fake_client)
+
+        ads = list(scraper.run_query(query))
+
+        assert [ad.external_id for ad in ads] == [1, 3]
+
 
 # ---------------------------------------------------------------------------
-# load_full_description — both failure modes
+# load_full_description — both failure modes, pacing, base-url derivation
 # ---------------------------------------------------------------------------
 
 class TestLoadFullDescription:
@@ -218,21 +292,71 @@ class TestLoadFullDescription:
         assert result is ad
         assert result.full_description is None
 
-    def test_run_query_completes_when_one_detail_fetch_raises(self):
-        """The regression that matters: a caller looping load_full_description with no
-        try/except (BazosQueryRunner._handle_new_product does exactly this) must not
-        have its loop cut short by one sold/deleted listing.
-        """
-        ads = [make_ad_stub(1), make_ad_stub(2), make_ad_stub(3)]
+    def test_load_full_description_paces_between_requests(self, monkeypatch):
+        sleep_calls = []
+        monkeypatch.setattr(vinted_scraper_module, "sleep", lambda s: sleep_calls.append(s))
+        ad = make_ad_stub(123)
         fake_client = MagicMock()
-        fake_client.item.side_effect = [
+        fake_client.item.return_value = make_item(id=123, description="d")
+        scraper = scraper_with_client(fake_client)
+
+        scraper.load_full_description(ad)
+
+        assert len(sleep_calls) == 1
+
+    def test_load_full_description_paces_even_on_runtime_error(self, monkeypatch):
+        sleep_calls = []
+        monkeypatch.setattr(vinted_scraper_module, "sleep", lambda s: sleep_calls.append(s))
+        ad = make_ad_stub(123)
+        fake_client = MagicMock()
+        fake_client.item.side_effect = RuntimeError("404")
+        scraper = scraper_with_client(fake_client)
+
+        scraper.load_full_description(ad)
+
+        assert len(sleep_calls) == 1
+
+    @pytest.mark.django_db
+    def test_load_full_description_uses_ads_own_domain_not_last_run_query(self, query):
+        """Regression for the _last_base_url coupling that used to exist here:
+        load_full_description must derive its client from ad.url, not from whichever
+        base_url run_query happened to touch most recently on this scraper instance.
+        """
+        cz_client = MagicMock()
+        cz_client.search.return_value = []
+        sk_client = MagicMock()
+        sk_client.item.return_value = make_item(id=1, description="sk desc")
+
+        scraper = VintedScraper()
+        scraper._clients[VINTED_BASE_URL] = cz_client
+        scraper._clients["https://www.vinted.sk"] = sk_client
+
+        list(scraper.run_query(query))  # touches the .cz client last
+
+        sk_ad = make_ad_stub(1, url="https://www.vinted.sk/items/1-x")
+        result = scraper.load_full_description(sk_ad)
+
+        assert result.full_description == "sk desc"
+        cz_client.item.assert_not_called()
+
+    @pytest.mark.django_db
+    def test_run_query_then_load_full_description_survives_one_detail_failure(self, query):
+        """The regression that matters, exercised through the real caller shape:
+        BazosQueryRunner._handle_new_product iterates `scraper.run_query(query)` and
+        calls `scraper.load_full_description(ad)` per ad with no try/except. One ad's
+        detail fetch raising RuntimeError (sold/deleted between search and this call)
+        must not cut that loop short.
+        """
+        search_client = MagicMock()
+        search_client.search.return_value = [make_item(id=1), make_item(id=2), make_item(id=3)]
+        search_client.item.side_effect = [
             make_item(id=1, description="d1"),
             RuntimeError("Cannot perform API call to endpoint /items/2, error code: 404"),
             make_item(id=3, description="d3"),
         ]
-        scraper = scraper_with_client(fake_client)
+        scraper = scraper_with_client(search_client)
 
-        processed = [scraper.load_full_description(ad) for ad in ads]
+        processed = [scraper.load_full_description(ad) for ad in scraper.run_query(query)]
 
         assert [a.external_id for a in processed] == [1, 2, 3]
         assert processed[0].full_description == "d1"
