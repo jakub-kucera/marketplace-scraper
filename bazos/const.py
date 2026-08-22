@@ -37,6 +37,23 @@ VINTED_PAGE_SIZE: Final[int] = 96
 # that never returns a short page) cannot page forever.
 VINTED_MAX_PAGES: Final[int] = 20
 
+SBAZAR_BASE_URL: Final[str] = "https://www.sbazar.cz"
+# limit=1000 is served, but 100 keeps a single failed request cheap and stays far
+# below anything that might later be rate-limited. Measured payload ~1.28 KB/item.
+SBAZAR_PAGE_SIZE: Final[int] = 100
+# Safety stop so a mis-specified query cannot walk a 26k-item category forever.
+SBAZAR_MAX_PAGES: Final[int] = 20
+# How many consecutive already-known, non-topped ads BazosQueryRunner.run_existing_query
+# tolerates before stopping (see SbazarScraper.dedup_break_streak). Sbazar's default
+# ordering is sorting_date (~= edit time), not creation time, so an old already-known ad
+# can resurface above genuinely new listings just because it was edited — see
+# docs/marketplaces/SBAZAR.md §5b.4 and docs/refactor/STAGE9_SBAZAR_SPEC.md §11.
+# NOT a measured value (unlike the constants above): derived from SBAZAR.md §2.1's
+# bump rate for the busiest measured category (tools, ~19 bumps/hour) over the longest
+# poll gap (90 min, night-doubled INTERVAL_UPPER), ~28 in the worst case, rounded up with
+# margin. Revisit using QueryRun.rows_seen/new_ads_count once a real Sbazar Query has run.
+SBAZAR_DEDUP_BREAK_STREAK: Final[int] = 40
+
 BAZOS_PAGE_WAIT_TIME: Final[tuple[int, int]] = (2, 5)
 
 # ---------------------------------------------------------------------------

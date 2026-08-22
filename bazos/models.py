@@ -6,7 +6,7 @@ from urllib.parse import urljoin, urlparse
 from django_extensions.db.models import TimeStampedModel
 from django.db import models
 
-from bazos.const import BAZOS_BASE_URL, VINTED_BASE_URL
+from bazos.const import BAZOS_BASE_URL, SBAZAR_BASE_URL, VINTED_BASE_URL
 
 
 class Section(models.Model):  # type: ignore[django-manager-missing]
@@ -43,6 +43,7 @@ class Marketplace(models.TextChoices):
     BAZOS     = "bazos",     "Bazos"
     BAZOS_API = "bazos_api", "Bazos (API)"
     VINTED    = "vinted",    "Vinted"
+    SBAZAR    = "sbazar",    "Sbazar"
 
 
 class Query(TimeStampedModel):
@@ -108,6 +109,8 @@ class Query(TimeStampedModel):
     def url(self):
         if self.marketplace == Marketplace.VINTED:
             return self.extra_params.get("base_url", VINTED_BASE_URL)
+        if self.marketplace == Marketplace.SBAZAR:
+            return self.extra_params.get("base_url", SBAZAR_BASE_URL)
         if self.section:
             return self.section.full_url
         elif self.category:
