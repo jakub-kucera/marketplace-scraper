@@ -526,3 +526,107 @@ def test_dedup_break_still_stops_on_first_known_non_topped_ad_for_this_query(que
 
     assert not Ad.objects.filter(external_id=222).exists()
     assert runner.new_product_counter == 0
+
+
+# --- dedup_break_streak (spec §11) — a scraper whose default order isn't creation
+# time (Sbazar) can override this so the walk tolerates known-but-recently-edited
+# ads instead of giving up on the first one. See run_existing_query's docstring.
+
+@pytest.mark.django_db
+def test_streak_of_one_known_ad_does_not_break_when_streak_threshold_is_higher(query, make_ad, make_delivery):
+    known = make_ad(query, bazos_id=111)
+    known.save()
+    make_delivery(known, query)
+
+    products = [
+        make_ad(query, bazos_id=111, topped=False),  # known, but only 1 of 3 needed to break
+        make_ad(query, bazos_id=222, topped=False),  # must still be reached
+    ]
+    runner = make_runner(query)
+    runner.scraper.dedup_break_streak = 3
+    with patch.object(runner.scraper, "run_query", return_value=iter(products)):
+        runner.run_existing_query()
+
+    assert Ad.objects.filter(external_id=222).exists()
+    assert runner.new_product_counter == 1
+
+
+@pytest.mark.django_db
+def test_breaks_once_consecutive_known_streak_reaches_threshold(query, make_ad, make_delivery):
+    known_ids = [111, 222, 333]
+    for bazos_id in known_ids:
+        known = make_ad(query, bazos_id=bazos_id)
+        known.save()
+        make_delivery(known, query)
+
+    products = [
+        make_ad(query, bazos_id=111, topped=False),  # streak=1
+        make_ad(query, bazos_id=222, topped=False),  # streak=2
+        make_ad(query, bazos_id=333, topped=False),  # streak=3 → break
+        make_ad(query, bazos_id=444, topped=False),  # never reached
+    ]
+    runner = make_runner(query)
+    runner.scraper.dedup_break_streak = 3
+    with patch.object(runner.scraper, "run_query", return_value=iter(products)):
+        runner.run_existing_query()
+
+    assert not Ad.objects.filter(external_id=444).exists()
+    assert runner.new_product_counter == 0
+
+
+@pytest.mark.django_db
+def test_new_ad_resets_the_known_streak(query, make_ad, make_delivery):
+    """The interleaved-bump scenario the streak exists for: a known ad resurfacing
+    above genuinely new ones must not stall the walk, as long as new ads keep turning
+    up before the streak threshold is reached.
+    """
+    known_a = make_ad(query, bazos_id=111)
+    known_a.save()
+    make_delivery(known_a, query)
+    known_b = make_ad(query, bazos_id=333)
+    known_b.save()
+    make_delivery(known_b, query)
+
+    products = [
+        make_ad(query, bazos_id=111, topped=False),  # known, streak=1
+        make_ad(query, bazos_id=222, topped=False),  # new → resets streak to 0
+        make_ad(query, bazos_id=333, topped=False),  # known, streak=1 again, not 2
+        make_ad(query, bazos_id=444, topped=False),  # new, must still be reached
+    ]
+    runner = make_runner(query)
+    runner.scraper.dedup_break_streak = 2
+    with patch.object(runner.scraper, "run_query", return_value=iter(products)):
+        runner.run_existing_query()
+
+    assert Ad.objects.filter(external_id=222).exists()
+    assert Ad.objects.filter(external_id=444).exists()
+    assert runner.new_product_counter == 2
+
+
+@pytest.mark.django_db
+def test_topped_known_ad_does_not_count_toward_the_streak(query, make_ad, make_delivery):
+    known = make_ad(query, bazos_id=111)
+    known.save()
+    make_delivery(known, query)
+
+    products = [
+        make_ad(query, bazos_id=111, topped=True),   # known, TOP → never counted
+        make_ad(query, bazos_id=111, topped=True),
+        make_ad(query, bazos_id=111, topped=True),
+        make_ad(query, bazos_id=222, topped=False),  # must still be reached
+    ]
+    runner = make_runner(query)
+    runner.scraper.dedup_break_streak = 3
+    with patch.object(runner.scraper, "run_query", return_value=iter(products)):
+        runner.run_existing_query()
+
+    assert Ad.objects.filter(external_id=222).exists()
+    assert runner.new_product_counter == 1
+
+
+def test_default_streak_is_one_when_scraper_does_not_define_it(query):
+    """Bazos/BazosApi/Vinted don't set dedup_break_streak — confirms the getattr
+    default preserves the original break-on-first-hit behaviour for them.
+    """
+    runner = make_runner(query)
+    assert not hasattr(runner.scraper, "dedup_break_streak")

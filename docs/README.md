@@ -38,8 +38,14 @@ Planning and research notes for the scraper. Runtime/architecture docs live in t
 | 4 · Price history (`PriceChange` model) | ✅ done |
 | 5 · Query priority | not started |
 | 6–7 · Marketplace abstraction (`external_id`/`marketplace` rename, `MarketplaceScraper`/`Sendable` protocols) | ✅ done |
-| 8 · VintedScraper | not started — **spec ready and library probed live** (2026-08-21), see `STAGE8_VINTED_SPEC.md`. Two schema blockers must land first. |
+| 8 · VintedScraper | ✅ done (2026-08-21/22) — `VintedScraper` registered, `Marketplace.VINTED` live, migrations through `0029_vinted_support`. Built from `STAGE8_VINTED_SPEC.md` after a live library probe. |
 | 9 · Real filter rules (`PriceRangeRule`, `BlocklistKeywordRule`, `RequiredKeywordRule`, `PublisherBlocklistRule`, `PriceDropRule`) | ✅ done |
+
+## `marketplaces/` — which marketplace to add next
+
+| Doc | What it's for |
+|---|---|
+| [`RESEARCH_BRIEF.md`](marketplaces/RESEARCH_BRIEF.md) | **A brief to hand to a research agent**, not a findings doc. Scopes an assessment of Czech marketplaces worth implementing after Bazos and Vinted — scale triage, the legal gate, transport discovery (official API → decompiled-app hidden API → web-app internals → HTML), fit against the current schema, and **what new workflows each marketplace would unlock that Bazos cannot**. Flags Aukro's auction format as the standout hypothesis, since completed auctions publish **realised** prices — the gap [`MONETIZATION.md`](MONETIZATION.md) §7.2c calls the single biggest one in the project. Notes that **Sbazar and Aukro currently have zero mentions anywhere in this repo**. Runs in **two passes** (scale-triage everything, then full workup on the top 3 only) under hard per-site request caps, and in **two tracks**: Track A, CZ marketplaces to scrape; Track B (§2c), reference-price sources — eBay completed listings and Heureka/Zboží — which close the same realised-price gap but produce no `Ad` rows and so are ranked separately. Output lands as `docs/marketplaces/<NAME>.md` plus a ranked `RECOMMENDATION.md`. |
 
 ## `bazos-api/` — Bazos's undocumented mobile JSON API
 

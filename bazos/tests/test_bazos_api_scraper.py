@@ -294,12 +294,16 @@ class TestLoadFullDescription:
 
 @pytest.mark.django_db
 class TestScraperRegistry:
-    def test_registry_includes_both_scrapers(self):
+    def test_registry_includes_all_scrapers(self):
         from bazos.scraping.bazos_query_runner import _build_scrapers
+        from bazos.scraping.sbazar.sbazar_scraper import SbazarScraper
+        from bazos.scraping.vinted.vinted_scraper import VintedScraper
 
         scrapers = _build_scrapers(MagicMock())
         assert isinstance(scrapers["bazos"], BazosScraper)
         assert isinstance(scrapers["bazos_api"], BazosApiScraper)
+        assert isinstance(scrapers["vinted"], VintedScraper)
+        assert isinstance(scrapers["sbazar"], SbazarScraper)
 
     def test_default_query_marketplace_still_resolves_html_scraper(self, query):
         from bazos.scraping.bazos_query_runner import BazosQueryRunner
