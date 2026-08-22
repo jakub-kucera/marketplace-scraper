@@ -145,7 +145,7 @@ Corrected against the probe. Changed rows are marked ⚠️.
 | Session management | Caller passes `requests.Session` | Library manages cookies internally |
 | Tor / IP rotation | Required — Bazos bans IPs | **Must NOT use** — Vinted bans proxies/VPNs |
 | `check_blacklisted()` | Real HTTP 403 probe | Always returns `False` (no equivalent) |
-| `load_full_description()` | Fetches a second detail page | ⚠️ **Also fetches** — one `item()` call per ad, OpenGraph-scraped, **succeeds ~5/8 of the time**. Not a no-op. |
+| `load_full_description()` | Fetches a second detail page | ⚠️ **Also fetches** — one `item()` call per ad, OpenGraph-scraped, **succeeds ~5/8 of the time**. Not a no-op. Two failure modes: a sparse `{'id'}` dict on 200, **and a raised `RuntimeError` on non-200** (sold/deleted listing). Both must be caught — see the spec §4.6. |
 | Pagination | Manual URL construction, stop on empty page | ⚠️ `per_page`, **server-capped at 96** (asked 200, got 96) |
 | Ordering | Newest-first by default | ⚠️ **Must pass `order: "newest_first"` explicitly** — default order is relevance, which silently breaks the dedup walk |
 | Publisher tracking | `EmailPublisher` / `PhonePublisher` FKs | ⚠️ Both FKs `null`, but a real `user` object exists — see §1d |
@@ -296,11 +296,20 @@ Corrected 2026-08-21 — the original table predated the `Marketplace` enum (`03
   `continue` past known topped ads, `break` on the first known non-topped one. **No
   Vinted-specific variant is needed**, provided `order: "newest_first"` is always sent.
 
-- [x] **Rate limiting.** Not observed. 6 back-to-back searches all returned HTTP 200 in ~0.30s
-  with no `429` and no backoff. At this project's volume (one search per query per pass) the
-  existing runner sleep is sufficient — **do not add a bespoke backoff**. Revisit only if a
-  `429` is ever actually seen; note this was a single point-in-time observation and the
-  unofficial API can change without notice.
+- [x] **Rate limiting.** No `429`, but **not entirely clean either** — corrected after further
+  probing. 6 back-to-back searches all returned HTTP 200 in ~0.30s with no backoff, so at this
+  project's volume (one search per query per pass) the existing runner sleep is sufficient and
+  **no bespoke backoff is needed**.
+
+  ⚠️ However, after ~30 requests in one session the **session-cookie bootstrap failed** with
+  `RuntimeError: Cannot fetch session cookie from https://www.vinted.cz`, succeeding immediately
+  on retry. Response headers show **Cloudflare (`__cf_bm`) and DataDome** in front of the site,
+  so this is intermittent anti-bot challenge rather than a rate-limit counter. The library
+  already retries the cookie fetch 3× internally.
+
+  Operational consequence: `VintedApiClient(base_url)` **can raise**, so expect occasional
+  failed `QueryRun` rows on Vinted queries that are not bugs. Handling is specified in
+  [`STAGE8_VINTED_SPEC.md`](STAGE8_VINTED_SPEC.md) §4.2.
 
 ---
 

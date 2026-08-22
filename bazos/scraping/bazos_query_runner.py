@@ -6,6 +6,7 @@ from bazos.models import Ad, AdDelivery, AdStatus, Marketplace, PriceChange, Que
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 from bazos.scraping.marketplace import MarketplaceScraper
+from bazos.scraping.vinted.vinted_scraper import VintedScraper
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ def _build_scrapers(session: requests.Session) -> dict[str, MarketplaceScraper]:
     return {
         Marketplace.BAZOS.value: BazosScraper(session),
         Marketplace.BAZOS_API.value: BazosApiScraper(session),
-        # Marketplace.VINTED.value: VintedScraper(session),   # Stage 8
+        Marketplace.VINTED.value: VintedScraper(session),
     }
 
 

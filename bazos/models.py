@@ -6,7 +6,7 @@ from urllib.parse import urljoin, urlparse
 from django_extensions.db.models import TimeStampedModel
 from django.db import models
 
-from bazos.const import BAZOS_BASE_URL
+from bazos.const import BAZOS_BASE_URL, VINTED_BASE_URL
 
 
 class Section(models.Model):  # type: ignore[django-manager-missing]
@@ -42,7 +42,7 @@ class Category(models.Model):  # type: ignore[django-manager-missing]
 class Marketplace(models.TextChoices):
     BAZOS     = "bazos",     "Bazos"
     BAZOS_API = "bazos_api", "Bazos (API)"
-    # VINTED  = "vinted",     "Vinted"  # Stage 8 — add once VintedScraper is registered
+    VINTED    = "vinted",    "Vinted"
 
 
 class Query(TimeStampedModel):
@@ -68,6 +68,17 @@ class Query(TimeStampedModel):
     filter_blocklist = models.JSONField(default=list, blank=True, help_text="Reject if name/description contains any of these phrases.")
     filter_required = models.JSONField(default=list, blank=True, help_text="Reject unless name/description contains at least one of these phrases.")
     filter_rule_names = models.JSONField(default=list, blank=True, help_text="Which filter rules to apply (empty = all default rules). Valid names: price_range, blocklist_keyword, required_keyword, publisher_blocklist, price_drop.")
+
+    extra_params = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Marketplace-specific search params. Ignored by Bazos. Vinted: "
+            '{"base_url": "https://www.vinted.sk", "catalog_ids": [1194]}. '
+            "Vinted text search is fuzzy — a 'macbook' search returns unrelated items — so "
+            "setting filter_required is strongly recommended on Vinted queries."
+        ),
+    )
 
     sender = models.ForeignKey('senders.Discord', on_delete=models.SET_NULL, null=True, related_name='queries')
     # logger_id
@@ -95,6 +106,8 @@ class Query(TimeStampedModel):
 
     @property
     def url(self):
+        if self.marketplace == Marketplace.VINTED:
+            return self.extra_params.get("base_url", VINTED_BASE_URL)
         if self.section:
             return self.section.full_url
         elif self.category:
@@ -252,7 +265,7 @@ class AdStatus(models.TextChoices):
 
 
 class Ad(TimeStampedModel):
-    external_id = models.IntegerField(db_index=True)
+    external_id = models.BigIntegerField(db_index=True)
     marketplace = models.CharField(max_length=20, choices=Marketplace.choices, default=Marketplace.BAZOS, db_index=True)
     url = models.URLField(max_length=1024)  # TODO unique=True
 
@@ -261,8 +274,8 @@ class Ad(TimeStampedModel):
     name = models.CharField(max_length=120)
     price_raw = models.CharField(max_length=30)  # TODO make int and add column for alternatives (Nabídněte, V textu, Dohodou)
     location = models.CharField(max_length=128)
-    view_count = models.IntegerField(help_text="View count at the time of discovery")
-    publish_date = models.DateTimeField()
+    view_count = models.IntegerField(null=True, blank=True, help_text="View count at the time of discovery. Null when the marketplace doesn't expose it (e.g. Vinted).")
+    publish_date = models.DateTimeField(null=True, blank=True, help_text="Null when the marketplace doesn't expose it (e.g. Vinted) — never synthesise a value here.")
     # TODO add topped count
     topped = models.BooleanField(default=False, help_text="Topped ad, publish date is not accurate")
     short_description = models.CharField(max_length=300)
