@@ -28,6 +28,15 @@ NEW_PRODUCT_LOAD_MAX: Final[int] = 50
 
 MAX_ATTEMPTS = 5
 
+VINTED_BASE_URL: Final[str] = "https://www.vinted.cz"
+# Server-enforced hard cap on the search `per_page` param, confirmed live —
+# see docs/refactor/STAGE8_VINTED_SPEC.md §3. Requesting more (e.g. 200) is
+# silently clamped back down to this value.
+VINTED_PAGE_SIZE: Final[int] = 96
+# Safety bound on run_query's page loop, so a misbehaving response (e.g. one
+# that never returns a short page) cannot page forever.
+VINTED_MAX_PAGES: Final[int] = 20
+
 BAZOS_PAGE_WAIT_TIME: Final[tuple[int, int]] = (2, 5)
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,8 @@ class MarketplaceScraper(Protocol):
     """Structural protocol for marketplace scrapers.
 
     Implementations: :class:`bazos.scraping.bazos.bazos_scraper.BazosScraper`
-    Future:          VintedScraper (Stage 8)
+                     :class:`bazos.scraping.bazos.bazos_api_scraper.BazosApiScraper`
+                     :class:`bazos.scraping.vinted.vinted_scraper.VintedScraper`
     """
     marketplace: str
 

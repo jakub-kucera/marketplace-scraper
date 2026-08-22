@@ -26,6 +26,7 @@ django-environ = "^0.10.0"
 django-db-logger = "*"
 sentry-sdk = {extras = ["django"], version = "*"}
 psycopg2-binary = "^2.9.5"
+vinted-scraper = "^4.0.0"
 
 
 [tool.poetry.group.dev.dependencies]

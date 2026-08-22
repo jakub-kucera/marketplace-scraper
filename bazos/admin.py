@@ -107,6 +107,12 @@ class QueryAdminForm(forms.ModelForm):
         model = Query
         fields = "__all__"
 
+    def clean_extra_params(self):
+        # `{}` is one of Django's JSONField "empty values" (like `[]` for
+        # filter_blocklist/filter_required), so an emptied widget round-trips as None
+        # rather than `{}` — which would violate the NOT NULL column.
+        return self.cleaned_data.get("extra_params") or {}
+
 
 @admin.register(Query)
 class QueryAdmin(admin.ModelAdmin):
