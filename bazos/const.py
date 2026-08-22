@@ -36,6 +36,12 @@ VINTED_PAGE_SIZE: Final[int] = 96
 # Safety bound on run_query's page loop, so a misbehaving response (e.g. one
 # that never returns a short page) cannot page forever.
 VINTED_MAX_PAGES: Final[int] = 20
+# A new_query backfill can fire up to NEW_PRODUCT_LOAD_MAX unpaced item() detail
+# requests in a row — the exact kind of burst STAGE8_VINTED_DESIGN.md §1a measured
+# tripping the Cloudflare/DataDome session-cookie bootstrap. Search itself doesn't need
+# this (6 rapid searches measured clean, no 429 — see STAGE8_VINTED_SPEC.md §9); only
+# the detail-fetch burst does.
+VINTED_DETAIL_WAIT_TIME: Final[tuple[float, float]] = (0.5, 1.5)
 
 SBAZAR_BASE_URL: Final[str] = "https://www.sbazar.cz"
 # limit=1000 is served, but 100 keeps a single failed request cheap and stays far

@@ -49,7 +49,7 @@ Deliberately *not* a `Job` in the app's queue: backups must survive the app bein
 
 ## Architecture
 
-Django scraper for online marketplaces — primarily the Czech **Bazos.cz**, with a marketplace-abstraction layer being extended to others (Vinted planned). It monitors search `Query` rows, detects new ads, filters them, and sends Discord notifications.
+Django scraper for online marketplaces — primarily the Czech **Bazos.cz**, with a marketplace-abstraction layer extended to others (**Vinted** live as of Stage 8). It monitors search `Query` rows, detects new ads, filters them, and sends Discord notifications.
 
 **The pipeline is decoupled into three independent processes that communicate through the `Ad.status` column** (a queue in Postgres). Each stage polls with `select_for_update(skip_locked=True)` so multiple workers are safe:
 
@@ -65,9 +65,10 @@ run_sender   →  DiscordSender (senders/services/)               # APPROVED →
 
 **Marketplace abstraction** (Stages 6–7):
 - `bazos/scraping/marketplace.py` — `MarketplaceScraper` **Protocol** (`marketplace` attr, `run_query`, `load_full_description`, `check_blacklisted`). `BazosScraper` satisfies it structurally.
-- `Marketplace` (`TextChoices` in `bazos/models.py`) is the single source of valid values — it types `Query.marketplace` *and* `Ad.marketplace` and keys the scraper registry. `VINTED` is present but commented out until a scraper exists.
+- `Marketplace` (`TextChoices` in `bazos/models.py`) is the single source of valid values — it types `Query.marketplace` *and* `Ad.marketplace` and keys the scraper registry. `BAZOS`, `BAZOS_API`, and `VINTED` are all registered and live.
 - `_build_scrapers(session)` / `get_scraper(marketplace, session)` — **module-level** in `bazos/scraping/bazos_query_runner.py` (not a method). Both `BazosQueryRunner.__init__` and `BazosRunner._blacklist_checker` dispatch through `get_scraper`.
 - `bazos/scraping/bazos/bazos_api_scraper.py` — `BazosApiScraper`, a second `MarketplaceScraper` using Bazos's hidden mobile JSON API instead of HTML (see `docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md`). Registered under `Marketplace.BAZOS_API` for validation only (`python manage.py compare_bazos_scrapers`) — no `Query` uses that value, so `run_scraper` stays HTML-only (`BazosScraper`) in production.
+- `bazos/scraping/vinted/vinted_scraper.py` — `VintedScraper` (Stage 8), backed by the `vinted-scraper` PyPI package. Ignores the `session` it's passed — the library builds its own `httpx` client, since Vinted bans proxy/VPN traffic and Tor is a non-starter there. `Query.extra_params` (JSONField) carries Vinted-specific search params (`base_url`, `catalog_ids`, ...); ignored by Bazos. See `docs/refactor/STAGE8_VINTED_SPEC.md`.
 - `bazos/protocols.py` — `Sendable` Protocol (`.message`, `.link`), replaces the old `SendableMixin` ABC. `Ad` implements it.
 
 **Key models** (`bazos/models.py`):

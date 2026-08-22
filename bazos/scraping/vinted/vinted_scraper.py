@@ -8,12 +8,20 @@ found (Ad.external_id overflow, decimal prices multiplying 10x through parse_pri
 uncaught detail-fetch RuntimeError truncating a scrape mid-pass).
 """
 import logging
+from random import uniform
+from time import sleep
 from typing import Iterator
+from urllib.parse import urlparse
 
 import requests
 from vinted_scraper import VintedScraper as VintedApiClient
 
-from bazos.const import VINTED_BASE_URL, VINTED_MAX_PAGES, VINTED_PAGE_SIZE
+from bazos.const import (
+    VINTED_BASE_URL,
+    VINTED_DETAIL_WAIT_TIME,
+    VINTED_MAX_PAGES,
+    VINTED_PAGE_SIZE,
+)
 from bazos.models import Ad, Marketplace, Query
 
 logger = logging.getLogger(__name__)
@@ -31,7 +39,6 @@ class VintedScraper:
     def __init__(self, session: requests.Session | None = None) -> None:
         self._session = session          # accepted for factory symmetry, intentionally unused
         self._clients: dict[str, VintedApiClient] = {}
-        self._last_base_url: str = VINTED_BASE_URL
 
     def _client_for(self, base_url: str) -> VintedApiClient:
         """One client per base URL, cached for the lifetime of this scraper instance.
@@ -46,8 +53,19 @@ class VintedScraper:
         if client is None:
             client = VintedApiClient(baseurl=base_url)
             self._clients[base_url] = client
-        self._last_base_url = base_url
         return client
+
+    @staticmethod
+    def _base_url_from_ad(ad: Ad) -> str:
+        """Derive the client's base URL straight from the ad's own URL.
+
+        Deliberately not "whichever base_url run_query last used": that would only be
+        correct because _build_scrapers currently rebuilds every scraper fresh on each
+        call, so one scraper instance never outlives one query. Reading it off the ad
+        itself is correct regardless of how the registry is built or cached later.
+        """
+        parsed = urlparse(ad.url)
+        return f"{parsed.scheme}://{parsed.netloc}"
 
     def run_query(self, query: Query) -> Iterator[Ad]:
         extra_params = dict(query.extra_params)
@@ -61,9 +79,13 @@ class VintedScraper:
 
         params = {
             "search_text": query.text,
-            "order": "newest_first",  # mandatory — dedup assumes newest-first ordering
-            "per_page": VINTED_PAGE_SIZE,
             **extra_params,
+            # These two always win over extra_params, not just default it: "order" is
+            # required for the dedup walk in run_existing_query (assumes newest-first),
+            # and "per_page" must match VINTED_PAGE_SIZE exactly or the "short page"
+            # pagination sentinel below desyncs from what the server actually returns.
+            "order": "newest_first",
+            "per_page": VINTED_PAGE_SIZE,
         }
         if query.price_lower:
             params["price_from"] = query.price_lower
@@ -77,19 +99,35 @@ class VintedScraper:
             if not items:
                 break
             for item in items:
-                yield self._map_item(item)
+                ad = self._map_item(item)
+                if ad is not None:
+                    yield ad
             if len(items) < VINTED_PAGE_SIZE:
                 break
             page += 1
 
     @staticmethod
-    def _map_item(item) -> Ad:
+    def _map_item(item) -> Ad | None:
+        """None search-result fields are real, not hypothetical: the library types id,
+        title, url, price, total_item_price and currency all Optional, and a malformed
+        row is exactly the kind of thing anti-bot throttling can produce. Skip and log
+        rather than raising — raising here would escape the run_query generator and
+        truncate the rest of the pass, the same failure load_full_description's
+        try/except was written to avoid one function over.
+        """
+        if item.id is None or not item.title or not item.url:
+            logger.warning("Vinted: skipping search result missing id/title/url (id=%s)", item.id)
+            return None
+        price_raw = VintedScraper._format_price(item)
+        if price_raw is None:
+            logger.warning("Vinted: skipping search result with no usable price (id=%s)", item.id)
+            return None
         return Ad(
             external_id=item.id,
             marketplace=Marketplace.VINTED.value,
             url=item.url,
             name=item.title[:120],
-            price_raw=VintedScraper._format_price(item),
+            price_raw=price_raw,
             location="",
             view_count=None,
             publish_date=None,
@@ -99,14 +137,20 @@ class VintedScraper:
         )
 
     @staticmethod
-    def _format_price(item) -> str:
+    def _format_price(item) -> str | None:
         """Integer CZK only — `parse_price` strips non-digits, so a decimal point would
         silently multiply the parsed value by 10. See STAGE8_VINTED_SPEC.md §4.5.
 
         Uses `total_item_price` (buyer-protection fee included) rather than `price`,
-        falling back to `price` when the fee isn't present.
+        falling back to `price` when the fee isn't present. Returns None (caller skips
+        the item) rather than a fabricated string when neither price nor currency is
+        present — `f"{amount} None"` would both look broken to a reader and register as
+        a spurious price change downstream, since price comparison is a plain string
+        compare (bazos/scraping/bazos_query_runner.py's run_existing_query).
         """
         amount = item.total_item_price if item.total_item_price is not None else item.price
+        if amount is None or not item.currency:
+            return None
         return f"{round(amount)} {item.currency}"
 
     def load_full_description(self, ad: Ad) -> Ad:
@@ -118,13 +162,18 @@ class VintedScraper:
         RuntimeError from the library. Mode (b) is the one that matters: this is called
         with no try/except by BazosQueryRunner._handle_new_product, so letting it escape
         would abort the rest of that query's pass mid-loop over one sold listing.
+
+        Paced: a new_query backfill can call this up to NEW_PRODUCT_LOAD_MAX times in a
+        row with no other delay in between (see VINTED_DETAIL_WAIT_TIME).
         """
-        client = self._client_for(self._last_base_url)
+        client = self._client_for(self._base_url_from_ad(ad))
         try:
             detail = client.item(str(ad.external_id))
         except RuntimeError as e:
             logger.info("Vinted detail fetch failed for ad %s: %s", ad.external_id, e)
             return ad
+        finally:
+            sleep(uniform(*VINTED_DETAIL_WAIT_TIME))
         description = getattr(detail, "description", None)
         if not description:
             logger.debug("Vinted detail for ad %s carried no description", ad.external_id)
