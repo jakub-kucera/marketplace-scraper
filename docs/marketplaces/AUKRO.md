@@ -148,11 +148,41 @@ Cloudflare in front, tuned to IP reputation. **Not a UA or fingerprint problem �
 this is a harsher shape than Bazos, whose block is 403-only and path-scoped: Aukro challenges
 `robots.txt` itself, so from a bad IP even the legal gate cannot be read.
 
-⚠️ **Operational consequence:** the production pipeline runs behind Tor (`IP_CHANGER_TYPE=TOR`).
-Tor exits are datacenter-reputation and near-certain to be challenged. **Aukro is likely
-incompatible with the current IP-rotation stack** — this is the single biggest engineering risk and
-must be probed before any build. See `docs/proxies/PROXY_ROTATION_RESEARCH.md`; a residential proxy
-may be required, changing the cost model.
+### 4.1.1 ❌ Tor is CONFIRMED BLOCKED — measured 2026-08-22
+
+The risk flagged below was probed and **it is real, not hypothetical**:
+
+```bash
+docker compose up -d tor_proxy
+curl -s --socks5-hostname 127.0.0.1:9050 https://icanhazip.com   # -> 192.42.116.110 (Tor exit, verified)
+curl -s -o /dev/null -D - --socks5-hostname 127.0.0.1:9050 -A "$UA" -H 'X-Accept-Subbrand: BAZAAR' \
+  'https://aukro.cz/backend-web/api/offers/7130732448/offerDetail?pageType=DETAIL&requestedFor=DETAIL'
+```
+
+| Attempt | Result |
+|---|---|
+| 1–3 (detail API) | **403** `cf-mitigated: challenge`, body `<title>Just a moment...</title>` |
+| homepage | **403** |
+
+**Aukro cannot use the production IP-rotation stack.** For contrast, Sbazar returned `200` on
+3/3 through the *same circuit* (`SBAZAR.md` §8.5), so this is Aukro's Cloudflare configuration,
+not a broken proxy.
+
+**This is now a hard infrastructure dependency, not a caveat.** Building `AukroScraper` requires
+one of:
+1. A **residential rotating proxy** — `docs/proxies/PROXY_ROTATION_RESEARCH.md` already
+   recommends this and prices it; Aukro turns it from an optimisation into a prerequisite.
+2. **Direct egress from the host IP**, as `VintedScraper` does — simplest, but it puts the Pi's
+   own residential IP at risk of being the thing Cloudflare eventually challenges, with no
+   rotation to fall back on.
+
+⚠️ **Decide this before writing any scraper code.** It changes the cost model and it is the
+reason `RECOMMENDATION.md` does not put Aukro immediately after Sbazar.
+
+⚠️ **Original assessment (now confirmed):** the production pipeline runs behind Tor
+(`IP_CHANGER_TYPE=TOR`). Tor exits are datacenter-reputation and near-certain to be challenged.
+See `docs/proxies/PROXY_ROTATION_RESEARCH.md`; a residential proxy may be required, changing the
+cost model.
 
 ### 4.2 The API — found via §4b, no APK needed
 
@@ -317,6 +347,43 @@ bids.** Full tally across 9 ended items:
 | 7096500033 | 2025-09-02 | BUYNOW | `null` | `null` | **undeterminable** |
 | 7100000013 | 2025-11-11 | BUYNOW | `null` | `null` | **undeterminable** |
 
+### ⭐ Update 2026-08-22 — `quantity` is the sold flag, and target categories DO carry realised prices
+
+Two follow-up probes changed this section materially. **21 items now sampled.**
+
+**(1) `quantity == 0` marks a sold item — 21/21 consistent.**
+
+| Group | n | `quantity` |
+|---|---|---|
+| Sold (ended, bids > 0) | **2** | **`0`** |
+| Unsold (ended, bids = 0, or ended BUYNOW) | 18 | `1` |
+| Still active (bids > 0, not yet ended) | 1 | `1` |
+
+The active-with-bids row is the useful control: it has bidders but has **not** sold, and it reads
+`quantity: 1`. So `quantity` tracks *stock remaining*, not bid activity — which is exactly the
+semantics needed. **On an ended item, `quantity == 0` ⇒ sold.**
+
+⚠️ **Confirmed for `BIDDING` only.** No sold `BUYNOW` item has been observed yet (all 5 sampled
+BUYNOWs read `quantity: 1`). If the field means the same thing there — and it plausibly does,
+since it is stock — **the buy-now blind spot below is closed and realised prices stop being
+auction-only.** That is the single highest-value remaining probe on Aukro and it needs one sold
+buy-now item to settle.
+
+**(2) Realised prices exist in the target categories.** The second sold item found was
+`itemId 7123500091` — **7 bidders, `quantity: 0`, price 3,126 CZK, ended 2026-06-18, category
+`Počítače a hry`** (computers & games). This directly retires the worry below that the capability
+might be confined to collectibles. Category mix over a 10-item ended sample: Sběratelství ×3,
+Knihy ×2, **Počítače a hry ×2**, Starožitnosti ×1, **Elektro ×1**, Oblečení ×1 — so target and
+target-adjacent categories are roughly **30%** of ended inventory, not a rounding error.
+
+⚠️ Note `price: 3126.0` — a **float again**, independently confirming the §5b.3 P22 trap on a
+second item.
+
+**Sell-through across all 21 samples ≈ 9.5%**, consistent with the original ~11%. The sparsity
+finding stands; the collectibles-only worry does not.
+
+---
+
 **≈1 realised price per 9 ended items sampled (~11%).** ⚠️ n=9, random ids in a collectibles-heavy
 id range — this is an order-of-magnitude indication, **not** a sell-through rate. But the direction
 is clear and it has three consequences:
@@ -425,16 +492,19 @@ curl -s -A "$UA" -H "X-Accept-Subbrand: BAZAAR" \
 1. **ToS were never fetched.** The largest open item. §3.1 covers robots.txt only. Bazos requires
    written consent for API use — **Aukro's equivalent clause is unknown**, and it could change the
    §3.2 assessment materially. Do this before building.
-2. **Is Aukro reachable through Tor?** §4.1/§7 — the highest-value engineering probe, and a
-   potential hard blocker.
+2. ~~**Is Aukro reachable through Tor?**~~ **ANSWERED 2026-08-22: no — 403 on 3/3** (§4.1.1).
+   Now a hard infrastructure dependency: residential proxy or direct host egress.
 3. **The newest-first sort parameter name.** Known to exist; name unresolved. Blocks a valid
    new/day figure *and* correct dedup ordering.
 4. **Server page-size cap** for `searchItemsCommon` (Bazos's is 210). Not probed.
 5. **The item-id floor.** `6900000000` → 404, `7050000000` → 200. Where public history actually
    starts, and whether it is a retention policy or an id-space artifact, is unknown — this bounds
    how deep a realised-price corpus could go.
-6. **Sold-vs-unsold on `BUYNOW` items.** `biddersCount` is `None` for `BUYNOW`, so the auction
-   heuristic does not transfer. How to tell a sold buy-now from an expired one is unresolved.
+6. **Sold-vs-unsold on `BUYNOW` items — a strong candidate answer, not yet confirmed.**
+   `quantity == 0` marks sold on `BIDDING` items (21/21, §6a.1). All 5 sampled `BUYNOW` items read
+   `quantity: 1` (unsold), so the field has **not** yet been seen at `0` on a buy-now.
+   **Find one sold buy-now item and this is settled** — it decides whether realised prices are
+   auction-only or Aukro-wide.
 7. **Whether `price` on an ended `BIDDING` item is always the winning bid** vs the last bid on a
    reserve-not-met auction. **Still only one sold example across 9 sampled ended items** (§6a.1).
    ⚠️ Do not generalise from it — confirming this is cheap and should precede any build.

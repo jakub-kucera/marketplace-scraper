@@ -105,7 +105,34 @@ more of what you already have, and **every day Aukro is not being archived is da
 permanently.** That argument is strong, and it would flip the recommendation. It hinges on
 whether §3.4's probes come back positive.
 
-### 3.4 The three probes that decide Aukro — ~5 requests total
+### 3.4 ✅ The three probes were RUN (2026-08-22) — here is what they returned
+
+All three are answered. **The recommendation is unchanged, but the reasoning shifted: two probes
+came back *better* than expected and one came back worse.**
+
+| Probe | Result |
+|---|---|
+| **1. Aukro through Tor?** | ❌ **No — `403 cf-mitigated: challenge` on 3/3.** Sbazar returned `200` on 3/3 through the same circuit. **Now a hard infrastructure dependency** (`AUKRO.md` §4.1.1). |
+| **2. Do buy-now items expose sold-ness?** | ⚠️ **Probably yes — `quantity == 0` marks sold, 21/21 consistent.** Confirmed on `BIDDING`; no sold `BUYNOW` observed yet, so not settled. |
+| **3. Realised-price density in target categories?** | ✅ **Yes.** Second sold item found was `Počítače a hry`, 7 bidders, **3,126 CZK**. Target + adjacent categories ≈ **30%** of ended inventory. Sell-through ≈ **9.5%** over 21 samples. |
+
+**What this changes:**
+
+- **Aukro's capability is more real than §3.3 assumed.** Two of the three doubts there —
+  "buy-now is a blind spot" and "the capability may be weakest where the thesis needs it" — are
+  substantially answered in Aukro's favour. `quantity` is a general stock field, and computers
+  genuinely carry realised prices.
+- **But Aukro now has a prerequisite it did not have before.** It cannot run on the Tor stack at
+  all. Building it requires either a residential rotating proxy
+  (`../proxies/PROXY_ROTATION_RESEARCH.md`, which already prices this) or direct host egress as
+  Vinted uses. **That is an infrastructure decision, not a scraper task.**
+- **Sbazar is unaffected and cleared its own pre-flight** — `200` on 3/3 through Tor, so it needs
+  no carve-out. Build it exactly as spec'd.
+
+**Net: build Sbazar now; Aukro is a stronger candidate than before but has grown a second
+prerequisite (proxy) on top of the first (P22).** Both are worth doing — neither is a scraper.
+
+### 3.4-orig The three probes that decide Aukro — ~5 requests total
 
 Do these **before** committing to Aukro, and ideally while Sbazar is being built:
 
@@ -143,6 +170,7 @@ can still end all four in an afternoon.
 
 ## 4. Sequencing
 
+0. ✅ **Tor pre-flight — done.** Sbazar `200` ×3, Aukro `403` ×3. Sbazar needs no carve-out.
 1. **Read Sbazar's ToS.** One request. The largest unquantified risk on the recommended build.
 2. **Build `SbazarScraper`** against `/api/v1/items/search`. Two gotchas, both measured:
    `short_description` is detail-only **and overflows the 300-char column (679 observed)**;
@@ -157,9 +185,12 @@ can still end all four in an afternoon.
 ## 5. What this study could not determine
 
 - **No ToS were read for any candidate.** robots.txt only. The largest gap across the whole study.
-- **Aukro through Tor** — unresolved, and potentially disqualifying (§3.4).
-- **Aukro's realised-price density in target categories** — the finding the recommendation most
-  depends on (§3.4).
+- ~~Aukro through Tor~~ — **answered: blocked** (§3.4). Replaced by a live question: **residential
+  proxy or direct host egress?** That is now Aukro's gating decision.
+- ~~Aukro's realised-price density in target categories~~ — **answered: ~9.5% overall, target
+  categories ≈30% of ended inventory, confirmed realised price in `Počítače a hry`** (§3.4).
+- **Whether `quantity == 0` marks a sold BUY-NOW** as it does a sold auction. One sold buy-now item
+  settles it, and it decides whether realised prices are auction-only or Aukro-wide.
 - **Whether `price` on an ended Aukro auction is always the winning bid** vs a reserve-not-met
   last bid. **One example.** Do not generalise.
 - **Aukro's newest-first sort parameter name** — known to exist, name unresolved; blocks both a
