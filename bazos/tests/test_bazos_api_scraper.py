@@ -197,7 +197,7 @@ class TestRunQuery:
         page1 = [make_listing_item(id=str(i)) for i in (1, 2)]
         page2 = [make_listing_item(id=str(i)) for i in (3,)]
 
-        def fake_get(url, params=None, headers=None):
+        def fake_get(url, params=None, headers=None, **kwargs):
             if params["offset"] == 0:
                 return FakeResponse(status_code=200, json_data=page1, headers={"x-total-count": "3"})
             if params["offset"] == 2:
@@ -214,7 +214,7 @@ class TestRunQuery:
 
         page1 = [make_listing_item(id=str(i)) for i in (1, 2)]
 
-        def fake_get(url, params=None, headers=None):
+        def fake_get(url, params=None, headers=None, **kwargs):
             if params["offset"] == 0:
                 return FakeResponse(status_code=200, json_data=page1, headers={})
             return FakeResponse(status_code=200, json_data=[], headers={})
