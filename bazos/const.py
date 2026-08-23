@@ -61,6 +61,18 @@ SBAZAR_MAX_PAGES: Final[int] = 20
 SBAZAR_DEDUP_BREAK_STREAK: Final[int] = 40
 
 BAZOS_PAGE_WAIT_TIME: Final[tuple[int, int]] = (2, 5)
+# Pacing for `load_full_description`. Unpaced before this, so a query finding N new ads
+# fired N back-to-back detail GETs immediately after its listing page — a 15-new-ad
+# `Práce` pass on 2026-08-23 sent 15 in a row. Bursts, not steady volume, are what the
+# QueryRun history correlates with 403s.
+BAZOS_DETAIL_WAIT_TIME: Final[tuple[float, float]] = (1.0, 3.0)
+# Pacing between queries inside one scraper pass. There was no gap at all: the runner
+# went straight from one query's last request to the next query's first.
+BAZOS_QUERY_WAIT_TIME: Final[tuple[float, float]] = (5.0, 15.0)
+# How many times a query is attempted before it is written off for this pass. Attempts
+# after the first are preceded by an IP rotation. The attempt itself is the blacklist
+# probe — see BazosRunner._run_query_with_rotation for why there is no separate one.
+MAX_BLACKLIST_RETRIES: Final[int] = 3
 
 # ---------------------------------------------------------------------------
 # Pipeline process constants

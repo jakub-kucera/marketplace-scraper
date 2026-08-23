@@ -4,10 +4,9 @@ import pytest
 import requests
 from stem import Signal
 
-from bazos.exceptions import BazosBlacklistedError
 from ip_changer.dummy import DummyIPChanger
 from ip_changer.ip_changer import IPChanger
-from ip_changer.tor import TorIPChanger
+from ip_changer.tor import MAX_RENEW_ATTEMPTS, TorIPChanger
 
 
 class StubIPChanger(IPChanger):
@@ -29,31 +28,8 @@ def test_dummy_session_is_a_real_requests_session():
     assert isinstance(changer.session, requests.Session)
 
 
-def test_dummy_check_bazos_blacklisted_always_false():
-    assert DummyIPChanger().check_bazos_blacklisted("http://example.com") is False
-
-
 def test_dummy_check_ip_local_always_false():
     assert DummyIPChanger().check_ip_local() is False
-
-
-def test_dummy_renew_ip_bazos_ok_accepts_url_and_returns_string():
-    result = DummyIPChanger().renew_ip_bazos_ok("http://example.com")
-    assert result == "Dummy IP"
-
-
-# --- IPChanger base class (via StubIPChanger) ---
-
-def test_check_bazos_blacklisted_true_on_403():
-    changer = StubIPChanger()
-    changer.session.get.return_value = MagicMock(status_code=403)
-    assert changer.check_bazos_blacklisted("http://example.com") is True
-
-
-def test_check_bazos_blacklisted_false_on_200():
-    changer = StubIPChanger()
-    changer.session.get.return_value = MagicMock(status_code=200)
-    assert changer.check_bazos_blacklisted("http://example.com") is False
 
 
 def test_get_current_ip_strips_whitespace():
@@ -74,44 +50,6 @@ def test_check_ip_local_false_when_outside_subnet(settings):
     changer = StubIPChanger()
     changer.session.get.return_value = MagicMock(text="8.8.8.8\n")
     assert changer.check_ip_local() is False
-
-
-def test_renew_ip_bazos_ok_returns_ip_immediately_when_not_blacklisted():
-    changer = StubIPChanger()
-    changer.session.get.return_value = MagicMock(status_code=200)
-    assert changer.renew_ip_bazos_ok("http://example.com") == "1.2.3.4"
-
-
-def test_renew_ip_bazos_ok_retries_until_not_blacklisted():
-    changer = StubIPChanger()
-    changer.session.get.side_effect = [
-        MagicMock(status_code=403),
-        MagicMock(status_code=403),
-        MagicMock(status_code=200),
-    ]
-    result = changer.renew_ip_bazos_ok("http://example.com")
-    assert result == "1.2.3.4"
-    assert changer.session.get.call_count == 3
-
-
-def test_renew_ip_bazos_ok_raises_after_max_attempts_exhausted():
-    """A permanently-blacklisted pool must not spin forever (P20 part b)."""
-    changer = StubIPChanger()
-    changer.session.get.return_value = MagicMock(status_code=403)
-    with pytest.raises(BazosBlacklistedError):
-        changer.renew_ip_bazos_ok("http://example.com", max_attempts=3)
-    assert changer.session.get.call_count == 3
-
-
-def test_renew_ip_bazos_ok_uses_custom_is_blacklisted_check():
-    """A caller can target a different surface than the default HTML check
-    (e.g. BazosApiScraper.check_blacklisted for the hidden API)."""
-    changer = StubIPChanger()
-    is_blacklisted = MagicMock(side_effect=[True, False])
-    result = changer.renew_ip_bazos_ok("http://example.com", is_blacklisted=is_blacklisted)
-    assert result == "1.2.3.4"
-    assert is_blacklisted.call_count == 2
-    changer.session.get.assert_not_called()
 
 
 # --- TorIPChanger ---
@@ -156,3 +94,33 @@ def test_tor_skip_1st_renew_does_not_call_renew_ip(tor_changer):
     with patch.object(tor_changer, "renew_ip") as mock_renew:
         tor_changer.renew_ip_and_check_new()
     mock_renew.assert_not_called()
+
+
+def test_tor_renew_signals_newnym_on_every_round_not_just_once(tor_changer):
+    """Tor rate-limits NEWNYM to ~1/10 s and drops the rest. The old loop signalled once
+    and then only polled, so a dropped signal meant polling a circuit that could never
+    change — an unbounded spin on the blocked exit.
+    """
+    ips = iter(["1.1.1.1", "1.1.1.1", "1.1.1.1", "9.9.9.9"])
+    tor_changer.get_current_ip = MagicMock(side_effect=lambda: next(ips))
+
+    with patch.object(tor_changer, "renew_ip") as mock_renew, \
+         patch("ip_changer.tor.sleep"):
+        result = tor_changer.renew_ip_and_check_new()
+
+    assert result == "9.9.9.9"
+    assert mock_renew.call_count == 3
+
+
+def test_tor_renew_gives_up_after_max_attempts_and_reports_the_unchanged_ip(tor_changer):
+    """Bounded, and honest about failing: BazosRunner.change_ip compares the result to the
+    old IP to decide whether retrying the query is worth anything.
+    """
+    tor_changer.get_current_ip = MagicMock(return_value="1.1.1.1")
+
+    with patch.object(tor_changer, "renew_ip") as mock_renew, \
+         patch("ip_changer.tor.sleep"):
+        result = tor_changer.renew_ip_and_check_new()
+
+    assert result == "1.1.1.1"
+    assert mock_renew.call_count == MAX_RENEW_ATTEMPTS
