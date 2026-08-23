@@ -127,10 +127,11 @@ def flush_deferred_fk_triggers(apps, schema_editor):
     and a duplicate-free dev DB and only surfaced against production data (v1.0.4 deploy on
     the Pi: 102 groups merged, then this ALTER TABLE aborted the whole migration).
 
-    No-op off Postgres: SQLite has neither a deferred trigger queue nor SET CONSTRAINTS, and
-    the test suite runs migrations on SQLite (root conftest.py) — which is also why
-    test_merge_duplicate_ads_migration.py, despite running this migration end to end, could
-    not have caught it.
+    No-op off Postgres: SQLite has neither a deferred trigger queue nor SET CONSTRAINTS. That
+    used to mean this line was unreachable from the tests, because the whole suite ran on
+    SQLite — test_merge_duplicate_ads_migration.py ran this migration end to end and still
+    could not have caught the bug. The suite now runs on Postgres (root conftest.py), so this
+    path is genuinely covered.
     """
     if schema_editor.connection.vendor != "postgresql":
         return

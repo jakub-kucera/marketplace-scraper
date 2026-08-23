@@ -190,10 +190,10 @@ def test_one_batch_processes_at_most_batch_size(query, make_ad, make_delivery, m
 def test_batch_takes_the_oldest_deliveries_first(query, make_ad, make_delivery, monkeypatch):
     """The queue is FIFO: the oldest PENDING deliveries are the ones a batch takes.
 
-    Pins observable behaviour, not the `order_by` clause itself — SQLite already
-    serves this query from the (status, created) composite index, so *deleting*
-    `order_by("created")` happens to preserve the order. Reversing it does not,
-    and that is what this catches.
+    Pins observable behaviour, not the `order_by` clause itself. *Deleting*
+    `order_by("created")` may happen to preserve the order anyway — the (status, created)
+    composite index can serve the rows already sorted, on Postgres as on SQLite — so this
+    does not claim to catch that. Reversing the clause is what it catches.
     """
     from django.utils import timezone
     from datetime import timedelta

@@ -27,8 +27,9 @@ python manage.py compare_bazos_scrapers   # HTML vs hidden-API scraper overlap; 
 python getyourguide/gyg_scraper.py        # standalone script: Caminito del Rey availability → Discord webhook
 
 # Tests / checks
-pytest         # no DB server needed: the root conftest.py swaps `django_db_setup` to SQLite :memory:
-               # (production is Postgres 15 — see the caveat under "Testing" below)
+pytest         # runs against real Postgres — needs `docker compose up -d postgres` first.
+               # Django builds an isolated `test_<POSTGRES_DB>`; the dev DB is untouched.
+               # `TEST_DB=sqlite pytest` forces SQLite :memory: — for the live contract job only.
 ruff check .   # lint: pyflakes-only rules (unused imports/vars, undefined names); no formatting/import-sort rules
 mypy .         # lenient: ignore_missing_imports, no --strict; union-attr disabled (Django/mock Optional noise)
 ```
@@ -109,7 +110,11 @@ run_sender   →  DiscordSender (senders/services/)               # APPROVED →
 
 **Force-run**: `BazosRunner._interruptible_sleep` wakes early (within ~5s) when `force_run.flag` (`settings.FORCE_RUN_FLAG_PATH`) appears, so the admin button can interrupt the sleep between passes.
 
-**Testing:** the root `conftest.py` overrides `django_db_setup` to run every test on **SQLite `:memory:`**, so `pytest` needs no DB server and CI has no Postgres service. The cost is that Postgres-specific behaviour is not exercised — notably `select_for_update(skip_locked=True, of=("self",))`, which SQLite's backend **silently drops from the SQL** (`has_select_for_update = False`), so the pipeline's row-locking is never actually tested. It also no-ops `DatabaseLogHandler.emit` session-wide so DB-free unit tests can log.
+**Testing:** the suite runs on **real Postgres**, the same engine as production, so Postgres-only behaviour is genuinely exercised — `select_for_update(skip_locked=True, of=("self",))` reaches the SQL, migration 0027's deferred-FK-trigger flush executes, and `max_length`/`int4` limits are enforced (all three are silently no-ops or unenforced on SQLite). Locally that means **`docker compose up -d postgres` must be running**; connection settings come from `.env` (`POSTGRES_HOST=localhost`, port 5435) and Django builds an isolated `test_<POSTGRES_DB>`, never touching the dev database. CI (`test.yml`) provides a `postgres:15.2` service container.
+
+The root `conftest.py` hooks `django_db_modify_db_settings` (not `django_db_setup`) so that `TEST_DB=sqlite` can swap in SQLite `:memory:` — used by **one** caller, `contract-check.yml`'s live job, which runs in a container with no DB and only asserts on live-site parsing — while leaving pytest-django's own `--reuse-db`/`--create-db` intact. A test that passes on SQLite and fails on Postgres is reporting a real defect; don't reach for the env var to silence it. Postgres costs ~2× SQLite (~40s vs 14s for 532 tests), almost all of it building the test DB through the 40-migration chain: `pytest --reuse-db` skips that and halves the run (54s → 28s). Caveat — the migration tests roll the schema backwards and forward again in a fixture teardown, so a run killed mid-test can strand a reused DB at an older schema; `--create-db` rebuilds it, and the default (no flag) is immune. `conftest.py` also no-ops `DatabaseLogHandler.emit` session-wide so DB-free unit tests can log.
+
+Note `POSTGRES_HOST` in `.env` is the **host-side** value (`localhost`). The compose services don't read it — `docker-compose.yml` pins `POSTGRES_HOST: postgres` in each service's `environment:` block, which overrides `env_file`. Before that pin, `.env` had to say `postgres` and nothing on the host could connect at all.
 
 ## Coding patterns
 
