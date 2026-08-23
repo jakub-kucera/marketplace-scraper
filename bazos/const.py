@@ -61,6 +61,11 @@ SBAZAR_MAX_PAGES: Final[int] = 20
 SBAZAR_DEDUP_BREAK_STREAK: Final[int] = 40
 
 BAZOS_PAGE_WAIT_TIME: Final[tuple[int, int]] = (2, 5)
+# (connect, read) for every Bazos HTTP call. Same reasoning as IP_LOOKUP_TIMEOUT: these go
+# through Tor, where an unreachable host is a stalled socket rather than a refused
+# connection, and run_request carried no timeout at all — a single hung GET stalled the
+# pass with nothing to interrupt it. Connect is generous because it covers circuit build.
+BAZOS_REQUEST_TIMEOUT: Final[tuple[float, float]] = (20.0, 30.0)
 # Pacing for `load_full_description`. Unpaced before this, so a query finding N new ads
 # fired N back-to-back detail GETs immediately after its listing page — a 15-new-ad
 # `Práce` pass on 2026-08-23 sent 15 in a row. Bursts, not steady volume, are what the

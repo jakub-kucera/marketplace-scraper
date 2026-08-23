@@ -1,6 +1,6 @@
 import logging
 import socket
-from time import sleep
+from time import monotonic, sleep
 import requests
 import requests_random_user_agent  # type: ignore  # noqa: F401 (side-effecting import: patches requests.Session UA)
 from stem import Signal
@@ -22,6 +22,11 @@ NEWNYM_WAIT_SECONDS = 10
 #: Bound on the rotate-and-check loop. Without one a Tor that will not hand over a new
 #: exit hangs the whole scraper pass indefinitely.
 MAX_RENEW_ATTEMPTS = 5
+#: Wall-clock ceiling on one rotation, because the attempt count alone does not bound the
+#: time: each round's IP lookup can itself burn its connect+read budget. A pass has nothing
+#: that can interrupt it — the force-run flag and _interruptible_sleep only apply between
+#: passes — so this is the only thing keeping a sulking Tor from eating an entire evening.
+ROTATION_DEADLINE_SECONDS = 180
 
 
 class TorIPChanger(IPChanger):
@@ -55,7 +60,14 @@ class TorIPChanger(IPChanger):
             logger.debug("Skipping 1st renew")
             return old_ip or ""
 
+        deadline = monotonic() + ROTATION_DEADLINE_SECONDS
         for attempt in range(1, MAX_RENEW_ATTEMPTS + 1):
+            if monotonic() > deadline:
+                logger.error(
+                    "Rotation deadline of %ds hit after %d attempts, giving up",
+                    ROTATION_DEADLINE_SECONDS, attempt - 1,
+                )
+                break
             # Re-signal on every round rather than signalling once and then polling: if
             # Tor drops the first NEWNYM (it rate-limits them), polling the same circuit
             # can never make it change, so the old loop spun forever on that IP.

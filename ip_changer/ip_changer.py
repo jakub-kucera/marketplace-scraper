@@ -34,30 +34,35 @@ class IPChanger(ABC):
     @abstractmethod
     def renew_ip_and_check_new(self) -> str: ...
 
-    def get_current_ip(self) -> str:
+    def get_current_ip(self, attempts: int = IP_LOOKUP_ATTEMPTS) -> str:
         """Look up the current egress IP. Raises if every attempt fails.
 
         Callers that must not die with it use `try_get_current_ip`; `check_ip_local`
         deliberately still raises, because "we cannot see our own egress" means the
         transport is broken and the caller should stand down rather than scrape on.
         """
-        last_error: Exception | None = None
-        for attempt in range(1, IP_LOOKUP_ATTEMPTS + 1):
+        # A real exception rather than `assert last_error is not None`: under `python -O`
+        # the assert is stripped and `raise None` is a TypeError.
+        last_error: Exception = RuntimeError(f"no IP lookup attempted (attempts={attempts})")
+        for attempt in range(1, attempts + 1):
             try:
                 r = self.session.get('https://icanhazip.com', timeout=IP_LOOKUP_TIMEOUT)
                 return r.text.strip()
             except requests.RequestException as e:
                 last_error = e
-                logger.warning(
-                    "Exit IP lookup failed (attempt %d/%d): %s", attempt, IP_LOOKUP_ATTEMPTS, e
-                )
-        assert last_error is not None
+                logger.warning("Exit IP lookup failed (attempt %d/%d): %s", attempt, attempts, e)
         raise last_error
 
-    def try_get_current_ip(self) -> str | None:
-        """`get_current_ip` for callers where not knowing is survivable."""
+    def try_get_current_ip(self, attempts: int = 1) -> str | None:
+        """`get_current_ip` for callers where not knowing is survivable.
+
+        Defaults to a **single** attempt. Its callers are already retry loops, and three
+        nested budgets multiply: 3 lookups x 5 NEWNYM rounds x MAX_BLACKLIST_RETRIES turned
+        one query's rotation budget into tens of minutes, which nothing can interrupt —
+        `_interruptible_sleep` and the force-run flag only apply between passes.
+        """
         try:
-            return self.get_current_ip()
+            return self.get_current_ip(attempts=attempts)
         except requests.RequestException:
             return None
 

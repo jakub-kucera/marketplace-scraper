@@ -102,7 +102,8 @@ def test_tor_renew_signals_newnym_on_every_round_not_just_once(tor_changer):
     change — an unbounded spin on the blocked exit.
     """
     ips = iter(["1.1.1.1", "1.1.1.1", "1.1.1.1", "9.9.9.9"])
-    tor_changer.get_current_ip = MagicMock(side_effect=lambda: next(ips))
+    # **kwargs: get_current_ip takes an `attempts` argument now.
+    tor_changer.get_current_ip = MagicMock(side_effect=lambda **kwargs: next(ips))
 
     with patch.object(tor_changer, "renew_ip") as mock_renew, \
          patch("ip_changer.tor.sleep"):
