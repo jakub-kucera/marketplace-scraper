@@ -116,10 +116,13 @@ class TestMapItem:
         assert reloaded.external_id == 9734229070
 
     def test_external_id_field_is_widened_to_biginteger(self):
-        """The save/reload round trip above proves nothing by itself — SQLite has no
-        fixed-width integer columns, so it would pass identically against a plain
-        IntegerField too (see STAGE8_VINTED_SPEC.md §2.1; Postgres is what actually
-        enforces int4's 2,147,483,647 cap). Pin the field type directly.
+        """Kept as a second, backend-independent check on the round trip above.
+
+        The suite runs on Postgres now, so the save/reload does enforce int4's
+        2,147,483,647 cap for real (see STAGE8_VINTED_SPEC.md §2.1). It stops enforcing
+        anything the moment it is run under `TEST_DB=sqlite`, which has no fixed-width
+        integer columns and would pass identically against a plain IntegerField. Pinning
+        the field type directly holds either way.
         """
         assert Ad._meta.get_field("external_id").get_internal_type() == "BigIntegerField"
 

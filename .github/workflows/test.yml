@@ -10,6 +10,29 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # The suite runs on real PostgreSQL, matching production, so that Postgres-only
+    # behaviour is actually exercised — `select_for_update(skip_locked=True)`, migration
+    # 0027's deferred-FK-trigger flush, and column/integer width limits, none of which
+    # SQLite enforces. Pinned to 15.2 to match docker-compose.yml and the Pi.
+    #
+    # `--health-cmd pg_isready` is what makes the job wait: without it the first step can
+    # start before the server accepts connections and the run fails on a connection error
+    # that looks nothing like its cause.
+    services:
+      postgres:
+        image: postgres:15.2
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
 
@@ -23,9 +46,17 @@ jobs:
       - name: Install dependencies
         run: poetry install
 
+      # `.env` is gitignored and absent here, so settings.py's `read_env(".env")` is a no-op
+      # and these values are what apply. The `postgres` superuser has CREATEDB, which is all
+      # Django needs to build the isolated `test_postgres` database.
       - name: Run tests
         env:
           SECRET_KEY: ci-secret-key-not-used-in-production
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
         run: poetry run pytest
 
   lint:

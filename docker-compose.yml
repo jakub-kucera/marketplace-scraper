@@ -1,9 +1,16 @@
+# POSTGRES_HOST is pinned per-service below rather than left to .env, the same way the
+# backup service already does it. `environment:` overrides `env_file:`, so containers always
+# reach the `postgres` service by its compose name — which frees .env's POSTGRES_HOST to be
+# the value host-side tooling needs (`localhost`), for `pytest` and a non-containerised
+# `manage.py`. Before this, .env had to say `postgres` for the containers, and nothing on the
+# host could connect at all.
 services:
   marketplace_scraper:
     build: .
     restart: always
     env_file: .env
     environment:
+      POSTGRES_HOST: postgres
       TOR_PROXY_IP: tor_proxy
       PYTHONUNBUFFERED: 1
     volumes:
@@ -18,6 +25,7 @@ services:
     env_file: .env
     environment:
       PYTHONUNBUFFERED: 1
+      POSTGRES_HOST: postgres
     command: ["python", "manage.py", "run_filter"]
     volumes:
       - .:/app
@@ -30,6 +38,7 @@ services:
     env_file: .env
     environment:
       PYTHONUNBUFFERED: 1
+      POSTGRES_HOST: postgres
     command: ["python", "manage.py", "run_sender"]
     volumes:
       - .:/app
@@ -41,6 +50,7 @@ services:
     restart: always
     env_file: .env
     environment:
+      POSTGRES_HOST: postgres
       TOR_PROXY_IP: tor_proxy
       PYTHONUNBUFFERED: 1
     command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
