@@ -1,11 +1,17 @@
 """Tests for the run_filter pipeline stage.
 
-Exercises the filter loop logic directly (not via the management command
-entrypoint) so tests run without subprocess overhead. Operates on AdDelivery,
-not Ad, since the Ad/AdDelivery split moved pipeline status there — see
-docs/refactor/AD_DELIVERY_SPLIT_SPEC.md.
+Drives the real management command via ``--once`` (see run_filter.run_once).
+These tests used to reimplement the loop body in a local ``_run_filter_once``
+helper, which meant the command's own queryset — the status filter, the
+``created`` ordering and the batch cap — was never executed by any test.
+
+Operates on AdDelivery, not Ad, since the Ad/AdDelivery split moved pipeline
+status there — see docs/refactor/AD_DELIVERY_SPLIT_SPEC.md.
 """
+from unittest.mock import patch
+
 import pytest
+from django.core.management import call_command
 
 from bazos.filters import FilterResult, PassthroughRule, RuleEngine
 from bazos.models import AdDelivery, AdStatus
@@ -22,13 +28,26 @@ class _RejectRule:
         return FilterResult.REJECT, "test rejection"
 
 
-def _run_filter_once(deliveries, engine):
-    """Simulate one batch of the run_filter loop (without DB locking)."""
-    for delivery in deliveries:
-        result, reason = engine.apply(delivery)
-        delivery.status = AdStatus.APPROVED if result != FilterResult.REJECT else AdStatus.REJECTED
-        delivery.filter_reason = reason
-        delivery.save(update_fields=["status", "filter_reason"])
+def run_filter_once(engine=None):
+    """Run one real run_filter batch.
+
+    ``engine`` optionally stands in for ``build_rule_engine``'s result, so a test
+    can pin a rule outcome without having to configure a Query that produces it.
+    Passing None exercises the real engine-building path end to end.
+    """
+    if engine is None:
+        call_command("run_filter", once=True)
+        return
+    with patch("bazos.management.commands.run_filter.build_rule_engine", return_value=engine):
+        call_command("run_filter", once=True)
+
+
+def approve_engine():
+    return RuleEngine(rules=[PassthroughRule()])
+
+
+def reject_engine():
+    return RuleEngine(rules=[_RejectRule()])
 
 
 # ---------------------------------------------------------------------------
@@ -41,8 +60,7 @@ def test_pending_delivery_becomes_approved(query, make_ad, make_delivery):
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.PENDING)
 
-    engine = RuleEngine(rules=[PassthroughRule()])
-    _run_filter_once([delivery], engine)
+    run_filter_once(approve_engine())
 
     delivery.refresh_from_db()
     assert delivery.status == AdStatus.APPROVED
@@ -54,8 +72,7 @@ def test_pending_delivery_has_no_filter_reason_on_approve(query, make_ad, make_d
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.PENDING)
 
-    engine = RuleEngine(rules=[PassthroughRule()])
-    _run_filter_once([delivery], engine)
+    run_filter_once(approve_engine())
 
     delivery.refresh_from_db()
     assert delivery.filter_reason is None
@@ -71,8 +88,7 @@ def test_price_changed_delivery_becomes_approved(query, make_ad, make_delivery):
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.PRICE_CHANGED)
 
-    engine = RuleEngine(rules=[PassthroughRule()])
-    _run_filter_once([delivery], engine)
+    run_filter_once(approve_engine())
 
     delivery.refresh_from_db()
     assert delivery.status == AdStatus.APPROVED
@@ -88,8 +104,7 @@ def test_pending_delivery_becomes_rejected(query, make_ad, make_delivery):
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.PENDING)
 
-    engine = RuleEngine(rules=[_RejectRule()])
-    _run_filter_once([delivery], engine)
+    run_filter_once(reject_engine())
 
     delivery.refresh_from_db()
     assert delivery.status == AdStatus.REJECTED
@@ -101,8 +116,7 @@ def test_rejected_delivery_has_filter_reason(query, make_ad, make_delivery):
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.PENDING)
 
-    engine = RuleEngine(rules=[_RejectRule()])
-    _run_filter_once([delivery], engine)
+    run_filter_once(reject_engine())
 
     delivery.refresh_from_db()
     assert delivery.filter_reason == "test rejection"
@@ -110,6 +124,9 @@ def test_rejected_delivery_has_filter_reason(query, make_ad, make_delivery):
 
 # ---------------------------------------------------------------------------
 # Deliveries in other statuses are not affected
+#
+# These no longer hand-filter the queryset: the command's own
+# `.filter(status__in=[PENDING, PRICE_CHANGED])` is what is under test.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
@@ -119,12 +136,7 @@ def test_approved_delivery_is_not_touched(query, make_ad, make_delivery):
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.APPROVED)
 
-    # Simulate the filter loop only picking up PENDING/PRICE_CHANGED
-    pending = list(AdDelivery.objects.filter(
-        status__in=[AdStatus.PENDING, AdStatus.PRICE_CHANGED]
-    ))
-    engine = RuleEngine(rules=[_RejectRule()])
-    _run_filter_once(pending, engine)
+    run_filter_once(reject_engine())
 
     delivery.refresh_from_db()
     assert delivery.status == AdStatus.APPROVED   # unchanged
@@ -136,11 +148,115 @@ def test_sent_delivery_is_not_touched(query, make_ad, make_delivery):
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.SENT)
 
-    pending = list(AdDelivery.objects.filter(
-        status__in=[AdStatus.PENDING, AdStatus.PRICE_CHANGED]
-    ))
-    engine = RuleEngine(rules=[_RejectRule()])
-    _run_filter_once(pending, engine)
+    run_filter_once(reject_engine())
 
     delivery.refresh_from_db()
     assert delivery.status == AdStatus.SENT       # unchanged
+
+
+@pytest.mark.django_db
+def test_suppressed_delivery_is_not_touched(query, make_ad, make_delivery):
+    """SUPPRESSED is the ignore_first_run backfill state — the filter must skip it."""
+    ad = make_ad(query, bazos_id=7)
+    ad.save()
+    delivery = make_delivery(ad, query, status=AdStatus.SUPPRESSED)
+
+    run_filter_once(reject_engine())
+
+    delivery.refresh_from_db()
+    assert delivery.status == AdStatus.SUPPRESSED
+
+
+# ---------------------------------------------------------------------------
+# Batch cap and ordering — only reachable now that the command's own queryset
+# runs. Both were previously bypassed by the hand-built delivery list.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_one_batch_processes_at_most_batch_size(query, make_ad, make_delivery, monkeypatch):
+    monkeypatch.setattr("bazos.management.commands.run_filter.FILTER_BATCH_SIZE", 3)
+    for i in range(5):
+        ad = make_ad(query, bazos_id=100 + i)
+        ad.save()
+        make_delivery(ad, query, status=AdStatus.PENDING)
+
+    run_filter_once(approve_engine())
+
+    assert AdDelivery.objects.filter(status=AdStatus.APPROVED).count() == 3
+    assert AdDelivery.objects.filter(status=AdStatus.PENDING).count() == 2
+
+
+@pytest.mark.django_db
+def test_batch_takes_the_oldest_deliveries_first(query, make_ad, make_delivery, monkeypatch):
+    """The queue is FIFO: the oldest PENDING deliveries are the ones a batch takes.
+
+    Pins observable behaviour, not the `order_by` clause itself — SQLite already
+    serves this query from the (status, created) composite index, so *deleting*
+    `order_by("created")` happens to preserve the order. Reversing it does not,
+    and that is what this catches.
+    """
+    from django.utils import timezone
+    from datetime import timedelta
+
+    monkeypatch.setattr("bazos.management.commands.run_filter.FILTER_BATCH_SIZE", 2)
+    base = timezone.now()
+    deliveries = []
+    for i in range(4):
+        ad = make_ad(query, bazos_id=200 + i)
+        ad.save()
+        delivery = make_delivery(ad, query, status=AdStatus.PENDING)
+        # `created` is auto_now_add, so it has to be set with an UPDATE.
+        AdDelivery.objects.filter(pk=delivery.pk).update(created=base - timedelta(hours=i))
+        deliveries.append(delivery)
+
+    run_filter_once(approve_engine())
+
+    # deliveries[3] is the oldest, deliveries[0] the newest.
+    statuses = {}
+    for d in deliveries:
+        d.refresh_from_db()
+        statuses[d.pk] = d.status
+    assert statuses[deliveries[3].pk] == AdStatus.APPROVED
+    assert statuses[deliveries[2].pk] == AdStatus.APPROVED
+    assert statuses[deliveries[1].pk] == AdStatus.PENDING
+    assert statuses[deliveries[0].pk] == AdStatus.PENDING
+
+
+@pytest.mark.django_db
+def test_once_returns_on_an_empty_queue(query):
+    """--once must exit even with nothing to do, rather than sleeping forever."""
+    run_filter_once(approve_engine())   # no deliveries exist; must not hang
+
+
+# ---------------------------------------------------------------------------
+# The real build_rule_engine path (no patched engine)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_default_query_config_approves(query, make_ad, make_delivery):
+    """An unconfigured Query means "all rules", all of which pass on a plain ad."""
+    ad = make_ad(query, bazos_id=8)
+    ad.save()
+    delivery = make_delivery(ad, query, status=AdStatus.PENDING)
+
+    run_filter_once()
+
+    delivery.refresh_from_db()
+    assert delivery.status == AdStatus.APPROVED
+
+
+@pytest.mark.django_db
+def test_blocklist_keyword_rejects_through_the_real_engine(query, make_ad, make_delivery):
+    """End-to-end wiring: Query.filter_blocklist → build_rule_engine → REJECTED."""
+    query.filter_blocklist = ["nefunkcni"]
+    query.save()
+    ad = make_ad(query, bazos_id=9)
+    ad.name = "Macbook nefunkcni deska"
+    ad.save()
+    delivery = make_delivery(ad, query, status=AdStatus.PENDING)
+
+    run_filter_once()
+
+    delivery.refresh_from_db()
+    assert delivery.status == AdStatus.REJECTED
+    assert delivery.filter_reason is not None
