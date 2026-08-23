@@ -12,11 +12,14 @@ If every rule returns PASS, the ad is approved by default.
 
 Stage 9 rules below are combined into the ``RuleEngine`` used by ``run_filter``.
 """
+import logging
 import re
 from enum import Enum
 from typing import Protocol
 
-from bazos.models import AdDelivery, AdStatus, Query
+from bazos.models import AdDelivery, AdStatus, PriceType, Query
+
+logger = logging.getLogger(__name__)
 
 
 class FilterResult(Enum):
@@ -42,20 +45,62 @@ class PassthroughRule:
         return FilterResult.APPROVE, None
 
 
+#: Bazos's four placeholder strings with no numeric value at all — "Zdarma" is a fifth
+#: placeholder-shaped string but is handled separately below, since unlike these four it
+#: resolves to a real price of 0, not None. Exhaustive against the measured corpus — see
+#: docs/refactor/PRICE_PARSING_RESEARCH.md §3.1. Only the string keys are Bazos-specific;
+#: this is shared by both BazosScraper (HTML) and BazosApiScraper's listing parse, since the
+#: API's `price_formatted` follows the same grammar (§4).
+_PLACEHOLDER_TYPES: dict[str, PriceType] = {
+    "Dohodou": PriceType.NEGOTIABLE,
+    "V textu": PriceType.IN_TEXT,
+    "Nabídněte": PriceType.MAKE_OFFER,
+    "Nerozhoduje": PriceType.INDIFFERENT,
+}
+
+
+def parse_price_and_type(price_raw: str) -> tuple[int | None, PriceType]:
+    """Parse a Bazos price string (e.g. "1 000 Kč", "Dohodou") into (amount, price_type).
+
+    Rules, each traceable to a measurement in PRICE_PARSING_RESEARCH.md §3:
+    - "Zdarma" (free) -> (0, FREE) — a known price of zero, not an unknown one.
+    - The other four placeholders -> (None, matching type).
+    - Digits present -> strip everything but digits, parse as int, EXACT.
+    - Anything else -> (None, UNKNOWN), logged: an unrecognised value means Bazos changed
+      its price vocabulary and this parser no longer describes it.
+    """
+    stripped = price_raw.strip()
+    if stripped == "Zdarma":
+        return 0, PriceType.FREE
+    if stripped in _PLACEHOLDER_TYPES:
+        return None, _PLACEHOLDER_TYPES[stripped]
+    digits = re.sub(r"\D", "", stripped)
+    if digits:
+        return int(digits), PriceType.EXACT
+    logger.warning("Unrecognised Bazos price string: %r", price_raw)
+    return None, PriceType.UNKNOWN
+
+
 def parse_price(price_raw: str) -> int | None:
     """Parse a Bazos price string (e.g. "1 000 Kč") into an int amount.
 
-    Returns None if the string has no digits (e.g. "Dohodou", "V textu").
+    Returns None if the string has no digits (e.g. "Dohodou", "V textu"), and 0 for
+    "Zdarma" (free is a known zero price, not an unknown one). Thin wrapper over
+    parse_price_and_type, kept for callers that only need the amount.
     """
-    digits = re.sub(r"\D", "", price_raw)
-    return int(digits) if digits else None
+    amount, _ = parse_price_and_type(price_raw)
+    return amount
 
 
 class PriceRangeRule:
     """Rejects ads priced outside the query's price_lower/price_upper range.
 
     PASSes when the query has no range set (0-0, the "no filter" convention —
-    see PROMPTS.md P7) or when the price can't be parsed as a number.
+    see PROMPTS.md P7) or when `ad.price is None` — an unparseable/placeholder price
+    (Dohodou, V textu, ...), or a marketplace scraper that hasn't been wired to populate
+    it yet. Note FREE is NOT covered by that PASS: it carries a real `price=0`, so a free
+    ad IS evaluated against the range (and rejected whenever price_lower > 0) — that's the
+    intended behaviour (PRICE_PARSING_RESEARCH.md §3.3), not an oversight.
     """
     name = "price_range"
 
@@ -63,7 +108,7 @@ class PriceRangeRule:
         query = delivery.query
         if query.price_lower == 0 and query.price_upper == 0:
             return FilterResult.PASS, None
-        price = parse_price(delivery.ad.price_raw)
+        price = delivery.ad.price
         if price is None:
             return FilterResult.PASS, None
         if price < query.price_lower or price > query.price_upper:
@@ -120,9 +165,9 @@ class PublisherBlocklistRule:
 
 class PriceDropRule:
     """For PRICE_CHANGED ads only: rejects re-notifications where the price
-    didn't actually drop (e.g. it rose, or the reported string round-trips to
-    the same number). PASSes for ads not currently in PRICE_CHANGED, or when
-    there's no parseable price history to compare against.
+    didn't actually drop (e.g. it rose, or round-trips to the same number).
+    PASSes for ads not currently in PRICE_CHANGED, or when there's no parsed
+    price history to compare against.
     """
     name = "price_drop"
 
@@ -132,8 +177,8 @@ class PriceDropRule:
         latest_change = delivery.ad.price_history.order_by("-created").first()
         if latest_change is None:
             return FilterResult.PASS, None
-        old_price = parse_price(latest_change.old_price)
-        new_price = parse_price(latest_change.new_price)
+        old_price = latest_change.old_price_amount
+        new_price = latest_change.new_price_amount
         if old_price is None or new_price is None:
             return FilterResult.PASS, None
         if new_price >= old_price:

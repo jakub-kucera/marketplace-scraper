@@ -12,7 +12,7 @@ from vinted_scraper.models import VintedItem
 import bazos.scraping.vinted.vinted_scraper as vinted_scraper_module
 from bazos.const import VINTED_BASE_URL, VINTED_PAGE_SIZE
 from bazos.filters import parse_price
-from bazos.models import Ad, Marketplace
+from bazos.models import Ad, Marketplace, PriceType
 from bazos.scraping.vinted.vinted_scraper import VintedScraper
 
 
@@ -87,6 +87,14 @@ class TestMapItem:
         assert ad.short_description == ""
         assert ad.publisher_name == ""
 
+    def test_price_and_type_are_set(self):
+        """Regression: PriceRangeRule/PriceDropRule now read ad.price/price_type
+        directly (P22) — Vinted must populate them itself, it always has a real,
+        placeholder-free numeric price (unlike Bazos)."""
+        ad = VintedScraper._map_item(make_item(total_item_price=6307.5))
+        assert ad.price == 6308
+        assert ad.price_type == PriceType.EXACT
+
     def test_promoted_maps_to_topped(self):
         ad = VintedScraper._map_item(make_item(promoted=True))
         assert ad.topped is True
@@ -155,6 +163,20 @@ class TestFormatPrice:
         """
         item = make_item(currency=None)
         assert VintedScraper._format_price(item) is None
+
+
+class TestPriceAmount:
+    def test_rounds_total_item_price(self):
+        item = make_item(total_item_price=6307.5)
+        assert VintedScraper._price_amount(item) == 6308
+
+    def test_falls_back_to_price_when_total_missing(self):
+        item = make_item(total_item_price=None, price=100.0)
+        assert VintedScraper._price_amount(item) == 100
+
+    def test_none_when_both_prices_missing(self):
+        item = make_item(total_item_price=None, price=None)
+        assert VintedScraper._price_amount(item) is None
 
 
 # ---------------------------------------------------------------------------

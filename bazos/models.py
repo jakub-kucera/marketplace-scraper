@@ -257,6 +257,29 @@ class SellerAdCounts:
         return line
 
 
+class PriceType(models.TextChoices):
+    """Price-placeholder vocabulary — see docs/refactor/PRICE_PARSING_RESEARCH.md.
+
+    Two carry a real `Ad.price`: EXACT (a real number) and FREE (a known zero — "Zdarma"
+    is NOT the same as "unknown", see §3.3). The other four — NEGOTIABLE/IN_TEXT/
+    MAKE_OFFER/INDIFFERENT — are Bazos's placeholder strings with no numeric value at all
+    (`price` stays None). Measured exhaustive against the 2024-03 export (16,981 ads) —
+    no long tail beyond these six (§3.1). CURRENT_BID is reserved for Aukro's live-bid
+    semantics (§7) — no scraper sets it yet, kept here so this stays the one cross-
+    marketplace enum rather than growing a second one once Aukro lands. UNKNOWN means
+    parsing failed, i.e. a marketplace started using a price string this list doesn't
+    know about yet.
+    """
+    EXACT       = "exact",       "Exact"
+    NEGOTIABLE  = "negotiable",  "Dohodou / by agreement"
+    IN_TEXT     = "in_text",     "V textu"
+    MAKE_OFFER  = "make_offer",  "Nabídněte"
+    INDIFFERENT = "indifferent", "Nerozhoduje"
+    FREE        = "free",        "Zdarma / giveaway"
+    CURRENT_BID = "current_bid", "Auction current bid"
+    UNKNOWN     = "unknown",     "Unknown"
+
+
 class AdStatus(models.TextChoices):
     PENDING       = "PENDING"       # scraped, awaiting filter
     APPROVED      = "APPROVED"      # passed filters, awaiting send
@@ -275,7 +298,9 @@ class Ad(TimeStampedModel):
     # TODO add relation to Category model. (some init method where from URL take category, bazos_id)
 
     name = models.CharField(max_length=120)
-    price_raw = models.CharField(max_length=30)  # TODO make int and add column for alternatives (Nabídněte, V textu, Dohodou)
+    price_raw = models.CharField(max_length=30)  # human-readable audit trail; see price/price_type
+    price = models.BigIntegerField(null=True, blank=True, db_index=True, help_text="Parsed CZK amount. Null for a non-EXACT price_type or an unparseable price_raw.")
+    price_type = models.CharField(max_length=20, choices=PriceType.choices, default=PriceType.UNKNOWN)
     location = models.CharField(max_length=128)
     view_count = models.IntegerField(null=True, blank=True, help_text="View count at the time of discovery. Null when the marketplace doesn't expose it (e.g. Vinted).")
     publish_date = models.DateTimeField(null=True, blank=True, help_text="Null when the marketplace doesn't expose it (e.g. Vinted) — never synthesise a value here.")
@@ -355,6 +380,8 @@ class PriceChange(TimeStampedModel):
     ad = models.ForeignKey(Ad, on_delete=models.CASCADE, related_name="price_history")
     old_price = models.CharField(max_length=30)
     new_price = models.CharField(max_length=30)
+    old_price_amount = models.BigIntegerField(null=True, blank=True)
+    new_price_amount = models.BigIntegerField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.ad} | {self.old_price} -> {self.new_price}"

@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bazos.models import Ad, AdDelivery, AdStatus, PriceChange
+from bazos.models import Ad, AdDelivery, AdStatus, PriceChange, PriceType
 from bazos.scraping.bazos_query_runner import BazosQueryRunner
 
 
@@ -312,6 +312,32 @@ def test_existing_query_updates_price_raw_on_ad_and_flips_delivery_status(query,
     delivery.refresh_from_db()
     assert existing.price_raw == "800 Kč"
     assert delivery.status == AdStatus.PRICE_CHANGED
+
+
+@pytest.mark.django_db
+def test_existing_query_price_change_carries_parsed_amounts(query, make_ad, make_delivery):
+    """The scraper already parses price/price_type at extraction time (P22) — the query
+    runner must reuse those values on both the Ad and the PriceChange record rather than
+    re-parsing price_raw itself."""
+    existing = make_ad(query, bazos_id=111)
+    existing.price_raw, existing.price, existing.price_type = "1 000 Kč", 1000, PriceType.EXACT
+    existing.save()
+    make_delivery(existing, query, status=AdStatus.SENT)
+
+    product = make_ad(query, bazos_id=111, topped=False)
+    product.price_raw, product.price, product.price_type = "800 Kč", 800, PriceType.EXACT
+
+    runner = make_runner(query)
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_existing_query()
+
+    existing.refresh_from_db()
+    assert existing.price == 800
+    assert existing.price_type == PriceType.EXACT
+
+    price_change = PriceChange.objects.get(ad=existing)
+    assert price_change.old_price_amount == 1000
+    assert price_change.new_price_amount == 800
 
 
 @pytest.mark.django_db

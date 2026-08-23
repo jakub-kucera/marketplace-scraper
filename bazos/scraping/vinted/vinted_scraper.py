@@ -22,7 +22,7 @@ from bazos.const import (
     VINTED_MAX_PAGES,
     VINTED_PAGE_SIZE,
 )
-from bazos.models import Ad, Marketplace, Query
+from bazos.models import Ad, Marketplace, PriceType, Query
 
 logger = logging.getLogger(__name__)
 
@@ -118,8 +118,8 @@ class VintedScraper:
         if item.id is None or not item.title or not item.url:
             logger.warning("Vinted: skipping search result missing id/title/url (id=%s)", item.id)
             return None
-        price_raw = VintedScraper._format_price(item)
-        if price_raw is None:
+        amount = VintedScraper._price_amount(item)
+        if amount is None or not item.currency:
             logger.warning("Vinted: skipping search result with no usable price (id=%s)", item.id)
             return None
         return Ad(
@@ -127,7 +127,9 @@ class VintedScraper:
             marketplace=Marketplace.VINTED.value,
             url=item.url,
             name=item.title[:120],
-            price_raw=price_raw,
+            price_raw=f"{amount} {item.currency}",
+            price=amount,
+            price_type=PriceType.EXACT,  # Vinted has no placeholder prices — see _price_amount
             location="",
             view_count=None,
             publish_date=None,
@@ -137,21 +139,28 @@ class VintedScraper:
         )
 
     @staticmethod
-    def _format_price(item) -> str | None:
+    def _price_amount(item) -> int | None:
         """Integer CZK only — `parse_price` strips non-digits, so a decimal point would
         silently multiply the parsed value by 10. See STAGE8_VINTED_SPEC.md §4.5.
 
         Uses `total_item_price` (buyer-protection fee included) rather than `price`,
-        falling back to `price` when the fee isn't present. Returns None (caller skips
-        the item) rather than a fabricated string when neither price nor currency is
-        present — `f"{amount} None"` would both look broken to a reader and register as
-        a spurious price change downstream, since price comparison is a plain string
-        compare (bazos/scraping/bazos_query_runner.py's run_existing_query).
+        falling back to `price` when the fee isn't present. None means "no usable price"
+        — `_map_item` skips the item entirely rather than persist a fabricated one.
         """
         amount = item.total_item_price if item.total_item_price is not None else item.price
+        return round(amount) if amount is not None else None
+
+    @staticmethod
+    def _format_price(item) -> str | None:
+        """Returns None (caller skips the item) rather than a fabricated string when
+        neither price nor currency is present — `f"{amount} None"` would both look broken
+        to a reader and register as a spurious price change downstream, since price
+        comparison is a plain string compare (bazos_query_runner.run_existing_query).
+        """
+        amount = VintedScraper._price_amount(item)
         if amount is None or not item.currency:
             return None
-        return f"{round(amount)} {item.currency}"
+        return f"{amount} {item.currency}"
 
     def load_full_description(self, ad: Ad) -> Ad:
         """NOT a no-op — description is None on every search result.

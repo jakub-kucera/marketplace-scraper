@@ -6,6 +6,7 @@ from textwrap import dedent
 import pytest
 from bs4 import BeautifulSoup
 
+from bazos.models import PriceType
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 
 
@@ -77,6 +78,21 @@ class TestParseProduct:
     def test_price_raw_stripped(self):
         result = self._parsed(price="  35 000 Kč  ")
         assert result["price_raw"] == "35 000 Kč"
+
+    def test_price_and_type_parsed_for_numeric_price(self):
+        result = self._parsed(price="35 000 Kč")
+        assert result["price"] == 35000
+        assert result["price_type"] == PriceType.EXACT
+
+    def test_price_and_type_parsed_for_placeholder(self):
+        result = self._parsed(price="Dohodou")
+        assert result["price"] is None
+        assert result["price_type"] == PriceType.NEGOTIABLE
+
+    def test_price_and_type_parsed_for_free(self):
+        result = self._parsed(price="Zdarma")
+        assert result["price"] == 0
+        assert result["price_type"] == PriceType.FREE
 
     def test_view_count_is_first_token(self):
         result = self._parsed(view_count="42")
@@ -217,6 +233,15 @@ def test_extract_product_returns_ad_with_correct_name():
 
     assert isinstance(ad, Ad)
     assert ad.name == "Test Laptop"
+
+
+@pytest.mark.django_db
+def test_extract_product_sets_price_and_type():
+    element = parse_element(make_product_html(price="35 000 Kč"))
+    ad = BazosScraper.extract_product(element)
+
+    assert ad.price == 35000
+    assert ad.price_type == PriceType.EXACT
 
 
 @pytest.mark.django_db

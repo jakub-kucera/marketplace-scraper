@@ -7,6 +7,8 @@ Rules operate on an `AdDelivery` (ad + query + pipeline status) since the Ad/AdD
 split — see docs/refactor/AD_DELIVERY_SPLIT_SPEC.md.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from bazos.filters import (
@@ -22,8 +24,9 @@ from bazos.filters import (
     RuleEngine,
     build_rule_engine,
     parse_price,
+    parse_price_and_type,
 )
-from bazos.models import AdDelivery, AdStatus, EmailPublisher, PhonePublisher, PriceChange
+from bazos.models import AdDelivery, AdStatus, EmailPublisher, PhonePublisher, PriceChange, PriceType
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +191,50 @@ def test_parse_price_empty():
 
 
 # ---------------------------------------------------------------------------
+# parse_price_and_type
+# ---------------------------------------------------------------------------
+
+def test_parse_price_and_type_exact():
+    assert parse_price_and_type("1 000 Kč") == (1000, PriceType.EXACT)
+
+
+def test_parse_price_and_type_free_is_zero_not_none():
+    """Zdarma is a KNOWN price of zero, not an unknown one — see
+    docs/refactor/PRICE_PARSING_RESEARCH.md §3.3."""
+    assert parse_price_and_type("Zdarma") == (0, PriceType.FREE)
+
+
+def test_parse_price_and_type_negotiable():
+    assert parse_price_and_type("Dohodou") == (None, PriceType.NEGOTIABLE)
+
+
+def test_parse_price_and_type_in_text():
+    assert parse_price_and_type("V textu") == (None, PriceType.IN_TEXT)
+
+
+def test_parse_price_and_type_make_offer():
+    assert parse_price_and_type("Nabídněte") == (None, PriceType.MAKE_OFFER)
+
+
+def test_parse_price_and_type_indifferent():
+    """Missing from P22's original enum — added per the corpus measurement (93 rows)."""
+    assert parse_price_and_type("Nerozhoduje") == (None, PriceType.INDIFFERENT)
+
+
+def test_parse_price_and_type_unknown_logs_and_returns_none():
+    """caplog can't see this — the `bazos` logger has propagate=False (settings.py), so
+    records never reach caplog's root-attached handler. Assert on the call instead."""
+    with patch("bazos.filters.logger.warning") as mock_warning:
+        result = parse_price_and_type("Za rozumnou cenu")
+    assert result == (None, PriceType.UNKNOWN)
+    mock_warning.assert_called_once()
+
+
+def test_parse_price_and_type_strips_whitespace():
+    assert parse_price_and_type("  Zdarma  ") == (0, PriceType.FREE)
+
+
+# ---------------------------------------------------------------------------
 # PriceRangeRule
 # ---------------------------------------------------------------------------
 
@@ -196,7 +243,7 @@ def test_price_range_rule_passes_when_no_range_set(query, make_ad):
     query.price_lower = 0
     query.price_upper = 0
     ad = make_ad(query, bazos_id=100)
-    ad.price_raw = "5000 Kč"
+    ad.price_raw, ad.price, ad.price_type = "5000 Kč", 5000, PriceType.EXACT
 
     result, reason = PriceRangeRule().apply(unsaved_delivery(ad, query))
     assert result == FilterResult.PASS
@@ -208,7 +255,7 @@ def test_price_range_rule_rejects_below_range(query, make_ad):
     query.price_lower = 1000
     query.price_upper = 2000
     ad = make_ad(query, bazos_id=101)
-    ad.price_raw = "500 Kč"
+    ad.price_raw, ad.price, ad.price_type = "500 Kč", 500, PriceType.EXACT
 
     result, reason = PriceRangeRule().apply(unsaved_delivery(ad, query))
     assert result == FilterResult.REJECT
@@ -220,7 +267,7 @@ def test_price_range_rule_rejects_above_range(query, make_ad):
     query.price_lower = 1000
     query.price_upper = 2000
     ad = make_ad(query, bazos_id=102)
-    ad.price_raw = "5000 Kč"
+    ad.price_raw, ad.price, ad.price_type = "5000 Kč", 5000, PriceType.EXACT
 
     result, _ = PriceRangeRule().apply(unsaved_delivery(ad, query))
     assert result == FilterResult.REJECT
@@ -231,7 +278,7 @@ def test_price_range_rule_passes_inside_range(query, make_ad):
     query.price_lower = 1000
     query.price_upper = 2000
     ad = make_ad(query, bazos_id=103)
-    ad.price_raw = "1500 Kč"
+    ad.price_raw, ad.price, ad.price_type = "1500 Kč", 1500, PriceType.EXACT
 
     result, reason = PriceRangeRule().apply(unsaved_delivery(ad, query))
     assert result == FilterResult.PASS
@@ -243,10 +290,54 @@ def test_price_range_rule_passes_non_numeric_price(query, make_ad):
     query.price_lower = 1000
     query.price_upper = 2000
     ad = make_ad(query, bazos_id=104)
-    ad.price_raw = "Dohodou"
+    ad.price_raw, ad.price, ad.price_type = "Dohodou", None, PriceType.NEGOTIABLE
 
     result, _ = PriceRangeRule().apply(unsaved_delivery(ad, query))
     assert result == FilterResult.PASS
+
+
+@pytest.mark.django_db
+def test_price_range_rule_rejects_out_of_range_vinted_ad(query):
+    """Regression: PriceRangeRule switched from parsing ad.price_raw to reading ad.price
+    directly. If a marketplace scraper doesn't populate ad.price, this rule silently PASSes
+    everything from it regardless of range — verify Vinted's own price population (not a
+    Bazos-vocabulary re-parse) actually feeds this rule end to end."""
+    from vinted_scraper.models import VintedItem
+
+    from bazos.scraping.vinted.vinted_scraper import VintedScraper
+
+    query.price_lower = 1000
+    query.price_upper = 2000
+    item = VintedItem(
+        id=1, title="Item", description=None, currency="CZK",
+        price=5990.0, total_item_price=6307.5, promoted=False,
+        url="https://www.vinted.cz/items/1-x",
+    )
+    ad = VintedScraper._map_item(item)
+
+    result, reason = PriceRangeRule().apply(unsaved_delivery(ad, query))
+    assert result == FilterResult.REJECT
+    assert reason is not None
+
+
+@pytest.mark.django_db
+def test_price_range_rule_rejects_out_of_range_sbazar_ad(query):
+    """Same regression, Sbazar side — and it must not go through the Bazos parser (which
+    can't see price_by_agreement and would mishandle a real zero-price giveaway)."""
+    from bazos.scraping.sbazar.sbazar_scraper import SbazarScraper
+
+    query.price_lower = 1000
+    query.price_upper = 2000
+    row = {
+        "id": 1, "seo_name": "x", "name": "Item", "price": 11990, "price_by_agreement": False,
+        "topped": False, "create_date": "2026-08-17T20:13:31", "locality": {},
+        "user": {"id": 1, "user_service": {"shop_url": "x", "shop_name": "x"}},
+    }
+    ad = SbazarScraper._map_item(row, "https://www.sbazar.cz")
+
+    result, reason = PriceRangeRule().apply(unsaved_delivery(ad, query))
+    assert result == FilterResult.REJECT
+    assert reason is not None
 
 
 # ---------------------------------------------------------------------------
@@ -413,10 +504,12 @@ def test_price_drop_rule_passes_when_no_price_history(query, make_ad, make_deliv
 @pytest.mark.django_db
 def test_price_drop_rule_passes_on_real_drop(query, make_ad, make_delivery):
     ad = make_ad(query, bazos_id=142)
-    ad.price_raw = "800 Kč"
+    ad.price_raw, ad.price = "800 Kč", 800
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.PRICE_CHANGED)
-    PriceChange.objects.create(ad=ad, old_price="1000 Kč", new_price="800 Kč")
+    PriceChange.objects.create(
+        ad=ad, old_price="1000 Kč", new_price="800 Kč", old_price_amount=1000, new_price_amount=800
+    )
 
     result, reason = PriceDropRule().apply(delivery)
     assert result == FilterResult.PASS
@@ -426,10 +519,12 @@ def test_price_drop_rule_passes_on_real_drop(query, make_ad, make_delivery):
 @pytest.mark.django_db
 def test_price_drop_rule_rejects_price_increase(query, make_ad, make_delivery):
     ad = make_ad(query, bazos_id=143)
-    ad.price_raw = "1200 Kč"
+    ad.price_raw, ad.price = "1200 Kč", 1200
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.PRICE_CHANGED)
-    PriceChange.objects.create(ad=ad, old_price="1000 Kč", new_price="1200 Kč")
+    PriceChange.objects.create(
+        ad=ad, old_price="1000 Kč", new_price="1200 Kč", old_price_amount=1000, new_price_amount=1200
+    )
 
     result, reason = PriceDropRule().apply(delivery)
     assert result == FilterResult.REJECT
@@ -439,10 +534,12 @@ def test_price_drop_rule_rejects_price_increase(query, make_ad, make_delivery):
 @pytest.mark.django_db
 def test_price_drop_rule_rejects_unchanged_price(query, make_ad, make_delivery):
     ad = make_ad(query, bazos_id=144)
-    ad.price_raw = "1000 Kč"
+    ad.price_raw, ad.price = "1000 Kč", 1000
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.PRICE_CHANGED)
-    PriceChange.objects.create(ad=ad, old_price="1000 Kč", new_price="1000 Kč")
+    PriceChange.objects.create(
+        ad=ad, old_price="1000 Kč", new_price="1000 Kč", old_price_amount=1000, new_price_amount=1000
+    )
 
     result, _ = PriceDropRule().apply(delivery)
     assert result == FilterResult.REJECT
@@ -452,14 +549,76 @@ def test_price_drop_rule_rejects_unchanged_price(query, make_ad, make_delivery):
 def test_price_drop_rule_uses_latest_price_change(query, make_ad, make_delivery):
     """If price dropped then rose again, only the latest change should matter."""
     ad = make_ad(query, bazos_id=145)
-    ad.price_raw = "1500 Kč"
+    ad.price_raw, ad.price = "1500 Kč", 1500
     ad.save()
     delivery = make_delivery(ad, query, status=AdStatus.PRICE_CHANGED)
-    PriceChange.objects.create(ad=ad, old_price="2000 Kč", new_price="1000 Kč")
-    PriceChange.objects.create(ad=ad, old_price="1000 Kč", new_price="1500 Kč")
+    PriceChange.objects.create(
+        ad=ad, old_price="2000 Kč", new_price="1000 Kč", old_price_amount=2000, new_price_amount=1000
+    )
+    PriceChange.objects.create(
+        ad=ad, old_price="1000 Kč", new_price="1500 Kč", old_price_amount=1000, new_price_amount=1500
+    )
 
     result, _ = PriceDropRule().apply(delivery)
     assert result == FilterResult.REJECT
+
+
+@pytest.mark.django_db
+def test_price_drop_rule_passes_when_history_unparseable(query, make_ad, make_delivery):
+    """Old data or a placeholder-to-placeholder change leaves *_amount null — PASS,
+    don't guess."""
+    ad = make_ad(query, bazos_id=146)
+    ad.price_raw = "Dohodou"
+    ad.save()
+    delivery = make_delivery(ad, query, status=AdStatus.PRICE_CHANGED)
+    PriceChange.objects.create(ad=ad, old_price="V textu", new_price="Dohodou")
+
+    result, _ = PriceDropRule().apply(delivery)
+    assert result == FilterResult.PASS
+
+
+@pytest.mark.django_db
+def test_price_drop_rule_rejects_vinted_price_increase_via_query_runner(query, make_delivery):
+    """Regression: the query runner propagates known_ad.price/product.price into
+    PriceChange.old_price_amount/new_price_amount (bazos_query_runner.run_existing_query)
+    — this only works end to end if the scraper populated .price in the first place. Drive
+    it through the real VintedScraper mapping rather than constructing the PriceChange by
+    hand, so a future scraper regression here fails this test too."""
+    from unittest.mock import MagicMock, patch
+
+    from vinted_scraper.models import VintedItem
+
+    from bazos.scraping.bazos_query_runner import BazosQueryRunner
+    from bazos.scraping.vinted.vinted_scraper import VintedScraper
+
+    query.marketplace = "vinted"
+    query.new_query = False
+    query.save()
+
+    old_item = VintedItem(
+        id=1, title="Item", description=None, currency="CZK",
+        price=5000.0, total_item_price=5000.0, promoted=False,
+        url="https://www.vinted.cz/items/1-x",
+    )
+    existing = VintedScraper._map_item(old_item)
+    existing.save()
+    delivery = make_delivery(existing, query, status=AdStatus.SENT)
+
+    new_item = VintedItem(
+        id=1, title="Item", description=None, currency="CZK",
+        price=7000.0, total_item_price=7000.0, promoted=False,
+        url="https://www.vinted.cz/items/1-x",
+    )
+    product = VintedScraper._map_item(new_item)
+
+    runner = BazosQueryRunner(query, MagicMock())
+    with patch.object(runner.scraper, "run_query", return_value=iter([product])):
+        runner.run_existing_query()
+
+    delivery.refresh_from_db()
+    result, reason = PriceDropRule().apply(delivery)
+    assert result == FilterResult.REJECT
+    assert reason is not None
 
 
 # ---------------------------------------------------------------------------
@@ -516,7 +675,7 @@ def test_build_rule_engine_selected_rule_still_applies(query, make_ad):
     query.price_upper = 2000
     query.filter_blocklist = ["mint"]  # would normally reject this ad
     ad = make_ad(query, bazos_id=150)
-    ad.price_raw = "1500 Kč"
+    ad.price_raw, ad.price = "1500 Kč", 1500
     ad.name = "Mint condition laptop"
 
     engine = build_rule_engine(query)

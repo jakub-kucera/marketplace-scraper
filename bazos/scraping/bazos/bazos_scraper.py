@@ -15,6 +15,7 @@ from selenium.common.exceptions import TimeoutException
 
 from bazos.const import BAZOS_PAGE_WAIT_TIME, MAX_ATTEMPTS, PAGE_SIZE, BAZOS_BLACKLIST_CHECK_URL
 from bazos.exceptions import BazosBlacklistedError
+from bazos.filters import parse_price_and_type
 from bazos.models import Ad, Marketplace, Query, EmailPublisher, PhonePublisher
 from ip_changer.tor import PROXIES
 
@@ -97,6 +98,7 @@ class BazosScraper:
         topped = 'TOP' in date_raw
         short_description = header_tmp.find(class_='popis').text.strip()
         price_raw = product_raw.find(class_='inzeratycena').text.strip()
+        price, price_type = parse_price_and_type(price_raw)
 
         location_tmp = product_raw.find(class_='inzeratylok')
         location_tmp.br.replace_with(", ")
@@ -120,6 +122,8 @@ class BazosScraper:
             'external_id': bazos_id,
             'name': name,
             'price_raw': price_raw,
+            'price': price,
+            'price_type': price_type,
             'url': url,
             'location': location,
             'publish_date': date,
@@ -170,6 +174,8 @@ class BazosScraper:
             marketplace=Marketplace.BAZOS,
             name=parsed['name'],
             price_raw=parsed['price_raw'],
+            price=parsed['price'],
+            price_type=parsed['price_type'],
             url=parsed['url'],
             location=parsed['location'],
             publish_date=parsed['publish_date'],

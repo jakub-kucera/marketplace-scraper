@@ -111,8 +111,11 @@ def test_backfill_preserves_ad_created_timestamp_for_queue_ordering(old_state):
     migrate_to_0026()
 
     delivery = AdDelivery.objects.get(ad_id=ad.pk)
-    persisted_ad = Ad.objects.get(pk=ad.pk)
-    assert delivery.created == persisted_ad.created == old_created
+    # .values_list, not .get(): a plain Ad.objects.get() SELECTs every field currently
+    # defined on the live model (e.g. price/price_type from migration 0032), and the
+    # physical table here is frozen at 0026's schema, which predates them.
+    persisted_ad_created = Ad.objects.filter(pk=ad.pk).values_list("created", flat=True).get()
+    assert delivery.created == persisted_ad_created == old_created
 
 
 @pytest.mark.django_db

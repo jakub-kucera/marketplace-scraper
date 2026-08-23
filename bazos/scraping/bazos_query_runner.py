@@ -140,9 +140,13 @@ class BazosQueryRunner:
                     ad=known_ad,
                     old_price=known_ad.price_raw,
                     new_price=product.price_raw,
+                    old_price_amount=known_ad.price,
+                    new_price_amount=product.price,
                 )
                 known_ad.price_raw = product.price_raw
-                known_ad.save(update_fields=["price_raw"])
+                known_ad.price = product.price
+                known_ad.price_type = product.price_type
+                known_ad.save(update_fields=["price_raw", "price", "price_type"])
                 # A price change is a fact about the AD — every query watching it re-enters
                 # the filter. Unconditional, matching pre-split behaviour (including
                 # un-suppressing a SUPPRESSED delivery — see AD_DELIVERY_SPLIT_SPEC.md §3.2).
