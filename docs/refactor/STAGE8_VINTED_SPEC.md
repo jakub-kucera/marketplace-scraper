@@ -1,11 +1,13 @@
 # Stage 8 — `VintedScraper`: implementation spec
 
-> Executable expansion of [`STAGE8_VINTED_DESIGN.md`](STAGE8_VINTED_DESIGN.md) and
-> [`PROMPTS.md`](PROMPTS.md) P3 + P4. Every design decision is made below — implement exactly
-> what is written.
+> **✅ Built 2026-08-22** — `Marketplace.VINTED` is live, migration `0029_vinted_support`. See
+> [`../SHIPPED.md`](../SHIPPED.md). Kept because §2's schema traps and §4.4/§4.5's exact field
+> mapping are the record of *why* the scraper looks the way it does; a change to
+> `bazos/scraping/vinted/vinted_scraper.py` should be checked against them.
 >
-> **Where this spec disagrees with P3/P4 in `PROMPTS.md`, this spec wins.** P4 in particular
-> contains two instructions that crash on the first ad saved (§2). Those are corrected here.
+> Executable expansion of [`STAGE8_VINTED_DESIGN.md`](STAGE8_VINTED_DESIGN.md) and the old
+> `PROMPTS.md` P3 + P4, which it superseded and which have since been retired from that file —
+> they predated the live probe and were wrong in nine ways that crash rather than degrade.
 >
 > Field names and API behaviour come from a **live probe of `vinted-scraper` 4.0.0 against
 > `vinted.cz` on 2026-08-21** — see the design doc §1a and §8. They are measured, not assumed.

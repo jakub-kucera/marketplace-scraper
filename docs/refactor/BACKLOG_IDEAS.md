@@ -8,176 +8,100 @@
 >
 > Unlike the numbered `PIPELINE_REFACTOR.md` stages, these are **not sequenced** — they're
 > independent candidates. Pick them up individually; none blocks another except where noted.
+>
+> **Numbers are stable and never reused.** #1, #7 and #11 have shipped and are collapsed to a
+> stub pointing at [`../SHIPPED.md`](../SHIPPED.md) — the numbers stay so the cross-references to
+> them from other docs still land.
 
 ---
 
 ## Priority — effort vs. relevance
 
 Ranked by effort vs. actual relevance to what this scraper does (find deals, notify fast, stay
-under the radar), not by order of appearance above.
+under the radar), not by order of appearance below.
 
-> **⚠️ Re-ranked 2026-07-29.** Two things changed the order, and neither is an idea in this
-> document:
+> **⚠️ Re-ranked 2026-08-23.** Four of the rows that used to sit at the top of this table have
+> **shipped** — database backups, the `Ad`/`AdDelivery` split (#1), #7's AND/OR probe, and #11's
+> seller identity — and #4's "unresearched" premise is no longer true. What has *not* changed is
+> the thing that governs the order:
 >
-> 1. **Detection latency is the binding constraint on the whole "find deals" goal** — the
->    current 15–45 min interval means a **~15 minute median** delay, while competing services
->    poll every 60 s and good listings are gone in minutes. See
->    [`../MONETIZATION.md`](../MONETIZATION.md) **§7.1** for the full argument and the numbers;
->    the executable fix is [`PROMPTS.md`](PROMPTS.md) **P21**. Everything in this table is
->    downstream of that — a better filter delivered 15 minutes late is worth nothing.
-> 2. **#6 is blocked and was previously mislabelled "Do first"** — see its own section below.
+> **Detection latency is still the binding constraint on the whole "find deals" goal.** The
+> interval is still 15–45 min, i.e. a **~15 minute median**, while competing services poll every
+> 60 s and good listings are gone in minutes. See [`../MONETIZATION.md`](../MONETIZATION.md)
+> **§7.1** for the argument and the numbers; the executable fix is [`PROMPTS.md`](PROMPTS.md)
+> **P21a**, whose free half (the guard collapse) landed but whose latency half has not.
+> Everything in this table is downstream of that — a better filter delivered 15 minutes late is
+> worth nothing.
 >
-> Neither point invalidates any idea here; they change what to pick up *first*.
->
-> **⚠️ Amended 2026-08-08.** Three further changes, again none of them ideas in this document:
->
-> 3. **There is no database backup**, which outranks everything — the doc that argues the
->    archive is irreplaceable ([`../MONETIZATION.md`](../MONETIZATION.md) §7.3) never checked
->    whether it was backed up. It isn't. See [`../BACKUPS.md`](../BACKUPS.md). ~2 hours.
-> 4. **P21 is split into P21a (free) and P21b (paid)** — the free half delivers ~3× of the
->    latency win at unchanged request volume and no external dependency, so the two halves no
->    longer belong in one row. Arithmetic in [`PROMPTS.md`](PROMPTS.md) P21's note.
-> 5. **Tor is actively failing in production** (observed 2026-08-08), and the guards that
->    detect it have no timeouts and crash the whole runner. `PROMPTS.md` P20 case (c) is a
->    ~30-minute fix for the crash; P21b is the durable fix for the cause.
+> Shipped work is recorded in [`../SHIPPED.md`](../SHIPPED.md) and is not repeated here.
 
 | # | Idea | Effort | Depends on | Priority |
 |---|---|---|---|---|
-| — | **DB backups** — there are none | **S** (~2 hrs) | nothing | **⚠️⚠️ Do first — [`../BACKUPS.md`](../BACKUPS.md).** Not an idea in this doc. The archive is unbacked on one Pi SD card; everything below assumes it exists. |
-| — | **Guards that raise** — no request timeouts, crash takes down the whole runner | **XS** (~30 min) | nothing | **⚠️ Do immediately — [`PROMPTS.md`](PROMPTS.md) P20 case (c).** An *active* crash loop as of 2026-08-08, not a latent defect. |
-| — | **Latency chain, free half** — production API cutover + collapse the double blacklist check + interval to ~10 min | **S/M** (~2 days) | nothing; designed in `../proxies/` + `../bazos-api/`, scraper already built | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P21a.** ~3× latency win at *unchanged* request volume, no cost, no external dependency. |
-| — | **Latency chain, paid half** — rotating proxy pool | **M** (~1-2 days + ~$3-6/mo) | P21a, plus a benchmark never yet run | **[`PROMPTS.md`](PROMPTS.md) P21b.** Split out 2026-08-08 — the only part needing money and an unvalidated assumption. Also the durable fix for the Tor failures above. |
-| — | **Silent-failure defects** — ~~`QueryRun` lost on crash~~ (done), zero-results canary, `check_ip_local` skip, uncapped retry loops | **S** (~1 day total) | nothing | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) ~~P18~~ P19-P20.** You currently cannot tell "no deals" from "broken". |
-| 7 | True AND/OR queries | **S** (probe: ~1hr; impl if real: trivial) | nothing | ✅ **Done** — probed 2026-07-26, `OR` real/`AND` fake (see §7) |
-| 3a | Thumbnail in Discord embed | **S/M** (~1-2 days) | nothing | **Do soon** — and see #10, which wants the same notification rework |
+| — | **IP guards can still raise** — no request timeouts in `ip_changer/`, two unguarded call sites | **XS** (~1 hr) | nothing | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P20.** One dropped socket still costs a whole pass. |
+| — | **Latency, the half that's left** — tunable API page size + production cutover + interval to ~10 min | **S/M** (~1–2 days) | nothing; designed in `../proxies/` + `../bazos-api/`, scraper already built | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P21a Parts 1 + 4a.** ~3× latency win at *unchanged* Bazos request volume, no cost. |
+| — | **Rotating proxy** — replace Tor | **M** (~1–2 days + ~$3–6/mo) | P21a, plus a benchmark never yet run | **[`PROMPTS.md`](PROMPTS.md) P21b.** The only part needing money and an unvalidated assumption — and the durable fix for Tor's ongoing failures. |
 | 9 | `AdOutcome` — record what you actually did about an ad | **S** (~half day) | nothing | **Do soon** — cheapest item here, and the only source of ground truth |
+| 3a | Thumbnail in Discord embed | **S/M** (~1-2 days) | nothing | **Do soon** — and see #10, which wants the same notification rework |
 | 10 | Distance / travel-cost-aware scoring | **M** (~1-2 days) | nothing (`zip.php` already probed) | **Do soon** if flipping is the goal |
 | 8 | Full-listing rescan flag (comprehensive price-drop detection) | **S** structurally (~1hr); **M** with the cap/throttle guardrail it needs | nothing, but must ship with a page cap/throttle | **Do soon, but scope narrowly** |
 | 6 | Posting-time-of-day → interval tuning | **S** (~half day) *once unblocked* | ⚠️ **blocked** — needs second-resolution timestamps (see §6) | **Blocked, and superseded in value by the latency chain** |
-| 1 | Cross-query `Ad`/`AdDelivery` split | **L** (bigger than any existing stage) | nothing, but gets worse the longer you wait | **Do before scaling queries** — *not* needed for narrow-query flipping; see the note in §1 |
-| 2 | asyncio scraping | **M/L**, but only as part of a scraper you haven't built yet | the API migration | **Still not independently actionable** — and *less* attractive after P21 (see §2 note) |
+| 2 | asyncio scraping | **M/L**, but only as part of a scraper you haven't built yet | the API cutover | **Still not independently actionable** — and *less* attractive after P21a (see §2 note) |
 | 3b | Self-host image mirror | **L** (storage + serving + retention) | 3a | **Defer** |
-| 4 | External price cross-referencing (Heureka) | **L**, high uncertainty | its own unresearched spike | **Defer** |
+| 4 | External price cross-referencing (Heureka / Zboží) | **L**, high uncertainty | ❌ **researched and rejected** | **Don't** — see §4 and [`../marketplaces/pass1/TRACKB_HEUREKA.md`](../marketplaces/pass1/TRACKB_HEUREKA.md). The blocker is on *our* side: `Ad` has no brand/model field to join from. |
 | 5 | Computer-vision item recognition | **L**, speculative | idea #3 (images) + vendor pick | **Defer, lowest** |
 
 **Why this order:**
 
-- **The two "—" rows outrank everything numbered**, because they're not feature bets — one is the
-  difference between arriving first and arriving 15 minutes late (the entire premise of "find
-  deals"), and the other is the difference between knowing the pipeline works and assuming it does.
-  Both are execution of work already designed elsewhere, not new design.
-- **#6 was the previous "Do first" and that was wrong** — it wants to build an hourly
-  posting-density curve from `Ad.publish_date`, but `BazosScraper.extract_date` parses only
-  `[29.7.2026]` and **discards the time**, so `ExtractHour("publish_date")` returns all-zeros
-  today. It's blocked on data that doesn't exist yet, and even unblocked it makes a 15–45 min
-  interval *smarter* where P21 makes it **~2 minutes** — the wrong term to optimise. Keep it, but
-  after the API cutover supplies real timestamps.
-- **#3a is still the best "visible payoff" item** — Discord notifications get noticeably nicer for
-  a bounded, well-understood cost. Doesn't need the API migration to start. Worth building
-  together with **#10**, since both rewrite the same notification-formatting path.
+- **The three "—" rows outrank everything numbered**, because they're not feature bets — one is
+  the difference between arriving first and arriving 15 minutes late (the entire premise of "find
+  deals"), and the other is the difference between a dropped socket costing one query and costing
+  an entire pass. Both are execution of work already designed elsewhere, not new design.
 - **#9 is the cheapest thing in this document and the only one that creates ground truth** —
-  without it, no threshold in #4/#5 or the discovery doc's price-anomaly filter can ever be
-  tuned against reality, and you can't compute what a flip actually earned.
-- **#1 (cross-query dedup) is the most architecturally important idea here, and the most
-  expensive** — bigger than any single stage in `PIPELINE_REFACTOR.md`. Not urgent today because
-  query overlap is rare in practice, but the discovery-pipeline doc's "fewer, broader
-  category-scoped queries" pattern makes collisions much more likely. The real trigger for doing
-  this isn't a calendar date — it's **before broadening query scope**, not after. Note what this
-  means in practice: it is a precondition for the *analytics/data* direction and for category
-  sweeps, but **not** for deal-hunting on today's narrow queries, where overlap is rare and the
-  symptom is a duplicate notification rather than a wrong answer. Don't let it block P21.
-- **#2 (asyncio) isn't really a standalone task, and P21 weakens the case further** — its own
+  without it, no threshold in #5 or `PROMPTS.md` P23's price-anomaly rule can ever be tuned
+  against reality, and you can't compute what a flip actually earned. **P22 landing makes this
+  materially more valuable**: there is now a real integer `Ad.price` to compute a margin against.
+- **#3a is still the best "visible payoff" item** — Discord notifications get noticeably nicer for
+  a bounded, well-understood cost. Doesn't need the API cutover to start. Worth building
+  together with **#10**, since both rewrite the same notification-formatting path.
+- **#6 wants an hourly posting-density curve** from `Ad.publish_date`, but `BazosScraper.extract_date`
+  parses only `[29.7.2026]` and **discards the time**, so `ExtractHour("publish_date")` returns
+  all-zeros today. It's blocked on data that doesn't exist yet, and even unblocked it makes a
+  15–45 min interval *smarter* where P21 makes it **~2 minutes** — the wrong term to optimise.
+  Keep it, but after the API cutover supplies real timestamps.
+- **#2 (asyncio) isn't really a standalone task, and P21a weakens the case further** — its own
   conclusion below is "don't retrofit onto the HTML scraper", and the payoff was always going to
-  come with the API migration. But P21's steady-state shape is **one ~1.1 KB request per query
-  per pass** (a `limit≈10` dedup probe), so there is very little left to parallelise in the
-  common case; the remaining fan-out candidates are `load_full_description` batches on first
-  discovery and the bulk enrichment workflows (`ratings.php`, per-ad detail). Re-read §2 with
-  that in mind before spending effort here.
-- **#3b, #4, #5 are all "interesting but speculative"** — each has either an unresearched
-  dependency (#4's Heureka endpoint, #5's vendor choice) or an unconfirmed benefit (#3b's
-  click-tracking risk isn't observed to be a real problem yet). None block anything else — lowest
-  urgency by construction.
-- **#8 is cheap to build but easy to misuse** — the code change itself is a few lines, but enabling
-  it on a broad category-scoped query multiplies request volume by orders of magnitude on *every*
-  pass, not once (see its own section for the measured numbers). Worth doing soon since it's small
-  and unblocks real price-drop detection, but only alongside a page cap/throttle guardrail and
+  come with the API cutover. P21a's steady-state shape is **one ~1.1 KB request per query per
+  pass** (a `limit≈10` dedup probe), so there is very little left to parallelise in the common
+  case; the remaining fan-out candidates are `load_full_description` batches on first discovery
+  and the bulk enrichment workflows. Re-read §2 with that in mind before spending effort here.
+- **#4 is now a "don't", not a "defer"** — the research it was waiting on was done
+  (`TRACKB_HEUREKA.md`, 2026-08-22) and it failed on the near side, not the far side: Zboží.cz is
+  wide open and its payload is genuinely rich, but `Ad` carries no brand/model/EAN field to join
+  *from*, so every route requires per-ad LLM extraction first. Revisit only if such a field
+  appears for other reasons.
+- **#3b and #5 remain speculative** — each has either an unconfirmed benefit (#3b's
+  click-tracking risk isn't observed to be a real problem) or an unresolved vendor choice (#5).
+  Neither blocks anything else — lowest urgency by construction.
+- **#8 is cheap to build but easy to misuse** — the code change is a few lines, but enabling it on
+  a broad category-scoped query multiplies request volume by orders of magnitude on *every* pass,
+  not once (see its own section for the measured numbers). Worth doing soon since it's small and
+  unblocks real price-drop detection, but only alongside a page cap/throttle guardrail and
   strictly as an opt-in for narrow queries — not a flag to flip broadly.
 
 ---
 
-## 1. Cross-query `Ad` dedup (M:N `Ad`↔`Query`)
+## 1. Cross-query `Ad` dedup (M:N `Ad`↔`Query`) — ✅ **shipped 2026-08-22/23**
 
-> **Promoted to an executable spec 2026-08-21: [`AD_DELIVERY_SPLIT_SPEC.md`](AD_DELIVERY_SPLIT_SPEC.md).**
-> Option B below is the one specced; the option analysis here remains the rationale. The spec
-> stages it into four PRs and pre-decides the traps — chiefly that the scrape-time dedup break
-> must key on the per-query `AdDelivery`, not on global `Ad` existence, or a brand-new query
-> breaks on page 1 and never backfills.
-
-> **Referenced by** [`LLM_AD_REVIEW_DESIGN.md`](../refactor/LLM_AD_REVIEW_DESIGN.md) §3
-> (2026-07-24) — LLM review/outreach opt-ins are properties of a *query's* interest in an ad,
-> which today's single-`Ad`-row model can't represent per-query. Not a blocker for a first
-> version of that proposal, but a reason to revisit this sooner if both move forward together.
+> Option B was chosen, spec'd in [`AD_DELIVERY_SPLIT_SPEC.md`](AD_DELIVERY_SPLIT_SPEC.md), and
+> **all four stages landed** (migrations `0026`–`0028`, `0031`). `Ad` now holds scraped facts and
+> is globally unique on `(marketplace, external_id)`; `AdDelivery` holds per-`(ad, query)`
+> pipeline state. `Ad.status`/`filter_reason`/`sent_at`/`send_attempts`/`query` no longer exist.
+> Details in [`../SHIPPED.md`](../SHIPPED.md); deferred review follow-ups in
+> [`PROMPTS.md`](PROMPTS.md) P26.
 >
-> **Also referenced by** [`DISCORD_BOT_DESIGN.md`](../refactor/DISCORD_BOT_DESIGN.md) §3.1
-> (2026-07-24) — per-ad Discord message-id tracking hits the same one-`Ad`-row-per-delivery
-> assumption. Third independent proposal to want this; worth weighting accordingly.
+> The number is kept so the several cross-references to "`BACKLOG_IDEAS.md` #1" still land. The
+> option analysis that used to live here is preserved in the spec's §1–§3.
 
-**Source**: [#39](https://github.com/jakub-kucera/marketplace-scrapper/issues/39). Already flagged
-as a TODO in code — `bazos/models.py:139` (`external_id` comment: "requires M:N to queries") and
-`:161` ("TODO m:n relationship with Query (+ senders)") — but never designed.
-
-### The actual problem
-
-`Ad.query` is a single FK (`models.py:163`). `BazosQueryRunner._is_known` (`bazos_query_runner.py:31`)
-scopes its existence check to `query=self.query` — so if two `Query` rows both match the same
-real-world ad (e.g. a `text="macbook"` query and a `category=Apple` query), each discovers it
-independently and creates **two separate `Ad` rows** with the same `(marketplace, external_id)`.
-Consequences: duplicate Discord notifications (once per matching `Query`), duplicate
-`load_full_description` fetches if both queries set that flag, and no single row that answers
-"has this real-world ad ever been seen" — every downstream idea that wants global ad identity
-(price history across all sightings, repost detection, the bazos-api discovery pipeline's
-per-seller diffing) implicitly assumes one `Ad` = one real-world ad, which isn't true today.
-
-### The design fork this creates
-
-Status (`PENDING→APPROVED→SENT`) is currently a property of the **Ad row**. But delivery is
-inherently a property of **(ad, query, sender)** — the same real-world ad matching two queries
-with two different senders should notify both channels. Making `Ad` globally unique per
-`(marketplace, external_id)` without addressing this would silently under-notify (the ad gets
-sent once, to whichever query "won", and the second query's channel never hears about it) —
-that's not a neutral simplification, it's a behavior regression.
-
-### Options
-
-**A — Do nothing structural, add a lightweight match-log.** Keep the first-discoverer `Ad` row
-as-is; add `AdMatch(ad, query, matched_at)` purely for analytics/bookkeeping when a later query
-rediscovers a known ad. Smallest change, but doesn't fix the under-notification problem above —
-just documents that it happens.
-
-**B — Split `Ad` (facts) from `AdDelivery` (per-query delivery state)** *(recommended)*.
-`Ad` keeps only scraped facts (name, price, description, images) and becomes globally unique on
-`(marketplace, external_id)` — updated in place on rediscovery rather than duplicated. A new
-`AdDelivery(ad, query, status, filter_reason, sent_at, send_attempts)` row is created per
-`(ad, query)` match and is what `run_filter`/`run_sender` actually operate on (`select_for_update`
-against `AdDelivery`, not `Ad`). This is the shape the current architecture is already gesturing
-at — "resource" and "notification of that resource" are different things — but it touches every
-consumer of `Ad.status`/`filter_reason`/`sent_at`/`send_attempts`: `run_filter.py`, `run_sender.py`,
-`bazos_query_runner.py`, `admin.py`, and all pipeline tests. This is a bigger migration than any
-single stage in `PIPELINE_REFACTOR.md` so far — scope it as its own multi-step stage, not a quick
-patch.
-
-**Interaction with Stage 4 (`PriceChange`)**: worth doing *after* this split, not before — a price
-change is a fact about the `Ad` (global), not about any one `(ad, query)` delivery, so `PriceChange`
-keyed off a global `Ad` is strictly more correct than keying it off today's per-query `Ad` row.
-Sequencing this idea before Stage 4 avoids re-deriving `PriceChange`'s FK target later.
-
-**Recommendation**: B, but treat it as a standalone "Stage 10"-weight effort, not a drive-by fix.
-Not urgent — duplicate notifications are a nuisance, not a correctness bug in today's single-query-
-per-ad-in-practice usage — but worth doing before leaning further on cross-query features (broader
-category-scoped queries per the discovery-pipeline doc make the collision more likely, since one ad
-now more easily matches two overlapping queries).
-
----
 
 ## 2. Concurrent scraping (`asyncio`/`aiohttp`)
 
@@ -303,17 +227,31 @@ product/SKU before any reference-price lookup means anything. Options, roughly c
   variance, but a real per-ad cost and a new external dependency; naturally a category-gated
   Stage-9-style filter rule, not something run for every scraped ad.
 
-### The price source itself is unresearched
+### The price source was researched — ✅ 2026-08-22, and the answer is no
 
-Unlike the Bazos hidden API (fully probed in `BAZOS_HIDDEN_API_RESEARCH.md`), **no equivalent
-research has been done for Heureka or any price-comparison source** — no confirmed endpoint, no
-confirmed rate limits, nothing. This is a bigger unknown than anything else in this document; it
-needs its own research spike before it's more than an idea.
+The spike this section used to call for **was run**:
+[`../marketplaces/pass1/TRACKB_HEUREKA.md`](../marketplaces/pass1/TRACKB_HEUREKA.md) assessed
+Heureka.cz and Zboží.cz live, 15 requests, and
+[`../marketplaces/pass1/TRACKB_EBAY.md`](../marketplaces/pass1/TRACKB_EBAY.md) did the same for
+eBay sold listings. There is now a confirmed endpoint and a measured rate-limit shape. **Verdict:
+REJECT**, and it fails on the near side rather than the far side:
 
-**Recommendation**: if pursued, scope narrowly to Apple laptops/phones (matching #56's original
-ask) rather than a general product-pricing system, and treat the Heureka-side research as a
-separate, first prerequisite spike — don't design the `Query`/filter integration before that
-endpoint even exists on paper.
+- **Heureka.cz** is behind a Cloudflare managed challenge on everything except `robots.txt`.
+- **Zboží.cz** is wide open (Next.js, three usable layers) and its payload is genuinely rich for
+  tools and electronics — so the *source* is not the problem.
+- **The join is.** Neither site exposes EAN/GTIN, and more importantly **`Ad` carries no
+  brand/model field to join *from*** — only free-text `name` + `short_description`. Every route
+  therefore needs a per-ad LLM extraction step first, which is a different (and much larger)
+  project than "call a price API".
+- **eBay** has no route at all for a non-partner: `findCompletedItems` was decommissioned
+  2025-02-05 and the Insights API is invitation-only. Its 90-day history window would also be too
+  short for this project's thesis.
+
+**Recommendation: don't build this.** Revisit only if a structured brand/model field appears on
+`Ad` for some other reason — at which point the near-side blocker is gone and Zboží becomes
+cheap. Until then, the *internal* rolling price baseline (`PROMPTS.md` P23's `PriceAnomalyRule`,
+now possible because P22 gave `Ad` a real integer price) is the version of this idea that is
+actually reachable.
 
 ---
 
@@ -389,35 +327,19 @@ already on hand, small and self-contained.
 
 ---
 
-## 7. True AND/OR query support — ✅ resolved 2026-07-26 (OR real, AND fake)
+## 7. True AND/OR query support — ✅ **resolved 2026-07-26** (OR real, AND fake)
 
-> **Promoted to `PROMPTS.md` as P15** (2026-07-24), **done 2026-07-26** — see
-> `BAZOS_HIDDEN_API_RESEARCH.md` §4.1a for full probe evidence.
+> Probed live as `PROMPTS.md` P15. **`OR` is a genuine boolean union**; **`AND` is not an
+> operator** — it is matched as an ordinary literal word on top of the implicit AND of
+> space-separated terms, which is why `macbook AND pro` returns 15× fewer results than
+> `macbook pro`. Full probe evidence in
+> [`../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md`](../bazos-api/BAZOS_HIDDEN_API_RESEARCH.md)
+> §4.1a–4.1b; the mechanism (plain SQL substring `LIKE`, not FULLTEXT boolean mode) is §4.1b.
+>
+> **The remaining follow-up is not a code change.** Consolidating existing narrow `Query` rows
+> into `macbook OR imac OR ipad` works today with the production HTML scraper, no API migration
+> — it just has not been done to the real rows.
 
-**Source**: [#52](https://github.com/jakub-kucera/marketplace-scrapper/issues/52) ("the BE support
-AND and OR operator for search terms").
-
-Cross-checked against `BAZOS_HIDDEN_API_RESEARCH.md` §4.1: the confirmed-live `query` param
-behavior is full-text search across title+description, with a **confirmed** `-word` exclusion
-suffix and quoted-phrase exact-match — but the research doc (as of 2026-07-19) never tested or
-claimed boolean AND/OR operators. Live-probed 2026-07-26 against both `api/v1/ads.php` and the
-HTML `search.php`, which return identical totals:
-
-- **`OR` is real** — a genuine boolean union, case-insensitive, works with 3+ terms
-  (`iphone OR traktor` = 18481 vs. an expected ~18482 from the two near-disjoint baselines —
-  arithmetic that plain literal-text matching can't produce).
-- **`AND` is not real** — it's treated as an ordinary additional required literal word (on top
-  of the default implicit-AND-of-space-separated-terms that already exists), not a parsed
-  operator. `macbook AND pro` returns 71, a 15x drop from `macbook pro`'s already-narrowed 1101,
-  because "and" itself must now also appear literally in the ad text.
-
-This confirms the original motivation — reducing `Query` row sprawl via one query for
-`macbook OR imac OR ipad` instead of three separate rows (per the discovery-pipeline doc's
-"fewer, broader queries" theme, §1) — **works today, with the current production HTML scraper**,
-no API migration required. Actually adopting `OR` in real `Query` rows (consolidating existing
-narrow queries) is a small, separate follow-up, not yet done.
-
----
 
 ## 8. Full-listing rescan flag — comprehensive price-drop detection
 
@@ -602,65 +524,23 @@ version until Stage D columns land anyway.
 
 ---
 
-## 11. Seller identity & history in the admin — ✅ done 2026-08-10
+## 11. Seller identity & history in the admin — ✅ **done 2026-08-10**
 
-> **Source**: internal work, 2026-08-08→10. Not from the issue tracker and not previously in
-> this document — recorded here because it shipped and because it is the local, zero-API
-> precursor to [`../bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md`](../bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md)
+> Shipped: transitive `(email_id, phone_id)` resolution to a fixpoint (`SellerAdCounts`, bounded
+> by `MAX_IDENTITY_ROUNDS=5`), three-way counts (`by_email` / `by_phone` / `combined` — their
+> *disagreement* is the signal), per-seller counts in the admin and embedded in the Discord
+> message, and publisher partner tables with block/unblock actions. Migration `0025` removed the
+> `bazos_id=0` sentinel that had merged 6.7% of ads into one fake seller.
+>
+> Details in [`../SHIPPED.md`](../SHIPPED.md) and CLAUDE.md's *Seller identity* section. This is
+> the local, zero-API precursor to
+> [`../bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md`](../bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md)
 > §3.1 (reseller/dealer detection).
+>
+> ⚠️ **One caveat worth keeping**: `Ad.message` embeds `seller_ad_counts().summary`, so rendering
+> an ad for Discord fires several `COUNT` queries — never call `.message` in a loop over a large
+> queryset.
 
-**The problem it addresses:** a seller on Bazos is identified by a *pair* of opaque ids
-(`email_id`, `phone_id`), not one id, and the same person routinely posts under several
-pairings. Neither id alone answers "how many ads has this seller posted", and the schema
-carries no seller entity — the pairing exists only per-`Ad`, through two independent FKs.
-
-**What was built:**
-
-- **`SellerAdCounts`** (`bazos/models.py`) — three counts for the seller behind an ad:
-  `by_email`, `by_phone`, and a `combined` that walks the identity graph transitively to a
-  fixpoint (ad → its email → that email's other phones → those phones' other emails).
-  Bounded by `MAX_IDENTITY_ROUNDS`. Surfaced on `AdAdmin` and appended to `Ad.message`, so
-  it reaches Discord on every notification.
-- **`PublisherMixin.partner_rows()`** — publishers of the other type sharing an ad, shown on
-  both publisher admins as "Seen together with", plus `ad_count`/`partner_count` columns and
-  a link to each publisher's ads (newest first, via `AdAdmin.ordering = ("-publish_date",)`).
-- **The `bazos_id=0` sentinel fix** (migration `0025`, scraper writes NULL) — see below.
-
-**Measured findings that shaped it** (2024-03 export, 16,987 ads — worth keeping, since they
-are the empirical basis for the design and for §3.1's thresholds later):
-
-| Measurement | Result |
-|---|---|
-| Ads carrying **both** an email and a phone id | **99.9%** — "only one side" is a non-case (9 ads) |
-| Emails paired with exactly one phone | **95.3%** |
-| Ads where transitive `combined` ≠ `max(by_email, by_phone)` | **13.7%** — one hop is not enough |
-| Largest connected component, before the sentinel fix | **1,408 ads = 8.3% of everything** |
-| Largest connected component, after | **369 ads = 2.2%** |
-
-**The `bazos_id=0` sentinel was the important discovery.** A `0` publisher id is Bazos's "no
-publisher of this kind" marker; `get_or_create` had been turning it into a real row, so
-**1,137 ads (6.7%) shared one fake `EmailPublisher` spanning 671 distinct phones**. It was
-not a legacy artifact — it ran at a steady 6–8%/month across the whole export. Any
-seller-grouping built on top of it would have been wrong on 6.7% of ads, and transitive
-closure would have merged 671 unrelated sellers into one. Fixed at both ends: the scraper
-stores NULL, migration `0025` detaches and deletes the existing rows.
-
-**Deliberately *not* built** (open, if reseller detection is picked up properly):
-
-- **The counts are scoped to this database** — ads our own queries happened to scrape, not
-  the seller's true Bazos total. A dealer with 500 live listings can read as 2 here. The real
-  number is `user_ads_count` on the API detail endpoint
-  (`BAZOS_HIDDEN_API_RESEARCH.md` §5.2), free once the API scraper is in production
-  ([`PROMPTS.md`](PROMPTS.md) P21a). The UI says "seen" rather than "has" for this reason.
-- **No dealer threshold, no flagging, no `FilterRule`** — this surfaces the data for a human,
-  it does not classify anyone. §3.1's ">20-30 ads = professional" rule needs the API count
-  above before it means anything.
-- **`PhonePublisher.phone` / `EmailPublisher.email` are empty on 100% of rows** — only
-  `bazos_id` is ever stored, so there is no way today to detect dummy numbers or match a
-  seller across marketplaces. Populating them is a prerequisite for most of §3.2 (scammer
-  detection). Note `ad-phone.php` is auth-gated (`403 "Číslo je neověřené"`).
-
----
 
 ## Explicitly out of scope for this document
 

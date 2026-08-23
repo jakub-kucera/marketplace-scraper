@@ -9,16 +9,38 @@
 > real but **it is an artifact of one query dominating the corpus** — see §3.2. The corrected
 > figure for the goods categories this project actually targets is **0–9%**.
 
-## 1. The current state — there is no numeric price anywhere
+## 1. The state this research was written against — ✅ since fixed
 
-- **`Ad.price_raw` is `CharField(max_length=30)`** — display strings: `"12 500 Kč"`, `"Dohodou"`.
-- **`parse_price` (`bazos/filters.py:45`) is `re.sub(r"\D","",…) -> int | None`**, runs at *filter*
-  time, and the result is **discarded**. Nothing numeric is persisted.
-- **`PriceChange.old_price`/`new_price` are also `CharField(30)`** — price history is strings too.
+> **This section is historical.** P22 shipped on 2026-08-23 (migrations `0032`/`0033`), built
+> from the measurements below. Everything from §2 onward is still current — it describes the
+> *marketplaces*, not the schema, and the field mappings and traps are what a new scraper needs.
+> Only this section went stale.
 
-No median, percentile, index or margin arithmetic is possible on any price in this database.
-`MONETIZATION.md` §7.2 lists this as one of three data-model defects blocking every data-driven
-option, and it is why P23 (`PriceAnomalyRule`) cannot be built first.
+**What it looked like before P22:**
+
+- `Ad.price_raw` was `CharField(max_length=30)` — display strings only: `"12 500 Kč"`, `"Dohodou"`.
+- `parse_price` ran at *filter* time and the result was **discarded**. Nothing numeric persisted.
+- `PriceChange.old_price`/`new_price` were `CharField(30)` too — price history was strings.
+
+No median, percentile, index or margin arithmetic was possible on any price in the database.
+
+**What exists now:**
+
+- **`Ad.price`** — `BigIntegerField(null=True, blank=True, db_index=True)`, the parsed CZK amount.
+  `BigInteger` per §9's correction, not `Integer`.
+- **`Ad.price_type`** — a `PriceType` enum. Two values carry a real `Ad.price`: `EXACT` and
+  **`FREE`** (a known zero — "Zdarma" — which §3.3 showed the old parser wrongly returned `None`
+  for). The placeholder values (`NEGOTIATED`, `IN_TEXT`, `MAKE_OFFER`, `UNKNOWN`) leave `price`
+  null.
+- **`PriceChange.old_price_amount`/`new_price_amount`** — numeric price history alongside the
+  original strings.
+- **`parse_price_and_type()`** in `bazos/filters.py` does the work at *scrape* time and persists
+  the result, per §9.1's "normalise at the scraper, not the parser" conclusion. `parse_price` is
+  kept as a thin wrapper for callers that only need the amount.
+
+`PriceRangeRule` now reads `ad.price` directly instead of re-parsing `price_raw` on every filter
+pass. **`PROMPTS.md` P23 (`PriceAnomalyRule`) is unblocked** — it was the reason this research was
+commissioned.
 
 ## 2. Summary — four marketplaces, four representations, three different meanings of zero
 
