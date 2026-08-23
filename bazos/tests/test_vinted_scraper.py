@@ -367,7 +367,7 @@ class TestLoadFullDescription:
     @pytest.mark.django_db
     def test_run_query_then_load_full_description_survives_one_detail_failure(self, query):
         """The regression that matters, exercised through the real caller shape:
-        BazosQueryRunner._handle_new_product iterates `scraper.run_query(query)` and
+        QueryRunner._handle_new_product iterates `scraper.run_query(query)` and
         calls `scraper.load_full_description(ad)` per ad with no try/except. One ad's
         detail fetch raising RuntimeError (sold/deleted between search and this call)
         must not cut that loop short.

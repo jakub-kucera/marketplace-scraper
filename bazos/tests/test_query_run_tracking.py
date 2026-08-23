@@ -10,19 +10,19 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bazos.exceptions import BazosBlacklistedError
+from bazos.exceptions import MarketplaceBlockedError
 from bazos.models import Query, QueryRun
-from bazos.scraping.bazos_query_runner import BazosQueryRunner
-from bazos.scraping.bazos_runner import BazosRunner
+from bazos.scraping.query_runner import QueryRunner
+from bazos.scraping.runner import ScrapeRunner
 
 
 class StopLoop(Exception):
-    """Sentinel used to escape BazosRunner.run()'s `while True` after one pass."""
+    """Sentinel used to escape ScrapeRunner.run()'s `while True` after one pass."""
 
 
 def make_runner():
-    """Construct a BazosRunner bypassing __init__, with a no-op IP changer."""
-    runner = BazosRunner.__new__(BazosRunner)
+    """Construct a ScrapeRunner bypassing __init__, with a no-op IP changer."""
+    runner = ScrapeRunner.__new__(ScrapeRunner)
     runner.discord_loggers = []
     runner.interval_multiplier = MagicMock()
     runner.ip_changer = MagicMock()
@@ -34,7 +34,7 @@ def make_runner():
 
 
 def run_one_pass(runner):
-    """Run BazosRunner.run() for exactly one pass, then escape the infinite loop."""
+    """Run ScrapeRunner.run() for exactly one pass, then escape the infinite loop."""
     with patch.object(runner, "_interruptible_sleep", side_effect=StopLoop), \
          patch.object(runner, "_sleep_between_queries"):
         with pytest.raises(StopLoop):
@@ -44,20 +44,20 @@ def run_one_pass(runner):
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "exc",
-    [RuntimeError("boom"), BazosBlacklistedError()],
+    [RuntimeError("boom"), MarketplaceBlockedError()],
     ids=["exception-with-message", "bare-blacklisted-error"],
 )
 def test_failing_query_still_produces_queryrun_row_with_error(query, exc):
-    """`str(e)` is empty for `BazosBlacklistedError()` raised with no args — the exact
+    """`str(e)` is empty for `MarketplaceBlockedError()` raised with no args — the exact
     shape of the exception that actually fires in production (bazos_scraper.py,
     bazos_api_scraper.py). error must stay non-empty and name the exception type either way.
 
-    A blacklisted query is retried (see test_bazos_runner_blacklist.py), so it leaves one
+    A blacklisted query is retried (see test_runner_blacklist.py), so it leaves one
     row per attempt; every one of them must carry the error.
     """
     runner = make_runner()
 
-    with patch.object(BazosQueryRunner, "run", side_effect=exc):
+    with patch.object(QueryRunner, "run", side_effect=exc):
         run_one_pass(runner)
 
     runs = list(QueryRun.objects.filter(query=query))
@@ -75,7 +75,7 @@ def test_failing_query_still_produces_queryrun_row_with_error(query, exc):
 def test_succeeding_query_records_success(query):
     runner = make_runner()
 
-    with patch.object(BazosQueryRunner, "run", return_value=3):
+    with patch.object(QueryRunner, "run", return_value=3):
         run_one_pass(runner)
 
     run = QueryRun.objects.get(query=query)
@@ -105,7 +105,7 @@ def test_one_failing_query_does_not_abort_the_rest_of_the_pass(query, category):
             raise RuntimeError("boom")
         return 5
 
-    with patch.object(BazosQueryRunner, "run", fake_run):
+    with patch.object(QueryRunner, "run", fake_run):
         run_one_pass(runner)
 
     failed_run = QueryRun.objects.get(query=query)
@@ -127,7 +127,7 @@ def test_queryrun_is_persisted_before_the_query_executes(query):
         seen_pk_before_run["exists"] = QueryRun.objects.filter(query=self.query).exists()
         raise RuntimeError("boom")
 
-    with patch.object(BazosQueryRunner, "run", fake_run):
+    with patch.object(QueryRunner, "run", fake_run):
         run_one_pass(runner)
 
     assert seen_pk_before_run["exists"] is True

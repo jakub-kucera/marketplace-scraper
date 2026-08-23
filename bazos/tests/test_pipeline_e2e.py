@@ -27,7 +27,7 @@ import requests
 from django.core.management import call_command
 
 from bazos.models import Ad, AdDelivery, AdStatus, Query
-from bazos.scraping.bazos_query_runner import BazosQueryRunner
+from bazos.scraping.query_runner import QueryRunner
 from senders.models import Discord
 from senders.services.discord_sender import DiscordSender
 
@@ -93,7 +93,7 @@ def run_pipeline(queries, sent_messages):
     """One full pass: scrape every query, then filter, then send."""
     session = requests.Session()   # un-proxied on purpose — see §4.6
     for query in queries:
-        BazosQueryRunner(query, session).run()
+        QueryRunner(query, session).run()
     call_command("run_filter", once=True)
     call_command("run_sender", once=True)
     return sent_messages
@@ -256,11 +256,11 @@ def test_second_pass_stops_early_instead_of_walking_every_page(
     """A caught-up query must stop at the first known ad, not re-walk the listing."""
     session = requests.Session()
 
-    first = BazosQueryRunner(permissive_query, session)
+    first = QueryRunner(permissive_query, session)
     first.run()
     rows_seen_cold = first.rows_seen_counter
 
-    second = BazosQueryRunner(permissive_query, session)
+    second = QueryRunner(permissive_query, session)
     new_products = second.run()
 
     assert new_products == 0

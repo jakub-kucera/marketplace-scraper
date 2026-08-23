@@ -680,7 +680,7 @@ and `NightMultiplier` **doubles** it 22:00–06:00. A pass detects an ad only wh
 run, so **median detection latency is half the interval: ~15 minutes, worst case 45 (90 at
 night).**
 
-It's actually worse than the interval suggests. `BazosRunner.run()` iterates queries **strictly
+It's actually worse than the interval suggests. `ScrapeRunner.run()` iterates queries **strictly
 sequentially** on a single shared session, and each query costs **3 Bazos requests plus an
 `icanhazip.com` round-trip** (two of the three Bazos calls are the redundant double blacklist
 check — `research/proxies/PROXY_ROTATION.md` §3), with `sleep(uniform(2,5))` between pages. So the

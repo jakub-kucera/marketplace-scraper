@@ -72,7 +72,7 @@ class VintedScraper:
         base_url = extra_params.pop("base_url", VINTED_BASE_URL)
 
         # Not caught here: "cannot reach Vinted at all" is a genuine query failure,
-        # recorded on QueryRun by BazosRunner.run's per-query except-Exception. This is
+        # recorded on QueryRun by ScrapeRunner.run's per-query except-Exception. This is
         # deliberately different from load_full_description's per-ad failures below,
         # which must never abort a pass.
         client = self._client_for(base_url)
@@ -155,7 +155,7 @@ class VintedScraper:
         """Returns None (caller skips the item) rather than a fabricated string when
         neither price nor currency is present — `f"{amount} None"` would both look broken
         to a reader and register as a spurious price change downstream, since price
-        comparison is a plain string compare (bazos_query_runner.run_existing_query).
+        comparison is a plain string compare (query_runner.run_existing_query).
         """
         amount = VintedScraper._price_amount(item)
         if amount is None or not item.currency:
@@ -169,7 +169,7 @@ class VintedScraper:
         the item page -> a sparse `{'id'}`-only response, no exception (measured 5/8
         success). (b) non-200 (item sold/deleted between search and this call) ->
         RuntimeError from the library. Mode (b) is the one that matters: this is called
-        with no try/except by BazosQueryRunner._handle_new_product, so letting it escape
+        with no try/except by QueryRunner._handle_new_product, so letting it escape
         would abort the rest of that query's pass mid-loop over one sold listing.
 
         Paced: a new_query backfill can call this up to NEW_PRODUCT_LOAD_MAX times in a

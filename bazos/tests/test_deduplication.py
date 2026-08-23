@@ -3,11 +3,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from bazos.models import Ad, AdDelivery, AdStatus, PriceChange, PriceType
-from bazos.scraping.bazos_query_runner import BazosQueryRunner
+from bazos.scraping.query_runner import QueryRunner
 
 
 def make_runner(query):
-    return BazosQueryRunner(query, MagicMock())
+    return QueryRunner(query, MagicMock())
 
 
 # --- run_existing_query ---
@@ -120,7 +120,7 @@ def test_new_query_without_ignore_first_run_counts_new_products(query, make_ad):
 
 @pytest.mark.django_db
 def test_new_query_stops_before_max_non_topped_ads(query, make_ad, monkeypatch):
-    import bazos.scraping.bazos_query_runner as qr_module
+    import bazos.scraping.query_runner as qr_module
     monkeypatch.setattr(qr_module, "NEW_PRODUCT_LOAD_MAX", 3)
 
     # 5 non-topped products; with limit=3 the 3rd triggers break before being saved
@@ -135,7 +135,7 @@ def test_new_query_stops_before_max_non_topped_ads(query, make_ad, monkeypatch):
 
 @pytest.mark.django_db
 def test_new_query_topped_ads_do_not_count_toward_limit(query, make_ad, monkeypatch):
-    import bazos.scraping.bazos_query_runner as qr_module
+    import bazos.scraping.query_runner as qr_module
     monkeypatch.setattr(qr_module, "NEW_PRODUCT_LOAD_MAX", 2)
 
     products = [
@@ -712,7 +712,7 @@ def test_default_streak_is_one_when_scraper_does_not_define_it(query):
 # _get_known_delivery before creating anything), run_new_query used to create AdDelivery
 # rows unconditionally. A pass interrupted mid-pagination (blacklist hit, a raise from
 # load_full_description, SIGTERM) leaves partial rows behind — nothing wraps the loop in a
-# transaction, and query.new_query is only persisted by the caller (BazosRunner.run) AFTER
+# transaction, and query.new_query is only persisted by the caller (ScrapeRunner.run) AFTER
 # a successful return. The next pass replays from page 1 and used to raise IntegrityError on
 # unique_delivery_per_ad_query for every already-delivered product, forever.
 
