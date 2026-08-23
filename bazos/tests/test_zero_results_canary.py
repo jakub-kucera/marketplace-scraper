@@ -24,6 +24,7 @@ def make_runner():
     __init__ is skipped, so the two canary counters must be initialised by hand here.
     """
     runner = ScrapeRunner.__new__(ScrapeRunner)
+    runner.unsafe = False
     runner.discord_loggers = []
     runner.interval_multiplier = MagicMock()
     runner.ip_changer = MagicMock()

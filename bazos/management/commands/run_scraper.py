@@ -27,7 +27,10 @@ class Command(BaseCommand):
             os.makedirs(settings.LOG_DIRECTORY_PATH)
 
         if options["unsafe"]:
-            runner = ScrapeRunner()
+            # Passed down as well as bypassing the loop below: ScrapeRunner.run() guards
+            # each pass internally, so without this flag crash-fast mode would no longer
+            # crash on anything.
+            runner = ScrapeRunner(unsafe=True)
             runner.run()
             return
 
