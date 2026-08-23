@@ -23,6 +23,7 @@ every host/port match. See docs/refactor/E2E_REPLAY_TESTING_RESEARCH.md §4.6.
 `blacklisted_403.yaml` is hand-written, not recorded — you cannot summon a ban on
 demand.
 """
+import re
 from itertools import islice
 from pathlib import Path
 
@@ -30,6 +31,7 @@ import pytest
 import requests
 import vcr
 import yaml
+from bs4 import BeautifulSoup
 
 from bazos.tests import conftest
 
@@ -239,8 +241,8 @@ def _cassette_files():
     return sorted(CASSETTE_DIR.rglob("*.yaml"))
 
 
-def _decoded_bodies(cassette: Path) -> str:
-    """Concatenated response bodies, decoded out of the YAML.
+def _decoded_body_list(cassette: Path) -> list[str]:
+    """Response bodies, decoded out of the YAML, one per interaction.
 
     Never scan the raw file text. PyYAML folds long scalars — measured at 444
     mid-token line breaks in a single cassette — so a regex over the file misses
@@ -254,7 +256,55 @@ def _decoded_bodies(cassette: Path) -> str:
         if body is None:
             continue
         bodies.append(body.decode("utf-8", errors="replace") if isinstance(body, bytes) else body)
-    return "\n".join(bodies)
+    return bodies
+
+
+def _decoded_bodies(cassette: Path) -> str:
+    return "\n".join(_decoded_body_list(cassette))
+
+
+# ---------------------------------------------------------------------------
+# A check that does NOT share the scrubber's structural assumptions.
+#
+# Importing the scrubber's patterns (below) stops them drifting, but it also means
+# the guard only inspects spans that `_RATING_SPAN` matches. Any markup the
+# scrubber's regex stops matching — nested tags, a space in `; return false;`, a
+# single-quoted attribute — is then invisible to *both* sides: the scrubber falls
+# through to `_RATING_CALL` and redacts only the onclick argument, and the guard
+# never looks at the visible text. Whatever breaks the scrubber silences the guard.
+#
+# So this check keys off the `paction` class and parses the HTML properly, sharing
+# no detection machinery with the scrubber at all. The label vocabulary below is
+# deliberately duplicated rather than imported: what must not be shared is how a
+# seller name is *found*, not the list of strings known to be safe.
+_PACTION_UI_LABELS = frozenset({
+    "Označit špatný inzerát",
+    "Označit chybnou kategorii inzerátu",
+    "Chybnou kategorii",
+    "Ohodnotit uživatele",
+    "Všechny inzeráty a hodnocení uživatele",
+    "Smazat/Upravit/Topovat",
+    "Smazat/ Upravit/ Topovat",
+    "Doporučit kamarádovi",
+    "Zobrazeno",
+    "Cena",
+    "RSS",
+})
+_SYNTHETIC_HANDLE = re.compile(r"^Seller\d+$")
+
+
+def seller_names_in_action_spans(html: str) -> list[str]:
+    """Text of every `paction` span that is neither a UI label nor a scrubbed handle.
+
+    Anything returned here is a seller's real name still sitting in the cassette.
+    """
+    found = []
+    for span in BeautifulSoup(html, "html.parser").find_all("span", class_="paction"):
+        text = " ".join(span.get_text().split())
+        if not text or text in _PACTION_UI_LABELS or _SYNTHETIC_HANDLE.match(text):
+            continue
+        found.append(text)
+    return found
 
 
 def test_cassettes_exist():
@@ -315,3 +365,60 @@ def test_cassette_content_length_matches_the_stored_body(cassette):
         assert int(headers["content-length"][0]) == actual, (
             f"{cassette.name}: Content-Length {headers['content-length'][0]} != body {actual}"
         )
+
+
+@pytest.mark.parametrize("cassette", _cassette_files(), ids=lambda p: p.name)
+def test_cassette_has_no_seller_name_in_any_action_span(cassette):
+    """The structure-independent half of the PII guard — see the note above."""
+    for body in _decoded_body_list(cassette):
+        leaked = seller_names_in_action_spans(body)
+        assert not leaked, (
+            f"{cassette.name} leaks seller name(s) in a paction span: {leaked[:5]}. "
+            f"If Bazos added a UI label, add it to _PACTION_UI_LABELS."
+        )
+
+
+# Markup the scrubber's regex handles: it redacts the visible name itself.
+SCRUBBER_HANDLES = {
+    "today's shape": (
+        "<span onclick=\"odeslatakci('rating','111','222','Milan');return false;\" "
+        "class=\"paction\">Milan</span>"
+    ),
+    "space before return": (
+        "<span onclick=\"odeslatakci('rating','111','222','Milan'); return false;\" "
+        "class=\"paction\">Milan</span>"
+    ),
+}
+
+# Markup it does NOT handle. The scrubber falls through to `_RATING_CALL`, redacts
+# only the onclick argument, and leaves the visible name in place. These exist to
+# prove the independent guard still catches it — that is the whole point of having
+# a second check that shares no detection machinery.
+SCRUBBER_MISSES = {
+    "nested markup": (
+        "<span onclick=\"odeslatakci('rating','111','222','Milan');return false;\" "
+        "class=\"paction\"><b>Milan</b></span>"
+    ),
+    "single-quoted attribute": (
+        "<span onclick='odeslatakci(\"rating\",\"111\",\"222\",\"Milan\");return false;' "
+        "class='paction'>Milan</span>"
+    ),
+}
+
+
+@pytest.mark.parametrize("html", SCRUBBER_HANDLES.values(), ids=SCRUBBER_HANDLES.keys())
+def test_scrubber_redacts_the_visible_name(html):
+    assert seller_names_in_action_spans(conftest.scrub_body(html)) == []
+
+
+@pytest.mark.parametrize("html", SCRUBBER_MISSES.values(), ids=SCRUBBER_MISSES.keys())
+def test_guard_catches_names_the_scrubber_regex_misses(html):
+    """Pins the independence itself, so a refactor cannot quietly re-couple them.
+
+    If the scrubber is ever taught one of these shapes, this test fails and the
+    variant moves to SCRUBBER_HANDLES — a deliberate edit, not a silent drift.
+    """
+    assert "Milan" in conftest.scrub_body(html), (
+        "the scrubber now handles this shape — move it to SCRUBBER_HANDLES"
+    )
+    assert seller_names_in_action_spans(html) == ["Milan"], "guard missed the name"
