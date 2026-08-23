@@ -1,7 +1,11 @@
 import logging
+from contextlib import contextmanager
+
 import requests
+from django.db import transaction
 
 from bazos.const import NEW_PRODUCT_LOAD_MAX
+from bazos.exceptions import MarketplaceBlockedError
 from bazos.models import Ad, AdDelivery, AdStatus, Marketplace, PriceChange, Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
@@ -83,6 +87,39 @@ class QueryRunner:
             logger.info("New product %s", product)
             self.new_product_counter += 1
 
+    @contextmanager
+    def _tolerating_one_bad_ad(self, product: Ad):
+        """Let a single unusable listing be skipped instead of killing the whole walk.
+
+        Without this, one malformed row aborts the query for the entire pass — and since
+        the marketplace keeps serving it, for every pass after that too. A `varchar(300)`
+        overflow on `short_description` wedged the `audeze` query for two hours this way
+        on 2026-08-23. That column is fixed, but the shape recurs: every field here is
+        scraped free text against a `max_length` nobody measured.
+
+        `MarketplaceBlockedError` is deliberately re-raised — it means the transport is
+        blocked, not that this ad is bad, and the runner has to see it to rotate the IP.
+        Note the generator's own `next()` runs outside this block, so a 403 raised during
+        pagination is never caught here either way.
+        """
+        try:
+            # The savepoint is load-bearing, not decoration. Swallowing a DB error leaves
+            # the transaction aborted, and every later query in it dies with
+            # TransactionManagementError — so the guard would convert one bad ad into a
+            # *differently* broken walk. Today the walk runs in autocommit and gets away
+            # with it; the savepoint is what makes that true by construction rather than
+            # by accident, and keeps it true if the walk is ever wrapped in atomic().
+            # Bonus: each ad becomes all-or-nothing, so a failure part-way through
+            # _handle_new_product can no longer leave an Ad row with no AdDelivery.
+            with transaction.atomic():
+                yield
+        except MarketplaceBlockedError:
+            raise
+        except Exception:
+            logger.exception(
+                "Skipping unusable ad %s on query %s", product.external_id, self.query
+            )
+
     def run_new_query(self):
         self.query.new_query = False
 
@@ -94,16 +131,17 @@ class QueryRunner:
                 if counter >= NEW_PRODUCT_LOAD_MAX:
                     break
 
-            if self.query.ignore_first_run:
-                ad = self._resolve_ad(product)
-                # get_or_create, not create: same replay hazard as _handle_new_product — an
-                # interrupted-then-replayed backfill pass must not re-raise on a product
-                # this query already suppressed.
-                AdDelivery.objects.get_or_create(
-                    ad=ad, query=self.query, defaults={"status": AdStatus.SUPPRESSED}
-                )
-            else:
-                self._handle_new_product(product)
+            with self._tolerating_one_bad_ad(product):
+                if self.query.ignore_first_run:
+                    ad = self._resolve_ad(product)
+                    # get_or_create, not create: same replay hazard as _handle_new_product
+                    # — an interrupted-then-replayed backfill pass must not re-raise on a
+                    # product this query already suppressed.
+                    AdDelivery.objects.get_or_create(
+                        ad=ad, query=self.query, defaults={"status": AdStatus.SUPPRESSED}
+                    )
+                else:
+                    self._handle_new_product(product)
 
     def run_existing_query(self):
         """Walk newest→oldest, stopping once the query is confident it has caught up.
@@ -128,29 +166,35 @@ class QueryRunner:
             known_delivery = self._get_known_delivery(product)
             if known_delivery is None:
                 known_streak = 0
-                self._handle_new_product(product)
+                with self._tolerating_one_bad_ad(product):
+                    self._handle_new_product(product)
                 continue
 
             known_ad = known_delivery.ad
+            # The guard wraps only the fragile writes, never the streak/break bookkeeping
+            # below: a skipped ad must not also cost the walk its stopping condition.
             if known_ad.price_raw != product.price_raw:
-                logger.info(
-                    "Price changed for ad %d: %s -> %s", known_ad.pk, known_ad.price_raw, product.price_raw
-                )
-                PriceChange.objects.create(
-                    ad=known_ad,
-                    old_price=known_ad.price_raw,
-                    new_price=product.price_raw,
-                    old_price_amount=known_ad.price,
-                    new_price_amount=product.price,
-                )
-                known_ad.price_raw = product.price_raw
-                known_ad.price = product.price
-                known_ad.price_type = product.price_type
-                known_ad.save(update_fields=["price_raw", "price", "price_type"])
-                # A price change is a fact about the AD — every query watching it re-enters
-                # the filter. Unconditional, matching pre-split behaviour (including
-                # un-suppressing a SUPPRESSED delivery — see AD_DELIVERY_SPLIT.md §3.2).
-                AdDelivery.objects.filter(ad=known_ad).update(status=AdStatus.PRICE_CHANGED)
+                with self._tolerating_one_bad_ad(product):
+                    logger.info(
+                        "Price changed for ad %d: %s -> %s",
+                        known_ad.pk, known_ad.price_raw, product.price_raw,
+                    )
+                    PriceChange.objects.create(
+                        ad=known_ad,
+                        old_price=known_ad.price_raw,
+                        new_price=product.price_raw,
+                        old_price_amount=known_ad.price,
+                        new_price_amount=product.price,
+                    )
+                    known_ad.price_raw = product.price_raw
+                    known_ad.price = product.price
+                    known_ad.price_type = product.price_type
+                    known_ad.save(update_fields=["price_raw", "price", "price_type"])
+                    # A price change is a fact about the AD — every query watching it
+                    # re-enters the filter. Unconditional, matching pre-split behaviour
+                    # (including un-suppressing a SUPPRESSED delivery — see
+                    # AD_DELIVERY_SPLIT.md §3.2).
+                    AdDelivery.objects.filter(ad=known_ad).update(status=AdStatus.PRICE_CHANGED)
             logger.debug("Product already exists %s", known_ad)
             if product.topped:
                 logger.debug("TOP product — continuing")
