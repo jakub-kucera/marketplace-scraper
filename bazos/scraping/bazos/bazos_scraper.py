@@ -13,7 +13,14 @@ import requests
 from requests import Response
 from selenium.common.exceptions import TimeoutException
 
-from bazos.const import BAZOS_PAGE_WAIT_TIME, MAX_ATTEMPTS, PAGE_SIZE, BAZOS_BLACKLIST_CHECK_URL, BAZOS_URL
+from bazos.const import (
+    BAZOS_BLACKLIST_CHECK_URL,
+    BAZOS_DETAIL_WAIT_TIME,
+    BAZOS_PAGE_WAIT_TIME,
+    BAZOS_URL,
+    MAX_ATTEMPTS,
+    PAGE_SIZE,
+)
 from bazos.exceptions import BazosBlacklistedError
 from bazos.filters import parse_price_and_type
 from bazos.models import Ad, Marketplace, Query, EmailPublisher, PhonePublisher
@@ -51,7 +58,7 @@ class BazosScraper:
         entirely. The scraper then parsed a page with zero `inzeraty` elements and
         broke out of the page loop, so a section-less, category-less Query scraped
         nothing at all, silently and on every pass. Measured 2026-08-23; see
-        docs/refactor/E2E_REPLAY_TESTING_RESEARCH.md §1a.
+        docs/archive/shipped/E2E_REPLAY_TESTING.md §1a.
 
         Fixed here rather than in `Query.url` because that property is also read by
         `create_url_category` (correct today), by the runner's IP-guard calls, and
@@ -232,7 +239,13 @@ class BazosScraper:
         return response.status_code == 403
 
     def load_full_description(self, product: Ad) -> Ad:
+        """Paced: BazosQueryRunner._handle_new_product calls this once per new ad with no
+        delay of its own, so an N-new-ad query used to fire N detail GETs back-to-back
+        straight after its listing page (15 in a row, measured 2026-08-23). Sleeping
+        before the request rather than after paces it against whatever preceded it.
+        """
         logger.debug("Loading full description for %s", product.url)
+        sleep(uniform(*BAZOS_DETAIL_WAIT_TIME))
         response = self.run_request(product.url)
         if response is None:
             logger.warning("Failed to load full description for %s after %d attempts", product.url, MAX_ATTEMPTS)

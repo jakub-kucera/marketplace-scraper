@@ -87,8 +87,15 @@ class Query(TimeStampedModel):
     # products = relationship('ProductDB', backref='query', lazy=True)
 
     def __str__(self):
-        return f"{self.text or self.category or self.section} | {self.price_lower}-{self.price_upper}"
-        # return f"{self.text} | {self.category or self.section} | {self.price_lower}-{self.price_upper}"
+        # Marketplace is part of the identity, not decoration: the same text/price pair
+        # can exist on Bazos and Vinted as two separate rows, and every admin surface
+        # that shows a Query by name (QueryRun list, AdDelivery list, filters) would
+        # otherwise render them identically.
+        return (
+            f"{self.text or self.category or self.section} "
+            f"| {self.price_lower}-{self.price_upper} "
+            f"| {self.get_marketplace_display()}"
+        )
 
     class Meta:
         verbose_name = "Query"
@@ -152,6 +159,15 @@ class QueryRun(models.Model):
     new_ads_count = models.IntegerField(null=True)
     success = models.BooleanField(default=True)
     error = models.TextField(null=True, blank=True)
+    exit_ip = models.CharField(
+        max_length=45,  # fits an IPv6 literal
+        blank=True,
+        default="",
+        # Indexed because grouping/filtering failures by IP is the entire reason the
+        # column exists, on the fastest-growing table here.
+        db_index=True,
+        help_text="Egress IP this run went out on, sampled at run_start.",
+    )
 
 
 #: Safety bound on the identity-graph walk in :meth:`SellerAdCounts.for_ad`. Each round is
@@ -182,7 +198,7 @@ class SellerAdCounts:
     **These count ads in *this* database, i.e. ones our own queries happened to scrape —
     not the seller's true Bazos total.** A dealer with 500 live listings can show 2 here.
     The real figure is `user_ads_count` on the API's detail endpoint (see
-    docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md §5.2), which is why the wording below says
+    docs/research/bazos-api/HIDDEN_API.md §5.2), which is why the wording below says
     "seen" rather than "has".
     """
 
@@ -258,7 +274,7 @@ class SellerAdCounts:
 
 
 class PriceType(models.TextChoices):
-    """Price-placeholder vocabulary — see docs/refactor/PRICE_PARSING_RESEARCH.md.
+    """Price-placeholder vocabulary — see docs/research/PRICE_PARSING.md.
 
     Two carry a real `Ad.price`: EXACT (a real number) and FREE (a known zero — "Zdarma"
     is NOT the same as "unknown", see §3.3). The other four — NEGOTIABLE/IN_TEXT/
