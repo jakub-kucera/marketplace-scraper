@@ -91,13 +91,17 @@ def make_delivery():
 # needed to compare against is gone. A redaction control should fail closed.
 #
 # If Bazos adds a label, the hygiene test fails and it gets added here — loudly.
+#
+# This regex is still structural, so it can stop matching if the markup moves.
+# That is why test_bazos_scraper_transport.py carries a second, independent check
+# keyed off the `paction` class and a real HTML parse — see the note there.
 _RATING_SPAN_UI_LABELS = frozenset({
     "Ohodnotit uživatele",
     "Všechny inzeráty a hodnocení uživatele",
 })
 _RATING_SPAN = re.compile(
     r"odeslatakci\('rating','(?P<email>\d+)','(?P<phone>\d+)','(?P<name>[^']*)'\)"
-    r"(?P<mid>;return false;\"[^>]*>)(?P<text>[^<]*)(?P<close></span>)"
+    r"(?P<mid>;\s*return false;\"[^>]*>)(?P<text>[^<]*)(?P<close></span>)"
 )
 # Fallback for any rating call not followed by a closing span.
 _RATING_CALL = re.compile(r"odeslatakci\('rating','(\d+)','(\d+)','([^']*)'\)")

@@ -351,6 +351,25 @@ visible text*, so rewriting the labels breaks the parser.)
 every snapshot. Re-running the corrected scrubber over the cassettes already on disk keeps the
 recorded traffic and the snapshots intact.
 
+**And the coupling comes back one level down.** Importing the scrubber's patterns into the guard
+fixes drift, but it also means the guard only inspects what the scrubber's *regex* matches. Any
+markup that regex stops matching is invisible to both sides at once — the scrubber falls through
+to its weaker fallback, and the guard never looks. Measured, with the guard as first written:
+
+| markup variant | scrubbed | guard sees it |
+|---|---|---|
+| today's shape | ✅ | ✅ |
+| `; return false;` (one extra space) | ❌ | ❌ **leaks, guard green** |
+| `<b>` nested inside the span | ❌ | ❌ **leaks, guard green** |
+| single-quoted attributes | ❌ | ❌ **leaks, guard green** |
+
+The rule that generalises: **a redaction guard must not share a detection mechanism with the
+redactor — only its vocabulary.** Sharing the list of strings known to be safe is fine and
+desirable; sharing *how a secret is located* means one markup change disables both. The second
+check here keys off the `paction` class and a real HTML parse instead of the onclick regex, so all
+three variants fail loudly. A meta-test pins that independence, so a later refactor cannot quietly
+re-couple them.
+
 ---
 
 ## 5. The blocker: neither poller can run a single batch

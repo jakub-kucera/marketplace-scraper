@@ -110,11 +110,22 @@ def test_live_search_still_returns_a_full_page(live_ads):
 # compared rather than a set union: a union only fires when a field vanishes from
 # *every* ad, so view_count surviving on 1 of 20 would read as healthy — which is
 # not what this test claims to detect.
+#
+# 0.25 is deliberately loose. A field genuinely absent from a minority of live ads
+# is normal on a marketplace where sellers fill in different things, and this job
+# runs unattended against a site that changes hourly — a tighter bound would spend
+# its credibility on false alarms. The consequence is accepted and stated: a field
+# dropping from 100% to 80% passes. Total or near-total loss is what this catches.
 FIELD_RATE_TOLERANCE = 0.25
 
 
 def population_rates(ads: list[Ad]) -> dict[str, float]:
     """Fraction of ads carrying a value, per listing field."""
+    if not ads:
+        # Unreachable today (live_ads fails loudly, recorded_ads comes from a
+        # committed cassette) but a ZeroDivisionError here would read as a bug in
+        # the drift maths rather than as "there were no ads".
+        raise AssertionError("no ads to compute population rates from")
     return {
         field: sum(1 for ad in ads if field in populated_fields(ad)) / len(ads)
         for field in LISTING_FIELDS
