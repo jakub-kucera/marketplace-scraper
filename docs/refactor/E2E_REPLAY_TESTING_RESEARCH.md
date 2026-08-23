@@ -313,6 +313,44 @@ pytest-recording's per-test naming. Sharing one cassette across the module would
 roughly two thirds; per-test cassettes were kept because a failing test then points at exactly
 the traffic it replayed. Revisit if the directory becomes a nuisance in diffs.
 
+### 4.11 A cassette scrubber has two failure modes that both fail *open*
+
+Found by review after the tests had shipped, and worth more than the leak that surfaced them.
+
+**The YAML emitter folds long lines, so regexes over the raw file lie.** PyYAML wraps long
+scalars — **measured at 444 mid-token line breaks in a single cassette**. The same regex run over
+the raw file text and over the decoded body:
+
+```
+matches on RAW yaml text: 0    on DECODED body: 2
+```
+
+Any hygiene check that reads `cassette.read_text()` can therefore report a clean file that
+contains the thing it was looking for. The first version of this repo's guard did exactly that,
+for a real seller name. **Parse the YAML and scan the decoded bodies.**
+
+**A guard that restates the scrubber's patterns can only confirm the scrubber.** The first version
+of `test_cassette_carries_no_personal_data` re-parsed the same `odeslatakci('rating', …)` arguments
+the scrubber had just written, so the scrub and the assertion shared one blind spot and the test
+could never catch that class of miss. The fix is for the test to **import the patterns from the
+scrubber** rather than restate them, so the two cannot drift.
+
+The concrete miss, for the record: the seller's name appears twice on a Bazos *detail* page — once
+in the rating onclick's argument list, and once as the span's visible text. Only the argument was
+scrubbed.
+
+**And prefer default-deny.** The obvious repair — "replace the visible text when it equals the name
+in the onclick" — still fails open twice: it misses any rendering that differs from the argument,
+and it cannot repair a cassette whose onclick has *already* been scrubbed, because the name it
+needs to compare against is gone. Replacing everything except a small allowlist of known UI labels
+fails closed instead, and a new label shows up as a test failure rather than as a leak. (The
+allowlist cannot simply be dropped: `BazosScraper._parse_action_args` finds its span *by that
+visible text*, so rewriting the labels breaks the parser.)
+
+**Repairing beats re-recording.** Re-recording fixes a leak but pulls fresh ads and invalidates
+every snapshot. Re-running the corrected scrubber over the cassettes already on disk keeps the
+recorded traffic and the snapshots intact.
+
 ---
 
 ## 5. The blocker: neither poller can run a single batch
@@ -416,11 +454,19 @@ Three mitigating facts: the repo is **private**; the page is **public**; and the
 materially lower-risk than a `pg_dump` — but it is the same category of decision, and "unremovable
 in practice" still applies if the repo is ever shared or opened.
 
-**Recommended posture:** commit cassettes, but run a `before_record_response` scrub that rewrites
-`publisher_name` and the two publisher ids inside the HTML body to synthetic values. That costs
-one regex, keeps the cassette structurally 1:1 (which is all the parser cares about), and keeps
-the decision consistent with the policy already written down. Record the choice in
-`docs/BACKUPS.md` §7's neighbourhood or here, so it isn't re-litigated.
+**Posture as built:** commit cassettes, with a `before_record_response` scrub that rewrites the
+seller's display name to `Seller<email_id>` and redacts email addresses and phone numbers. The
+cassette stays structurally 1:1, which is all the parser cares about, and the decision stays
+consistent with the policy already written down.
+
+This paragraph originally also proposed remapping **the two publisher ids**. The implementation
+deliberately does not, and that is the better call: the ids are opaque integers, not emails or
+phone numbers, they are exactly what the parser is supposed to extract, and remapping them would
+make the publisher assertions test the scrub rather than the scraper. See the rationale in
+`bazos/tests/conftest.py`.
+
+**It costs more than "one regex", which is the part this section got wrong.** Two things only
+became visible once it was built, both now in §4.11.
 
 ---
 

@@ -23,13 +23,15 @@ every host/port match. See docs/refactor/E2E_REPLAY_TESTING_RESEARCH.md §4.6.
 `blacklisted_403.yaml` is hand-written, not recorded — you cannot summon a ban on
 demand.
 """
-import re
 from itertools import islice
 from pathlib import Path
 
 import pytest
 import requests
 import vcr
+import yaml
+
+from bazos.tests import conftest
 
 from bazos.exceptions import BazosBlacklistedError
 from bazos.models import Ad, EmailPublisher, PhonePublisher, Query
@@ -223,17 +225,36 @@ def test_load_full_description_populates_the_field(scraper, notebook_query):
 
 # ---------------------------------------------------------------------------
 # Cassette hygiene
+#
+# The patterns are imported from conftest rather than restated here, on purpose:
+# the first version of this guard restated them, drifted from the scrubber, and
+# passed while a real seller name sat in a committed cassette. A guard that can
+# only confirm what the scrubber already did is worse than no guard.
 # ---------------------------------------------------------------------------
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
 
-# Deliberately not \b-anchored on the left: catches addresses embedded in ad text.
-_EMAIL_IN_CASSETTE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-_PHONE_IN_CASSETTE = re.compile(r"(\+420[\s]?\d{3}[\s]?\d{3}[\s]?\d{3}|\b[67]\d{2}[\s]?\d{3}[\s]?\d{3}\b)")
-
 
 def _cassette_files():
     return sorted(CASSETTE_DIR.rglob("*.yaml"))
+
+
+def _decoded_bodies(cassette: Path) -> str:
+    """Concatenated response bodies, decoded out of the YAML.
+
+    Never scan the raw file text. PyYAML folds long scalars — measured at 444
+    mid-token line breaks in a single cassette — so a regex over the file misses
+    matches that plainly exist in the data. That is precisely how the first
+    version of this test reported a clean cassette that contained a seller's name.
+    """
+    data = yaml.safe_load(cassette.read_text(encoding="utf-8", errors="replace"))
+    bodies = []
+    for interaction in data.get("interactions", []):
+        body = (interaction.get("response") or {}).get("body", {}).get("string")
+        if body is None:
+            continue
+        bodies.append(body.decode("utf-8", errors="replace") if isinstance(body, bytes) else body)
+    return "\n".join(bodies)
 
 
 def test_cassettes_exist():
@@ -242,29 +263,55 @@ def test_cassettes_exist():
 
 @pytest.mark.parametrize("cassette", _cassette_files(), ids=lambda p: p.name)
 def test_cassette_carries_no_personal_data(cassette):
-    """Guards the scrub in conftest.scrub_response against a careless re-record.
+    """Mirrors conftest.scrub_body exactly — same patterns, opposite direction.
 
-    Cassettes are committed, and `.gitignore` already records the project's view
-    that PII in git history is unremovable in practice. Ad bodies are public
-    listing text and are kept verbatim on purpose; seller display names, email
-    addresses and phone numbers are not.
+    Ad bodies are public listing text and are kept verbatim on purpose. Seller
+    display names, email addresses and phone numbers are not.
     """
-    text = cassette.read_text(encoding="utf-8", errors="replace")
+    body = _decoded_bodies(cassette)
 
-    leaked_emails = {m for m in _EMAIL_IN_CASSETTE.findall(text) if "example.invalid" not in m}
-    assert not leaked_emails, f"{cassette.name} leaks email addresses: {sorted(leaked_emails)[:5]}"
-    assert not _PHONE_IN_CASSETTE.findall(text), f"{cassette.name} leaks phone numbers"
+    leaked = {e for e in conftest._EMAIL_ADDRESS.findall(body) if e != conftest.REDACTED_EMAIL}
+    assert not leaked, f"{cassette.name} leaks email addresses: {sorted(leaked)[:5]}"
 
-    # Every seller rating call must carry the synthetic handle, not a real name.
-    for email_id, _phone_id, name in re.findall(
-        r"odeslatakci\('rating','(\d+)','(\d+)','([^']*)'\)", text
-    ):
-        assert name == f"Seller{email_id}", f"{cassette.name} leaks a seller name: {name!r}"
+    phones = {p for p in conftest._PHONE_NUMBER.findall(body) if p != conftest.REDACTED_PHONE}
+    assert not phones, f"{cassette.name} leaks phone numbers: {sorted(phones)[:5]}"
+
+    for match in conftest._RATING_SPAN.finditer(body):
+        handle = f"Seller{match.group('email')}"
+        assert match.group("name") == handle, (
+            f"{cassette.name} leaks a seller name in the rating onclick: {match.group('name')!r}"
+        )
+        visible = match.group("text").strip()
+        assert visible == handle or visible in conftest._RATING_SPAN_UI_LABELS, (
+            f"{cassette.name} leaks a seller name as visible text: {visible!r}. "
+            f"If Bazos added a UI label, add it to _RATING_SPAN_UI_LABELS in conftest."
+        )
 
 
-def test_cassettes_are_human_readable():
+@pytest.mark.parametrize("cassette", _cassette_files(), ids=lambda p: p.name)
+def test_cassette_is_human_readable(cassette):
     """`decode_compressed_response=True` must stay on, or bodies become base64 gzip."""
-    for cassette in _cassette_files():
-        assert "!!binary" not in cassette.read_text(encoding="utf-8", errors="replace"), (
-            f"{cassette.name} stored a binary body — is decode_compressed_response still set?"
+    raw = cassette.read_text(encoding="utf-8", errors="replace")
+    assert "!!binary" not in raw, (
+        f"{cassette.name} stored a binary body — is decode_compressed_response still set?"
+    )
+
+
+@pytest.mark.parametrize("cassette", _cassette_files(), ids=lambda p: p.name)
+def test_cassette_content_length_matches_the_stored_body(cassette):
+    """Scrubbing changes body length after vcrpy has already fixed the header.
+
+    Inert while vcrpy's stub serves the stored string directly, but a stale value
+    would truncate a replayed page for any client that honours it.
+    """
+    data = yaml.safe_load(cassette.read_text(encoding="utf-8", errors="replace"))
+    for interaction in data.get("interactions", []):
+        response = interaction["response"]
+        headers = {k.lower(): v for k, v in (response.get("headers") or {}).items()}
+        if "content-length" not in headers:
+            continue
+        body = response["body"]["string"]
+        actual = len(body.encode("utf-8")) if isinstance(body, str) else len(body)
+        assert int(headers["content-length"][0]) == actual, (
+            f"{cassette.name}: Content-Length {headers['content-length'][0]} != body {actual}"
         )
