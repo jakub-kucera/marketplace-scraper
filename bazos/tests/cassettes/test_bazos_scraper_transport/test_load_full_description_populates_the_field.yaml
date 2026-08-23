@@ -321,7 +321,7 @@ interactions:
       X-XSS-Protection:
       - 1; mode=block
       content-length:
-      - '24336'
+      - '24346'
     status:
       code: 404
       message: Not Found
@@ -480,9 +480,9 @@ interactions:
         width=\"35%\" valign=top class=listadvlevo>\r\n<table width=\"*\" cellpadding=\"0\"
         cellspacing=\"1\">\r\n<tr><td height=\"22px\" width=\"25%\">Jm\xE9no:<br><br></td><td
         colspan=2><b><span onclick=\"odeslatakci('rating','4907278','5609471','Seller4907278');return
-        false;\" class=\"paction\">Milan</span></b><br><br></td></tr>\r\n<tr id=\"overlaytel\"><td
-        height=\"22px\" width=\"25%\">Telefon:<br><br></td><td colspan=2><span class=teldetail
-        onclick=\"odeslatrequest('/ad-phone.php','idi=222611649&idphone=5609471','overlaytel');\"><span
+        false;\" class=\"paction\">Seller4907278</span></b><br><br></td></tr>\r\n<tr
+        id=\"overlaytel\"><td height=\"22px\" width=\"25%\">Telefon:<br><br></td><td
+        colspan=2><span class=teldetail onclick=\"odeslatrequest('/ad-phone.php','idi=222611649&idphone=5609471','overlaytel');\"><span
         style=\"white-space: nowrap;\">090... zobraz \u010D\xEDslo</span></span><br><br></td></tr>\r\n<tr><td
         height=\"22px\" width=\"25%\">Lokalita:</td><td width=\"9%\"><img src=\"https://www.bazos.cz/obrazky/map.svg\"
         alt=\"Mapa\" height=\"17\"></td><td><a href=\"https://www.google.com/maps/place/48.573901,19.132491/@48.573901,19.132491,12z/data=!4m2!3m1!1s0x0:0x0\"
@@ -740,7 +740,7 @@ interactions:
       X-XSS-Protection:
       - 1; mode=block
       content-length:
-      - '32357'
+      - '32451'
     status:
       code: 200
       message: OK

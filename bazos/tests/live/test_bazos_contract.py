@@ -106,15 +106,40 @@ def test_live_search_still_returns_a_full_page(live_ads):
     assert len(live_ads) >= 5
 
 
+# How far a field's population rate may move before it counts as drift. Rates are
+# compared rather than a set union: a union only fires when a field vanishes from
+# *every* ad, so view_count surviving on 1 of 20 would read as healthy — which is
+# not what this test claims to detect.
+FIELD_RATE_TOLERANCE = 0.25
+
+
+def population_rates(ads: list[Ad]) -> dict[str, float]:
+    """Fraction of ads carrying a value, per listing field."""
+    return {
+        field: sum(1 for ad in ads if field in populated_fields(ad)) / len(ads)
+        for field in LISTING_FIELDS
+    }
+
+
 @pytest.mark.django_db
 def test_live_ads_populate_the_same_fields_as_the_cassette(live_ads, recorded_ads):
-    """The drift detector: which fields Bazos still exposes, not what is in them."""
-    live = {field for ad in live_ads for field in populated_fields(ad)}
-    recorded = {field for ad in recorded_ads for field in populated_fields(ad)}
+    """The drift detector: how often each field is populated, live vs recorded.
 
-    assert live == recorded, (
-        f"listing fields drifted — only live: {sorted(live - recorded)}, "
-        f"only in cassette: {sorted(recorded - live)}. "
+    Asserts on which fields Bazos still fills in, never on what is in them. Fires
+    in both directions — a field that starts appearing is a re-record signal just
+    as much as one that stops.
+    """
+    live = population_rates(live_ads)
+    recorded = population_rates(recorded_ads)
+
+    drifted = {
+        field: f"cassette {recorded[field]:.0%} -> live {live[field]:.0%}"
+        for field in LISTING_FIELDS
+        if abs(live[field] - recorded[field]) > FIELD_RATE_TOLERANCE
+    }
+
+    assert not drifted, (
+        f"listing field population drifted: {drifted}. "
         f"Re-record the cassettes if this is a legitimate site change."
     )
 

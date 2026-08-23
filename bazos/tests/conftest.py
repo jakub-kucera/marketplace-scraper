@@ -74,36 +74,99 @@ def make_delivery():
 # wrong for this repo in at least three ways.
 # ---------------------------------------------------------------------------
 
+# The seller's name appears TWICE on a Bazos detail page: once as the 4th
+# argument of the rating onclick, and once as the span's visible text. Scrubbing
+# only the argument leaves the real name sitting in the cassette — which is
+# exactly what happened on the first pass at this.
+#
+# The catch is that the same onclick is also attached to spans whose visible text
+# is a UI label, and `BazosScraper._parse_action_args` finds its span *by that
+# text* — rewriting those would break the parser outright.
+#
+# So the visible text is default-DENY: everything is replaced with the synthetic
+# handle unless it is a known Bazos UI label. Matching on "text == the name in the
+# onclick" would read more naturally, but it fails open twice over — it misses any
+# rendering that differs from the argument (truncated, re-cased), and it cannot
+# repair a cassette whose onclick has already been scrubbed, since the name it
+# needed to compare against is gone. A redaction control should fail closed.
+#
+# If Bazos adds a label, the hygiene test fails and it gets added here — loudly.
+_RATING_SPAN_UI_LABELS = frozenset({
+    "Ohodnotit uživatele",
+    "Všechny inzeráty a hodnocení uživatele",
+})
+_RATING_SPAN = re.compile(
+    r"odeslatakci\('rating','(?P<email>\d+)','(?P<phone>\d+)','(?P<name>[^']*)'\)"
+    r"(?P<mid>;return false;\"[^>]*>)(?P<text>[^<]*)(?P<close></span>)"
+)
+# Fallback for any rating call not followed by a closing span.
 _RATING_CALL = re.compile(r"odeslatakci\('rating','(\d+)','(\d+)','([^']*)'\)")
+
 _EMAIL_ADDRESS = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]{2,}")
+
+# Czech mobile numbers (9 digits, leading 6 or 7), with or without a +420/00420
+# prefix and with any of the usual separators.
+#
+# Deliberately NOT matching bare 9-digit landlines (leading 2-5): Bazos ad ids are
+# also 9 digits and every one in these cassettes starts with 2, so a wider pattern
+# would corrupt the ids the parser reads. Landlines are still caught when they
+# carry an explicit country prefix. This boundary is stated rather than silent, and
+# the hygiene test in test_bazos_scraper_transport.py asserts exactly this pattern
+# — the scrub and the assertion must cover the same surface, or a re-record
+# produces a red test on a file that is already on disk.
+_PHONE_NUMBER = re.compile(
+    r"(?<![\d/])(?:(?:\+|00)420[\s./-]?)?[67]\d{2}[\s./-]?\d{3}[\s./-]?\d{3}(?!\d)"
+)
+
+REDACTED_EMAIL = "redacted@example.invalid"
+REDACTED_PHONE = "000000000"
 
 
 def _scrub_seller_names(text: str) -> str:
     """Replace Bazos seller display names with a stable synthetic handle.
 
-    The name is the one directly identifying field on a listing page. It is
-    replaced with `Seller<email_id>` — derived from the opaque email id, so the
-    same seller keeps the same handle across pages and cassettes and the
-    seller-identity code still sees a consistent graph.
+    The name is the one directly identifying field on a listing page. It becomes
+    `Seller<email_id>` — derived from the opaque email id, so the same seller keeps
+    the same handle across pages and cassettes and the seller-identity code still
+    sees a consistent graph.
 
     The opaque email/phone ids themselves are deliberately kept: they are not
     emails or phone numbers (see CLAUDE.md's seller-identity section), they are
     what the parser is supposed to extract, and remapping them would make the
     publisher assertions test the scrub rather than the scraper.
     """
-    def _replace(match: re.Match) -> str:
+    def _replace_span(match: re.Match) -> str:
+        email_id = match.group("email")
+        handle = f"Seller{email_id}"
+        visible = match.group("text")
+        keep = visible.strip() in _RATING_SPAN_UI_LABELS
+        return (
+            f"odeslatakci('rating','{email_id}','{match.group('phone')}','{handle}')"
+            f"{match.group('mid')}"
+            f"{visible if keep else handle}"
+            f"{match.group('close')}"
+        )
+
+    def _replace_call(match: re.Match) -> str:
         email_id, phone_id, _name = match.groups()
         return f"odeslatakci('rating','{email_id}','{phone_id}','Seller{email_id}')"
 
-    return _RATING_CALL.sub(_replace, text)
+    return _RATING_CALL.sub(_replace_call, _RATING_SPAN.sub(_replace_span, text))
+
+
+def scrub_body(text: str) -> str:
+    """Every body-level redaction, in one place, so the hygiene test can mirror it."""
+    text = _scrub_seller_names(text)
+    text = _EMAIL_ADDRESS.sub(REDACTED_EMAIL, text)
+    return _PHONE_NUMBER.sub(REDACTED_PHONE, text)
 
 
 def scrub_response(response):
     """`before_record_response` hook: strip cookies and personal data.
 
-    vcrpy's `filter_headers` only applies to *requests* — a response
-    `Set-Cookie` is written to the cassette verbatim without this (measured:
-    §4.5). Response bodies are not covered by any built-in filter at all.
+    vcrpy's `filter_headers` only applies to *requests* — a response `Set-Cookie`
+    is written to the cassette verbatim without this (measured: §4.5). Response
+    bodies are not covered by any built-in filter at all.
     """
     headers = response.get("headers") or {}
     for name in list(headers):
@@ -112,9 +175,16 @@ def scrub_response(response):
 
     body = (response.get("body") or {}).get("string")
     if body is not None:
-        raw = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else body
-        cleaned = _EMAIL_ADDRESS.sub("redacted@example.invalid", _scrub_seller_names(raw))
-        response["body"]["string"] = cleaned.encode("utf-8") if isinstance(body, bytes) else cleaned
+        is_bytes = isinstance(body, bytes)
+        cleaned = scrub_body(body.decode("utf-8", errors="replace") if is_bytes else body)
+        encoded = cleaned.encode("utf-8")
+        response["body"]["string"] = encoded if is_bytes else cleaned
+        # vcrpy fixes Content-Length when it decodes the response, but that runs
+        # *before* this hook, and redaction changes the body length. Left stale it
+        # would truncate a replayed page for any client that honours the header.
+        for name in list(headers):
+            if name.lower() == "content-length":
+                headers[name] = [str(len(encoded))]
     return response
 
 
