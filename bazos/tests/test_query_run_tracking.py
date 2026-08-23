@@ -23,6 +23,7 @@ class StopLoop(Exception):
 def make_runner():
     """Construct a ScrapeRunner bypassing __init__, with a no-op IP changer."""
     runner = ScrapeRunner.__new__(ScrapeRunner)
+    runner.unsafe = False
     runner.discord_loggers = []
     runner.interval_multiplier = MagicMock()
     runner.ip_changer = MagicMock()

@@ -30,6 +30,7 @@ class StopLoop(Exception):
 
 def make_runner(exit_ip="185.242.6.116"):
     runner = ScrapeRunner.__new__(ScrapeRunner)
+    runner.unsafe = False
     runner.discord_loggers = []
     runner.interval_multiplier = MagicMock()
     runner.ip_changer = MagicMock()

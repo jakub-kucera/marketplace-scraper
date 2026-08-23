@@ -39,13 +39,21 @@ class TorIPChanger(IPChanger):
             controller.signal(Signal.NEWNYM)
 
     def renew_ip_and_check_new(self) -> str:
-        old_ip = self.get_current_ip()
+        """Rotate until the exit IP actually changes. Never raises on a failed lookup.
+
+        This runs on the recovery path — the caller is already dealing with a blocked or
+        broken transport — so a timed-out IP lookup here must be a wasted round, not an
+        exception that takes the pass down with it. An unknown starting IP is treated as
+        "anything readable is progress"; an unknown new IP just means this round proved
+        nothing and we try again.
+        """
+        old_ip = self.try_get_current_ip()
         logger.debug("Old IP: %s", old_ip)
 
         if self.skip_1st_renew:
             self.skip_1st_renew = False
             logger.debug("Skipping 1st renew")
-            return old_ip
+            return old_ip or ""
 
         for attempt in range(1, MAX_RENEW_ATTEMPTS + 1):
             # Re-signal on every round rather than signalling once and then polling: if
@@ -54,14 +62,16 @@ class TorIPChanger(IPChanger):
             self.renew_ip()
             sleep(NEWNYM_WAIT_SECONDS)  # let the new circuit come up, and clear the rate limit
             self.renew_session()
-            new_ip = self.get_current_ip()
-            if old_ip != new_ip:
+            new_ip = self.try_get_current_ip()
+            if new_ip is not None and new_ip != old_ip:
                 logger.info("New IP: %s", new_ip)
                 return new_ip
             logger.warning(
-                "NEWNYM %d/%d did not change the exit IP (%s)", attempt, MAX_RENEW_ATTEMPTS, new_ip
+                "NEWNYM %d/%d did not get a new exit IP (%s)",
+                attempt, MAX_RENEW_ATTEMPTS, new_ip or "lookup failed",
             )
         logger.error(
-            "Exit IP still %s after %d NEWNYM attempts, giving up on rotation", old_ip, MAX_RENEW_ATTEMPTS
+            "Exit IP still %s after %d NEWNYM attempts, giving up on rotation",
+            old_ip or "unknown", MAX_RENEW_ATTEMPTS,
         )
-        return old_ip
+        return old_ip or ""
