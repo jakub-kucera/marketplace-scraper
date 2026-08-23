@@ -39,8 +39,20 @@ model-bakery = "^1.10.1"
 django-stubs-ext = "^0.7.0"
 typing-extensions = "^4.5.0"
 types-requests = "^2.28.11.15"
-jupyter = "^1.0.0"
 ruff = "^0.15.22"
+# Pinned to 7.x on purpose: vcrpy 8.0 dropped urllib3 v1, and both requests
+# 2.28.2 (urllib3 <1.27) and selenium 4.8.2 (urllib3 <2.0) forbid urllib3 2.x.
+# Revisit when the HTTP stack is bumped. See
+# docs/refactor/E2E_REPLAY_TESTING_RESEARCH.md §4.1.
+vcrpy = "^7.0"
+pytest-recording = "^0.13"
+
+# Jupyter is only for the experiments/ notebooks — it is not needed to run the
+# tests, and it is by far the heaviest thing in the lock. Split into its own group
+# so short-lived environments can skip it with `--without notebooks`; a plain
+# `poetry install` still installs it, so local dev is unchanged.
+[tool.poetry.group.notebooks.dependencies]
+jupyter = "^1.0.0"
 
 [build-system]
 requires = ["poetry-core"]

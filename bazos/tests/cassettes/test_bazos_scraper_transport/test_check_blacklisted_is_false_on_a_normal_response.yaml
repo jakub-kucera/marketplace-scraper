@@ -1,0 +1,612 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br
+      Connection:
+      - keep-alive
+    method: GET
+    uri: https://www.bazos.cz/search.php?hledat=iphone&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat&kitx=ano
+  response:
+    body:
+      string: "<!DOCTYPE html>\r\n<html lang=\"cs\">\r\n<head>\r\n<title>Iphone bazar
+        - Bazos.cz</title>\r\n<meta http-equiv=\"Content-Type\" content=\"text/html;
+        charset=utf-8\">\r\n<meta name=\"description\" content=\"Bezplatn\xE1 inzerce
+        na internetu - vyhled\xE1v\xE1n\xED inzer\xE1t\u016F na Bazo\u0161.cz.\">\r\n<meta
+        name=\"google-play-app\" content=\"app-id=cz.ackee.bazos\">\r\n<meta name=\"apple-itunes-app\"
+        content=\"app-id=1195042966\">\r\n<meta property=\"fb:admins\" content=\"1055875657\">\r\n<meta
+        property=\"og:image\" content=\"https://www.bazos.cz/obrazky/bazoslogoface.png\">\r\n<meta
+        name=\"ROBOTS\" content=\"NOINDEX\">\n<link rel=\"stylesheet\" href=\"https://www.bazos.cz/bazos67s.css\"
+        type=\"text/css\"><link rel=\"preload\" as=\"image\" href=\"https://www.bazos.cz/obrazky/bazos.svg\">\r\n<link
+        rel=\"icon\" href=\"https://www.bazos.cz/favicon.svg\" type=\"image/svg+xml\">\r\n<link
+        rel=\"icon\" HREF=\"https://www.bazos.cz/favicon.ico\" sizes=\"32x32\">\r\n<link
+        rel=\"apple-touch-icon\" href=\"https://www.bazos.cz/apple-touch-icon.png\">\r\n<link
+        rel=\"search\" type=\"application/opensearchdescription+xml\" href=\"https://www.bazos.cz/search.xml\"
+        title=\"Bazo\u0161.cz\">\r\n<script async=\"async\" src=\"https://www.google.com/adsense/search/ads.js\"></script>\r\n<script
+        type=\"text/javascript\" charset=\"utf-8\">\r\n(function(g,o){g[o]=g[o]||function(){(g[o]['q']=g[o]['q']||[]).push(\r\n
+        \ arguments)},g[o]['t']=1*new Date})(window,'_googCsa');\r\n</script><script>\r\nvar
+        xhr = new XMLHttpRequest();\r\nvar naseptavac_value = '';\r\nfunction naseptavac(value)
+        {\r\n  if (value=='')  {\r\n  \tnaseptavac_value = '';\r\n  \tdocument.getElementById('vysledek').innerHTML='';\r\n
+        \ \t}\r\nelse {\r\n\tif (naseptavac_value == value) {\r\n\t\treturn false;\r\n\t}\r\n\tnaseptavac_value
+        = value;\r\n\tsetTimeout(function () {\r\n\t\tif (naseptavac_value != value)
+        {\r\n\t\t\treturn false;\r\n\t\t}\r\n\t\txhr.onreadystatechange = function()
+        {\r\n \t\t if (this.readyState == 4 && naseptavac_value == value){\r\n\t\t\t\tdocument.getElementById('vysledek').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n \t\t };\r\n\t\txhr.open(\"POST\", '/suggest.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('rubnas=HP&qnas='+encodeURIComponent(naseptavac_value));\r\n\t},
+        250);\r\n}\r\n}\r\n\r\nvar naseptavacpsc_value = '';\r\nfunction naseptavacpsc(value)
+        {\r\n  if (value=='')  {\r\n  \tnaseptavacpsc_value = '';\r\n  \tdocument.getElementById('vysledekpsc').innerHTML='<table
+        cellpadding=\\\"3\\\" cellspacing=\\\"0\\\" class=\\\"tablenaspsc\\\"><tr><td
+        class=\\\"act\\\" onclick=\\\"getLocation();\\\"><b>Inzer\xE1ty v okol\xED</b></td></tr></table>';\r\n
+        \ \t}\r\nelse {\r\n\tif (naseptavacpsc_value == value) {\r\n\t\treturn false;\r\n\t}\r\n\tnaseptavacpsc_value
+        = value;\r\n\tsetTimeout(function () {\r\n\t\tif (naseptavacpsc_value != value)
+        {\r\n\t\t\treturn false;\r\n\t\t}\r\n\t\txhr.onreadystatechange = function()
+        {\r\n \t\t if (this.readyState == 4 && naseptavacpsc_value == value){\r\n\t\t\t\tdocument.getElementById('vysledekpsc').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n \t\t };\r\n\t\txhr.open(\"POST\", '/suggestpsc.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('qnaspsc='+encodeURIComponent(naseptavacpsc_value));\r\n\t},
+        250);\r\n}\r\n}\r\n\r\nfunction getLocation() {\r\nif (navigator.geolocation)
+        {navigator.geolocation.getCurrentPosition(showPosition);}\r\nelse {document.getElementById('hlokalita').value
+        = '';}\r\n}\r\nfunction showPosition(position) {\r\n\t\txhr.onreadystatechange
+        = function() {\r\n \t\t if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('hlokalita').value
+        = this.responseText;\r\n\t\t\t\tdocument.forms['formt'].submit();\r\n\t\t\t}\r\n
+        \t\t };\r\n\t\txhr.open(\"POST\", '/zip.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('latitude='+encodeURIComponent(position.coords.latitude)+'&longitude='+encodeURIComponent(position.coords.longitude));\r\n}\r\n\r\nvar
+        agent_value = '';\r\nfunction agentclick() {\r\n  if (document.getElementById('agentmail').value=='')
+        \ {\r\n  \tdocument.getElementById(\"agentmail\").focus();\r\n    return false;\r\n
+        \ \t}\r\nelse {\r\nagent_value = document.getElementById('agentmail').value;\r\nxhr.onreadystatechange
+        = function() {\r\n  if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('overlay').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n  };\r\nxhr.open(\"POST\", '/agent.php');\r\nxhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\nxhr.send('hledat=iphone&rubrikav=&hlokalita=&humkreis=25&cenaod=&cenado=&cat=&typ=&agentmail='+encodeURIComponent(agent_value));\r\n}\r\n}\r\n\r\nfunction
+        odeslatrequest(value,params) {\r\nxhr.onreadystatechange = function() {\r\n
+        \ if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('overlay').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n  };\r\nxhr.open(\"POST\", value);\r\nxhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\nxhr.send(params);\r\n}\r\nfunction
+        overlay() {\r\n\tel = document.getElementById(\"overlay\");\r\n\tel.style.display
+        = (el.style.display == \"inline\") ? \"none\" : \"inline\";\r\n}\r\nfunction
+        odeslatakci(postaction,value1,value2,value3) {\r\ndocument.getElementById('postaction').value
+        = postaction;\r\ndocument.getElementById(\"postv1\").value = value1;\r\ndocument.getElementById(\"postv2\").value
+        = value2;\r\ndocument.getElementById(\"postv3\").value = value3;\r\ndocument.formaction.submit();\r\n}\r\n</script>\r\n</head>\r\n\r\n<body>\r\n\r\n<div
+        class=\"sirka\">\r\n\r\n\r\n<div class=\"listalogor\">\r\n<div class=\"listalogol\"><a
+        href=\"https://www.bazos.cz/\" title=\"Bazos.cz - Inzerce, bazar\"><img src=\"https://www.bazos.cz/obrazky/bazos.svg\"
+        width=\"199\" height=\"34\" alt=\"Bazos.cz - Inzerce, inzer\xE1ty\"></a></div>\r\n<div
+        class=\"listalogom\"> <b>... inzerce pro ka\u017Ed\xE9ho</b></div>\r\n<div
+        class=\"listalogop\"><a href=\"https://www.bazos.cz/oblibene.php\"><b>Obl\xEDben\xE9
+        inzer\xE1ty</b></a> <a href=\"https://www.bazos.cz/moje-inzeraty.php\"><b>Moje
+        inzer\xE1ty</b></a> <a href=\"/pridat-inzerat.php\"><b><span class=pridati>P\u0159idat
+        inzer\xE1t</span></b></a></div>\r\n</div>\r\n\r\n<form name=\"formt\" id=\"formt\"
+        method=get action=\"/search.php\">\r\n<div class=\"listah\">\r\n<div class=\"rubriky\">\r\n<b>\r\nCo:
+        <span class=vysokoli><span id=\"vysledek\"></span><input type=\"search\" onkeyup=\"naseptavac(this.value);\"
+        id=hledat name=hledat size=\"17\" maxlength=\"256\" value=\"iphone\" autocomplete=\"off\"
+        title=\"Co? Vyhled\xE1van\xFD v\xFDraz\" ></span>\r\n\r\n<select name=\"rubriky\"
+        onchange='this.form.submit();' title=\"Vyber rubriku\">\r\n<option value=\"www\"
+        selected>V\u0161echny rubriky</option>\r\n<option value=\"auto\">Auto</option>\r\n<option
+        value=\"deti\">D\u011Bti</option>\r\n<option value=\"dum\">D\u016Fm a zahrada</option>\r\n<option
+        value=\"elektro\">Elektro</option>\r\n<option value=\"foto\">Foto</option>\r\n<option
+        value=\"hudba\">Hudba</option>\r\n<option value=\"knihy\">Knihy</option>\r\n<option
+        value=\"mobil\">Mobily</option>\r\n<option value=\"motorky\">Motorky</option>\r\n<option
+        value=\"nabytek\">N\xE1bytek</option>\r\n<option value=\"obleceni\">Oble\u010Den\xED</option>\r\n<option
+        value=\"pc\">PC</option>\r\n<option value=\"prace\">Pr\xE1ce</option>\r\n<option
+        value=\"reality\">Reality</option>\r\n<option value=\"sluzby\">Slu\u017Eby</option>\r\n<option
+        value=\"sport\">Sport</option>\r\n<option value=\"stroje\">Stroje</option>\r\n<option
+        value=\"vstupenky\">Vstupenky</option>\r\n<option value=\"zvirata\">Zv\xED\u0159ata</option>\r\n<option
+        value=\"ostatni\">Ostatn\xED</option>\r\n</select>\r\n\r\nLokalita: <span
+        class=vysokolipsc><span id=\"vysledekpsc\"></span><input type=\"search\" name=\"hlokalita\"
+        id=\"hlokalita\" onkeyup=\"naseptavacpsc(this.value);\" onclick=\"naseptavacpsc(this.value);\"
+        value=\"\" size=\"4\" maxlength=\"25\" autocomplete=\"off\" title=\"Kde? PS\u010C
+        (m\xEDsto)\" style=\"-webkit-appearance: none;\"></span>\r\nOkol\xED: <input
+        name=\"humkreis\" title=\"Okol\xED v km\" value=\"25\" size=\"3\" style=\"width:
+        25px;\"> km\r\nCena od: <input name=cenaod title=\"Cena od K\u010D\" maxlength=\"12\"
+        size=\"5\" value=\"\"> - do: <input name=cenado title=\"Cena do K\u010D\"
+        maxlength=\"12\" size=\"5\" value=\"\"> K\u010D <input type=\"submit\" name=\"Submit\"
+        value=\"Hledat\">\r\n<input type=\"hidden\" name=\"order\" id=\"order\"><input
+        type=\"hidden\" name=\"kitx\" value=\"ano\"></b>\r\n</div>\r\n</div>\r\n</form>\r\n<div
+        class=\"drobky\"><a href=\"https://www.bazos.cz/\" title=\"Inzerce Bazo\u0161\">Hlavn\xED
+        str\xE1nka</a> > <b>Vyhled\xE1v\xE1n\xED</b> > <h1 class=\"nadpiskategorie\">iphone</h1></div><br>\r\n\r\n\r\n\r\n<div
+        class=\"flexmain\"><div class=\"menuleft\"><div class=\"nadpismenu\">Inzerce</div>\r\n<div
+        class=\"barvalmenu\">\r\n<div class=\"barvaleva\">\r\n<div align=\"center\">\r\n\r\n<br>\r\n<a
+        href=\"https://auto.bazos.cz/\"><b>Auto</b></a>\r\nInzer\xE1ty Celkem: 399486<br>\r\nZa
+        24 hodin: 18087<br><br>\r\n\r\n<br>\r\n<a href=\"https://deti.bazos.cz/\"><b>D\u011Bti</b></a>\r\nInzer\xE1ty
+        Celkem: 144030<br>\r\nZa 24 hodin: 3347<br><br>\r\n\r\n<br>\r\n<a href=\"https://dum.bazos.cz/\"><b>D\u016Fm
+        a zahrada</b></a>\r\nInzer\xE1ty Celkem: 123816<br>\r\nZa 24 hodin: 3621<br><br>\r\n\r\n<br>\r\n<a
+        href=\"https://elektro.bazos.cz/\"><b>Elektro</b></a>\r\nInzer\xE1ty Celkem:
+        68634<br>\r\nZa 24 hodin: 1972<br><br>\r\n\r\n<br>\r\n<a href=\"https://foto.bazos.cz/\"><b>Foto</b></a>\r\nInzer\xE1ty
+        Celkem: 12095<br>\r\nZa 24 hodin: 374<br><br>\r\n\r\n<br>\r\n<a href=\"https://hudba.bazos.cz/\"><b>Hudba</b></a>\r\nInzer\xE1ty
+        Celkem: 18938<br>\r\nZa 24 hodin: 629<br><br>\r\n\r\n<br>\r\n<a href=\"https://knihy.bazos.cz/\"><b>Knihy</b></a>\r\nInzer\xE1ty
+        Celkem: 37253<br>\r\nZa 24 hodin: 728<br><br>\r\n\r\n<br>\r\n<a href=\"https://mobil.bazos.cz/\"><b>Mobily</b></a>\r\nInzer\xE1ty
+        Celkem: 17731<br>\r\nZa 24 hodin: 746<br><br>\r\n\r\n<br>\r\n<a href=\"https://motorky.bazos.cz/\"><b>Motorky</b></a>\r\nInzer\xE1ty
+        Celkem: 68324<br>\r\nZa 24 hodin: 2365<br><br>\r\n\r\n<br>\r\n<a href=\"https://nabytek.bazos.cz/\"><b>N\xE1bytek</b></a>\r\nInzer\xE1ty
+        Celkem: 68033<br>\r\nZa 24 hodin: 2534<br><br>\r\n\r\n<br>\r\n<a href=\"https://obleceni.bazos.cz/\"><b>Oble\u010Den\xED</b></a>\r\nInzer\xE1ty
+        Celkem: 90073<br>\r\nZa 24 hodin: 1954<br><br>\r\n\r\n<br>\r\n<a href=\"https://pc.bazos.cz/\"><b>PC</b></a>\r\nInzer\xE1ty
+        Celkem: 43597<br>\r\nZa 24 hodin: 1809<br><br>\r\n\r\n<br>\r\n<a href=\"https://prace.bazos.cz/\"><b>Pr\xE1ce</b></a>\r\nInzer\xE1ty
+        Celkem: 6365<br>\r\nZa 24 hodin: 784<br><br>\r\n\r\n<br>\r\n<a href=\"https://reality.bazos.cz/\"><b>Reality</b></a>\r\nInzer\xE1ty
+        Celkem: 49011<br>\r\nZa 24 hodin: 1752<br><br>\r\n\r\n<br>\r\n<a href=\"https://sluzby.bazos.cz/\"><b>Slu\u017Eby</b></a>\r\nInzer\xE1ty
+        Celkem: 6718<br>\r\nZa 24 hodin: 731<br><br>\r\n\r\n<br>\r\n<a href=\"https://sport.bazos.cz/\"><b>Sport</b></a>\r\nInzer\xE1ty
+        Celkem: 83578<br>\r\nZa 24 hodin: 2640<br><br>\r\n\r\n<br>\r\n<a href=\"https://stroje.bazos.cz/\"><b>Stroje</b></a>\r\nInzer\xE1ty
+        Celkem: 71489<br>\r\nZa 24 hodin: 2756<br><br>\r\n\r\n<br>\r\n<a href=\"https://vstupenky.bazos.cz/\"><b>Vstupenky</b></a>\r\nInzer\xE1ty
+        Celkem: 1995<br>\r\nZa 24 hodin: 79<br><br>\r\n\r\n<br>\r\n<a href=\"https://zvirata.bazos.cz/\"><b>Zv\xED\u0159ata</b></a>\r\nInzer\xE1ty
+        Celkem: 42092<br>\r\nZa 24 hodin: 2328<br><br>\r\n\r\n<br>\r\n<a href=\"https://ostatni.bazos.cz/\"><b>Ostatn\xED</b></a>\r\nInzer\xE1ty
+        Celkem: 150312<br>\r\nZa 24 hodin: 3692<br><br>\r\n\r\n\r\n\r\n</div>\r\n</div></div>\r\n<br><br>\r\n\r\n\r\n\r\n<br><div
+        class=\"mobilskryt\" style=\"text-align: center;\">\r\n<a style=\"font-size:
+        13px;text-decoration: none;color:#000000;\" href=\"https://www.jasminka.cz/kniha/pavel-vana-lecive-stromy-a-kere-ii.html\"
+        target=\"_blank\" rel=\u201Dnofollow\u201D><b>Knihkupectv\xED Jasm\xEDnka</b><br>\r\n<span
+        style=\"font-size: 13px;text-decoration: none;color:#ff6600;\">\r\n<span style=\"color:#000000;\">Pavel
+        V\xE1\u0148a:</span> L\xE9\u010Div\xE9 stromy a ke\u0159e  II.<br><img src=\"https://www.jasminka.cz/images/v/kere2v.jpg\"
+        width=\"100\" alt=\"Knihkupectv\xED Jasm\xEDnka\" title=\"Knihkupectv\xED
+        Jasm\xEDnka\" style=\"border: 1px solid Black;margin: 4px;\">\r\n<br>\r\n<img
+        src=\"https://www.bazos.cz/kosik.svg\" alt=\"Jasminka\" height=\"22\" style=\"border:
+        0px;\"> koupit</span></a></div>\r\n\r\n</div><div class=\"maincontent\">\r\n\r\n\r\n<div
+        class=\"listainzerat inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><img
+        src=\"https://www.bazos.cz/obrazky/list.gif\" width=\"18\" height=\"16\" alt=\"List
+        inzer\xE1t\u016F\" class=gallerylista> <form name=\"formgal\" id=\"formgal\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" name=\"gal\"
+        value=\"g\"><input type=\"image\" alt=\"Submit\" src=\"https://www.bazos.cz/obrazky/gallery.gif\"
+        width=\"18\" height=\"16\" class=\"gallerylist inputgal\"></form> Zobrazeno
+        1-20 inzer\xE1t\u016F z 6 541</div>\r\n<div class=\"inzeratycena\"><b><span
+        onclick=\"document.getElementById('order').value=1;document.forms['formt'].submit();\"
+        class=\"paction\">Cena</span></b></div>\r\n<div class=\"inzeratylok\">Lokalita</div>\r\n<div
+        class=\"inzeratyview\"><span onclick=\"document.getElementById('order').value=3;document.forms['formt'].submit();\"
+        class=\"paction\">Zobrazeno</span></div>\r\n</div><form name=\"formaction\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" id=\"postaction\"
+        name=\"postaction\" value=\"\"><input type=\"hidden\" id=\"postv1\" name=\"postv1\"
+        value=\"\"><input type=\"hidden\" id=\"postv2\" name=\"postv2\" value=\"\"><input
+        type=\"hidden\" id=\"postv3\" name=\"postv3\" value=\"\"></form><button type=\"button\"
+        onclick=\"odeslatrequest('/agent.php','teloverit=');overlay();\">Nov\xE9 inzer\xE1ty
+        e-mailem</button>\r\n\t<div id=\"overlay\">\r\n     <div></div>\r\n</div>\r\n\r\n<div
+        id=\"container_one\"></div>\r\n\r\n<div class=\"inzeraty inzeratyflex\">\r\n<div
+        class=\"inzeratynadpis\"><a href=\"https://mobil.bazos.cz/inzerat/222707246/apple-140w-usb-c-napajeci-adapter-novy-zaruka.php\"><img
+        src=\"https://www.bazos.cz/img/1t/246/222707246.jpg?t=1787047371\" class=\"obrazek\"
+        alt=\"Apple 140W USB-C nap\xE1jec\xED adapt\xE9r | Nov\xFD | Z\xE1ruka\" width=\"170\"
+        height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://mobil.bazos.cz/inzerat/222707246/apple-140w-usb-c-napajeci-adapter-novy-zaruka.php\">Apple
+        140W USB-C nap\xE1jec\xED adapt\xE9r | Nov\xFD | Z\xE1ruka</a></h2><span class=velikost10>
+        - <span title=\"TOP 3x Plat\xED do 5.9. 2026\" class=\"ztop\">TOP</span> -
+        [23.8. 2026]</span><br>\r\n<div class=popis>Prod\xE1m nov\xFD origin\xE1ln\xED
+        Apple USB-C nap\xE1jec\xED adapt\xE9r 140W (PN: MLYU3ZM/A).\r\n\r\nAdapt\xE9r
+        je v origin\xE1ln\xEDm balen\xED, s fakturou a 12 m\u011Bs\xED\u010Dn\xED
+        z\xE1rukou.\r\n\r\nV\xFDkonn\xFD adapt\xE9r pro rychl\xE9 a efektivn\xED nab\xEDjen\xED
+        MacBook\u016F, iPad\u016F a dal\u0161\xEDch za\u0159\xEDzen\xED s USB-C konektorem.\r\nPodporuje
+        technologii USB-C Power Delivery 3.1 a u ...</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">   790 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Pelh\u0159imov<br>394 03</div>\r\n<div class=\"inzeratyview\">504
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222707246');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222707246');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','564333','333996','Seller564333');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222707246','mobil');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://mobil.bazos.cz/inzerat/222703526/apple-140w-usb-c-adapter-apple-240w-usb-c-kabel-novy.php\"><img
+        src=\"https://www.bazos.cz/img/1t/526/222703526.jpg?t=1787042591\" class=\"obrazek\"
+        alt=\"Apple 140W USB-C Adapter + Apple 240W USB C kabel | Nov\xFD\" width=\"170\"
+        height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://mobil.bazos.cz/inzerat/222703526/apple-140w-usb-c-adapter-apple-240w-usb-c-kabel-novy.php\">Apple
+        140W USB-C Adapter + Apple 240W USB C kabel | Nov\xFD</a></h2><span class=velikost10>
+        - <span title=\"TOP 3x Plat\xED do 5.9. 2026\" class=\"ztop\">TOP</span> -
+        [23.8. 2026]</span><br>\r\n<div class=popis>Prod\xE1m nov\xFD origin\xE1ln\xED
+        Apple 140W USB-C nap\xE1jec\xED adapt\xE9r (MLYU3ZM/A) v\u010Detn\u011B origin\xE1ln\xEDho
+        Apple USB-C kabelu 240W o d\xE9lce 2 metry.\r\n\r\nOba produkty jsou nov\xE9,
+        v origin\xE1ln\xEDm balen\xED.\r\n\r\nVhodn\xE9 pro MacBook Pro, MacBook Air,
+        iPad, <b>iphone</b> a dal\u0161\xED za\u0159\xEDzen\xED s USB-C. Adapt\xE9r
+        podporuje rychl\xE9 nab\xEDjen\xED p\u0159es USB ...</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">  1 290 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Pelh\u0159imov<br>394 03</div>\r\n<div class=\"inzeratyview\">433
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222703526');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222703526');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','564333','333996','Seller564333');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222703526','mobil');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://auto.bazos.cz/inzerat/222902007/volvo-xc60-recharge-t8-polestar-ingeneered.php\"><img
+        src=\"https://www.bazos.cz/img/1t/007/222902007.jpg?t=1787473730\" class=\"obrazek\"
+        alt=\"Volvo XC60 Recharge, T8 Polestar Ingeneered, TOP STAV\" width=\"170\"
+        height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://auto.bazos.cz/inzerat/222902007/volvo-xc60-recharge-t8-polestar-ingeneered.php\">Volvo
+        XC60 Recharge, T8 Polestar Ingeneered, TOP STAV</a></h2><span class=velikost10>
+        - <span title=\"TOP 2x Plat\xED do 5.9. 2026\" class=\"ztop\">TOP</span> -
+        [23.8. 2026]</span><br>\r\n<div class=popis>Nab\xEDz\xEDm k prodeji toto vyj\xEDme\u010Dn\xE9
+        Volvo XC60, T8 Polestar Ingeneered. 335kW, 445 kon\xED. \xD6hlins podvozek,
+        brzdy Akebono, 21\" kola. (2sady stejn\xFDch kovan\xFDch kol, letn\xED i zimn\xED
+        ) Vyrobeno 11/2022 model 2023. Nejnov\u011Bj\u0161\xED Plug in hybrid (v\u011Bt\u0161\xED
+        baterka 18,8kWh a siln\u011Bj\u0161\xED elektromotor). \u010Cist\u011B elektrick\xFD
+        dojez ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\"> 1 199 000 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Kladno<br>272
+        01</div>\r\n<div class=\"inzeratyview\">25 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','222902007');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','222902007');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','8018386','1432325','Seller8018386');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222902007','auto');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://mobil.bazos.cz/inzerat/222900082/iphone-13-128gb.php\"><img
+        src=\"https://www.bazos.cz/img/1t/082/222900082.jpg?t=1787471586\" class=\"obrazek\"
+        alt=\"iPhone 13 128GB\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a
+        href=\"https://mobil.bazos.cz/inzerat/222900082/iphone-13-128gb.php\">iPhone
+        13 128GB</a></h2><span class=velikost10> - <span title=\"TOP 2x Plat\xED do
+        5.9. 2026\" class=\"ztop\">TOP</span> - [23.8. 2026]</span><br>\r\n<div class=popis>Prod\xE1m
+        <b>iphone</b> 13 v \u010Derven\xE9 barv\u011B, pln\u011B funk\u010Dn\xED,
+        bez zn\xE1mek opot\u0159eben\xED, kapacita baterie 86%. V\u010Detn\u011B ochrann\xE9ho
+        krytu, nab\xEDjec\xEDho kabelu, ochrann\xE9ho skla.</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">  5 500 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">B\u0159eclav<br>693 01</div>\r\n<div class=\"inzeratyview\">26
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222900082');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222900082');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','9705573','7886881','Seller9705573');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222900082','mobil');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://auto.bazos.cz/inzerat/222695885/porsche-boxter-981.php\"><img
+        src=\"https://www.bazos.cz/img/1t/885/222695885.jpg?t=1787317882\" class=\"obrazek\"
+        alt=\"Porsche Boxster 981\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a
+        href=\"https://auto.bazos.cz/inzerat/222695885/porsche-boxter-981.php\">Porsche
+        Boxster 981</a></h2><span class=velikost10> - <span title=\"TOP 2x Plat\xED
+        do 3.9. 2026\" class=\"ztop\">TOP</span> - [23.8. 2026]</span><br>\r\n<div
+        class=popis>Nab\xEDz\xEDme k prodeji Porsche Boxster 981, r.v. 2013, najeto
+        95t km, 2.7l 195kw, 6st. manu\xE1ln\xED p\u0159evodovka, Achatgrau \u0161ed\xE1
+        metal\xEDza, \u010Dern\xE1 k\u016F\u017Ee, hlin\xEDkov\xE9 oblo\u017Een\xED,
+        \u010Dern\xE9 p\xE1sy, velk\xE1 navigace PCM 3.1, s CD p\u0159ehr\xE1va\u010Dem,
+        USB a aux/<b>iphone</b> interface, Bluetooth telefon, aut. digit\xE1ln\xED
+        klimatizace, el. ovl\xE1da ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\"> 1 099 900 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha
+        4<br>140 00</div>\r\n<div class=\"inzeratyview\">527 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','222695885');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','222695885');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','9502220','7661835','Seller9502220');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222695885','auto');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://mobil.bazos.cz/inzerat/222791413/iphone-13-128gb-midnight-baterie-86-3-kryty.php\"><img
+        src=\"https://www.bazos.cz/img/1t/413/222791413.jpg?t=1787218529\" class=\"obrazek\"
+        alt=\"iPhone 13 128GB Midnight, baterie 86 % + 3 kryty\" width=\"170\" height=\"128\"></a>\r\n<h2
+        class=nadpis><a href=\"https://mobil.bazos.cz/inzerat/222791413/iphone-13-128gb-midnight-baterie-86-3-kryty.php\">iPhone
+        13 128GB Midnight, baterie 86 % + 3 kryty</a></h2><span class=velikost10>
+        - <span title=\"TOP 2x Plat\xED do 2.9. 2026\" class=\"ztop\">TOP</span> -
+        [23.8. 2026]</span><br>\r\n<div class=popis>Prod\xE1m <b>iphone</b> 13 128
+        GB v barv\u011B Midnight (\u010Dern\xE1). Pln\u011B funk\u010Dn\xED, b\u011B\u017En\xE9
+        stopy pou\u017E\xEDv\xE1n\xED. Kondice baterie 86 %. Telefon je odhl\xE1\u0161en\xFD
+        z iCloudu a uveden\xFD do tov\xE1rn\xEDho nastaven\xED.\r\n\r\nV cen\u011B
+        nav\xEDc:\r\n- origin\xE1ln\xED krabi\u010Dka\r\n- 2 nab\xEDjec\xED kabely
+        (origin\xE1ln\xED Apple + opleten\xFD dlouh\xFD kabel)\r\n- 3 kryty (pr\u016Fhledn\xFD
+        \ ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span translate=\"no\">
+        \ 5 500 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Ji\u010D\xEDn<br>506
+        01</div>\r\n<div class=\"inzeratyview\">377 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','222791413');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','222791413');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','15400340','14088448','Seller15400340');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222791413','mobil');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://mobil.bazos.cz/inzerat/221299203/apple-iphone-17-256-gb-cerna.php\"><img
+        src=\"https://www.bazos.cz/img/1t/203/221299203.jpg?t=1787429739\" class=\"obrazek\"
+        alt=\"Apple iPhony z bonusu Vodafone\" width=\"170\" height=\"128\"></a>\r\n<h2
+        class=nadpis><a href=\"https://mobil.bazos.cz/inzerat/221299203/apple-iphone-17-256-gb-cerna.php\">Apple
+        iPhony z bonusu Vodafone</a></h2><span class=velikost10> - <span title=\"TOP
+        2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span> - [23.8. 2026]</span><br>\r\n<div
+        class=popis>Prod\xE1m Apple iPhony 17 - r\u016Fzn\xE9 varianty. Nov\xE9 telefony
+        z bonus\u016F - CZ Vodafone distribuce. Telefon je v\u017Edy objedn\xE1n z
+        bonus\u016F, co\u017E trv\xE1 cca 3 dny. Z\xE1ruka 1 rok - pr\xE1vnick\xE1
+        osoba. z\xE1ru\u010Dn\xED list, mo\u017Eno reklamovat rovnou na prodejn\u011B
+        vodafone. P\u0159ed\xE1n\xED pouze osobn\u011B ve Zl\xEDn\u011B.</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">   123 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Zl\xEDn<br>763 02</div>\r\n<div class=\"inzeratyview\">376
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','221299203');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','221299203');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','8916798','5810605','Seller8916798');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221299203','mobil');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://pc.bazos.cz/inzerat/222577224/cto-13-apple-macbook-air-m1-8jadro-25616gb-zaruka-grey.php\"><img
+        src=\"https://www.bazos.cz/img/1t/224/222577224.jpg?t=1787294800\" class=\"obrazek\"
+        alt=\"CTO 13 APPLE MacBook Air M1 8j\xE1dro 256/16Gb Z\xC1RUKA Grey\" width=\"170\"
+        height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://pc.bazos.cz/inzerat/222577224/cto-13-apple-macbook-air-m1-8jadro-25616gb-zaruka-grey.php\">CTO
+        13 APPLE MacBook Air M1 8j\xE1dro 256/16Gb Z\xC1RUKA Grey</a></h2><span class=velikost10>
+        - <span title=\"TOP 2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span> -
+        [23.8. 2026]</span><br>\r\n<div class=popis>CTO 13 Apple MacBook Air M1 (8j\xE1dro)
+        RETINA SpaceGrey.  SSD Flash 256/16GB, D\xE1m z\xE1ruku 14 dn\xED na d\u016Fkladn\xE9
+        otestov\xE1n\xED. (Po dohod\u011B lze faktura / z\xE1ruka 1Rok + 950,-). Grafika
+        apple M1 7j\xE1dro (Velmi v\xFDkonn\xE1 i na st\u0159ih videa). Na proti\xFA\u010Det
+        lze nab\xEDdnout jak\xFDkoliv v\xFDrobek apple. Na prodej i dal\u0161\xED
+        apple M ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  14 980 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha
+        - v\xFDchod<br>250 01</div>\r\n<div class=\"inzeratyview\">283 x</div>\r\n<div
+        class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222577224');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222577224');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','7698752','5562259','Seller7698752');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222577224','pc');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://pc.bazos.cz/inzerat/222577297/cto-16-apple-macbook-pro-m1-max-1024-ssd-1tb32gb-zaruka.php\"><img
+        src=\"https://www.bazos.cz/img/1t/297/222577297.jpg?t=1787294792\" class=\"obrazek\"
+        alt=\"CTO 16 Apple MacBook Pro M1 MAX  10/24 SSD 1TB/32GB Z\xE1ruka\" width=\"170\"
+        height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://pc.bazos.cz/inzerat/222577297/cto-16-apple-macbook-pro-m1-max-1024-ssd-1tb32gb-zaruka.php\">CTO
+        16 Apple MacBook Pro M1 MAX  10/24 SSD 1TB/32GB Z\xE1ruka</a></h2><span class=velikost10>
+        - <span title=\"TOP 2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span> -
+        [23.8. 2026]</span><br>\r\n<div class=popis>CTO (vy\u0161\u0161\xED konfigurace)
+        16 Apple MacBook Pro M1 Max ! SpaceGrey 10 / 24 j\xE1dro (lze i 10/32j\xE1dro)
+        + 1tis RETINA display 120Hz, SSD Flash 1TB / 32Gb ! Ram 3733MHz. Na proti\xFA\u010Det
+        lze nab\xEDdnout jak\xFDkoliv v\xFDrobek apple. V p\u0159\xEDpad\u011B z\xE1jmu
+        lze i s Fakturou a z\xE1ruka 1 rok + 980,-) Baterie m\xE1 pouze 146 cykl\u016F.
+        V ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span translate=\"no\">
+        \ 28 980 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha - v\xFDchod<br>250
+        01</div>\r\n<div class=\"inzeratyview\">208 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','222577297');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','222577297');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','7698752','5562259','Seller7698752');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222577297','pc');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://pc.bazos.cz/inzerat/222590527/cto-13-macbook-air-m2-8jadro-2022-ssd-25616gb-zaruka.php\"><img
+        src=\"https://www.bazos.cz/img/1t/527/222590527.jpg?t=1787294780\" class=\"obrazek\"
+        alt=\"CTO 13 MacBook Air M2 8j\xE1dro 2022 SSD 256/16GB  Z\xC1RUKA\" width=\"170\"
+        height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://pc.bazos.cz/inzerat/222590527/cto-13-macbook-air-m2-8jadro-2022-ssd-25616gb-zaruka.php\">CTO
+        13 MacBook Air M2 8j\xE1dro 2022 SSD 256/16GB  Z\xC1RUKA</a></h2><span class=velikost10>
+        - <span title=\"TOP 2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span> -
+        [23.8. 2026]</span><br>\r\n<div class=popis>CTO 13 Apple MacBook Air M2 (8j\xE1dro)
+        RETINA MidnightBlue. SSD Flash 256/16GB ! D\xE1m z\xE1ruku 14 dn\xED na d\u016Fkladn\xE9
+        otestov\xE1n\xED. (Po dohod\u011B lze faktura / z\xE1ruka 1Rok + 950,-). Grafika
+        apple M2 8j\xE1dro (Velmi v\xFDkonn\xE1 i na st\u0159ih videa). Mohu zajistit
+        i nab\xEDje\u010Dku a kabel + 780,-, Na proti\xFA\u010Det lze nab\xEDdnout
+        jak\xFD ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  14 980 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha
+        - v\xFDchod<br>250 01</div>\r\n<div class=\"inzeratyview\">314 x</div>\r\n<div
+        class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222590527');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222590527');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','7698752','5562259','Seller7698752');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222590527','pc');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://pc.bazos.cz/inzerat/222576953/16-apple-macbook-pro-i7-26ghz-6jadro-ssd-51216gb-zaruka.php\"><img
+        src=\"https://www.bazos.cz/img/1t/953/222576953.jpg?t=1787294770\" class=\"obrazek\"
+        alt=\"16 Apple MacBook Pro i7 2,6GHz 6j\xE1dro SSD 512/16GB Z\xC1RUKA\" width=\"170\"
+        height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://pc.bazos.cz/inzerat/222576953/16-apple-macbook-pro-i7-26ghz-6jadro-ssd-51216gb-zaruka.php\">16
+        Apple MacBook Pro i7 2,6GHz 6j\xE1dro SSD 512/16GB Z\xC1RUKA</a></h2><span
+        class=velikost10> - <span title=\"TOP 2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span>
+        - [23.8. 2026]</span><br>\r\n<div class=popis>16 Apple MacBook Pro i7 2,6GHz
+        Retina 6j\xE1dro TouchBar SpaceGrey. SSD flash 512Gb / 16Gb Ram DDR4. Grafika
+        Radeon Pro 5300 4Gb - lehce zvl\xE1dne i st\u0159ih 4K videa a \xFApravu fotek.
+        Baterie m\xE1 81% kapacity (st\xE1le zcela OK). Na prodej i dal\u0161\xED
+        apple MacBook i M1 M2, M3 <b>iphone</b>, iPad nebo iMac. Sta\u010D\xED si
+        napsat ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  8 980 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha
+        - v\xFDchod<br>250 01</div>\r\n<div class=\"inzeratyview\">231 x</div>\r\n<div
+        class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222576953');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222576953');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','7698752','5562259','Seller7698752');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222576953','pc');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://pc.bazos.cz/inzerat/222577019/16-apple-macbook-pro-m2-pro-1219-jadro-2023-32gb-ram-zaruka.php\"><img
+        src=\"https://www.bazos.cz/img/1t/019/222577019.jpg?t=1787294761\" class=\"obrazek\"
+        alt=\"16 Apple MacBook Pro M2 Pro 12/19 j\xE1dro 2023 32Gb Ram Z\xC1RUKA\"
+        width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://pc.bazos.cz/inzerat/222577019/16-apple-macbook-pro-m2-pro-1219-jadro-2023-32gb-ram-zaruka.php\">16
+        Apple MacBook Pro M2 Pro 12/19 j\xE1dro 2023 32Gb Ram Z\xC1RUKA</a></h2><span
+        class=velikost10> - <span title=\"TOP 2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span>
+        - [23.8. 2026]</span><br>\r\n<div class=popis>TOP 16 Apple MacBook Pro M2
+        Pro 12/19j\xE1dro SpaceGrey RETINA display 120Hz, SSD Flash 512GB / 32Gb Ram
+        3733MHz Na proti\xFA\u010Det lze nab\xEDdnout jak\xFDkoliv v\xFDrobek apple.
+        V p\u0159\xEDpad\u011B z\xE1jmu lze i s Fakturou a z\xE1ruka 1 rok + 980,-)
+        Baterie m\xE1 pouze 108 cykl\u016F / 84% kapacity ( ve skv\u011Bl\xE9m stavu)
+        V p\u0159\xEDpad\u011B z\xE1jmu lze ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  28 980 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha
+        - v\xFDchod<br>250 01</div>\r\n<div class=\"inzeratyview\">250 x</div>\r\n<div
+        class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222577019');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222577019');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','7698752','5562259','Seller7698752');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222577019','pc');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://pc.bazos.cz/inzerat/222577081/27-apple-imac-5k-retina-8jadro-model-2020-ssd-1tb-az-128gb.php\"><img
+        src=\"https://www.bazos.cz/img/1t/081/222577081.jpg?t=1787294752\" class=\"obrazek\"
+        alt=\"27 Apple iMac 5K Retina 8j\xE1dro  model 2020 SSD 1TB a\u017E 128GB\"
+        width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://pc.bazos.cz/inzerat/222577081/27-apple-imac-5k-retina-8jadro-model-2020-ssd-1tb-az-128gb.php\">27
+        Apple iMac 5K Retina 8j\xE1dro  model 2020 SSD 1TB a\u017E 128GB</a></h2><span
+        class=velikost10> - <span title=\"TOP 2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span>
+        - [23.8. 2026]</span><br>\r\n<div class=popis>CTO (vy\u0161\u0161\xED konfigurace)
+        \ 27 Apple iMac model 2020 i7 3,8GHz 8j\xE1dro ! D\xEDky tomu zvl\xE1dne nejnov\u011Bj\u0161\xED
+        syst\xE9m Tahoe 26.3 nav\xEDc s mo\u017Enost\xED upgrade ram a\u017E na 128Gb)
+        Apple SSD Flash 1000Gb. Grafika Radeon Pro 5500XT 8GB ! - zvl\xE1dne i proti
+        st\u0159ih videa a \xFApravu fotek. 16Gb ram DDR4 (mohu nav\xFD\u0161it a\u017E
+        na 128Gb) ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  24 980 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha
+        - v\xFDchod<br>250 01</div>\r\n<div class=\"inzeratyview\">275 x</div>\r\n<div
+        class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222577081');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222577081');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','7698752','5562259','Seller7698752');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222577081','pc');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://pc.bazos.cz/inzerat/222576851/13-apple-macbook-pro-retina-ssd-512-16gb-model-2020-zaruka.php\"><img
+        src=\"https://www.bazos.cz/img/1t/851/222576851.jpg?t=1787294741\" class=\"obrazek\"
+        alt=\"13 APPLE MacBook Pro RETINA SSD 512 / 16GB model 2020 Z\xE1ruka\" width=\"170\"
+        height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://pc.bazos.cz/inzerat/222576851/13-apple-macbook-pro-retina-ssd-512-16gb-model-2020-zaruka.php\">13
+        APPLE MacBook Pro RETINA SSD 512 / 16GB model 2020 Z\xE1ruka</a></h2><span
+        class=velikost10> - <span title=\"TOP 2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span>
+        - [23.8. 2026]</span><br>\r\n<div class=popis>CTO (vy\u0161\u0161\xED konfigurace)
+        13 Apple MacBook Pro model 2020 i5 2,4GHz RETINA Touch Bar SpaceGrey. 16 Gb
+        ram DDR4 / SSD Flash 512Gb Baterie m\xE1 81% kapacity (zcela OK). Grafika
+        iRIs Plus 655 1536Mb. MacBook je ve velmi dobr\xE9m stavu. Po dohod\u011B
+        lze s fakturou a z\xE1rukou 1 rok + 1Tis. Na proti\xFA\u010Det lze nab\xEDdno
+        ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span translate=\"no\">
+        \ 10 980 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha - v\xFDchod<br>250
+        01</div>\r\n<div class=\"inzeratyview\">295 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','222576851');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','222576851');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','7698752','5562259','Seller7698752');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222576851','pc');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://pc.bazos.cz/inzerat/222576691/top-14-apple-macbook-pro-m1-pro-2021-8-14-jadro-grey-zaruka.php\"><img
+        src=\"https://www.bazos.cz/img/1t/691/222576691.jpg?t=1787294732\" class=\"obrazek\"
+        alt=\"TOP 14 Apple MacBook Pro M1 Pro 2021 8 /14 j\xE1dro Grey Z\xC1RUKA\"
+        width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://pc.bazos.cz/inzerat/222576691/top-14-apple-macbook-pro-m1-pro-2021-8-14-jadro-grey-zaruka.php\">TOP
+        14 Apple MacBook Pro M1 Pro 2021 8 /14 j\xE1dro Grey Z\xC1RUKA</a></h2><span
+        class=velikost10> - <span title=\"TOP 2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span>
+        - [23.8. 2026]</span><br>\r\n<div class=popis>14 Apple MacBook Pro M1 Pro
+        8 / 14j\xE1dro SpaceGrey. RETINA display 120Hz (oproti velikosti 13 kter\xE9
+        nemaj\xED 120Hz), SSD Flash 512Gb / 16Gb Ram 3733MHz. Na proti\xFA\u010Det
+        lze nab\xEDdnout jak\xFDkoliv v\xFDrobek apple. V p\u0159\xEDpad\u011B z\xE1jmu
+        lze faktura / Z\xE1ruka 1 Rok + 980,-. Baterie m\xE1 91% kapacity (ve stavu
+        nov\xE9), Lze i ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  17 980 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha
+        - v\xFDchod<br>250 01</div>\r\n<div class=\"inzeratyview\">272 x</div>\r\n<div
+        class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222576691');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222576691');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','7698752','5562259','Seller7698752');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222576691','pc');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://pc.bazos.cz/inzerat/222576778/16-apple-macbook-pro-m1-pro-1016jadro-2021-32gb-zaruka.php\"><img
+        src=\"https://www.bazos.cz/img/1t/778/222576778.jpg?t=1787294724\" class=\"obrazek\"
+        alt=\"16 Apple MacBook Pro M1 Pro 10/16j\xE1dro 2021 32GB  Z\xC1RUKA\" width=\"170\"
+        height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://pc.bazos.cz/inzerat/222576778/16-apple-macbook-pro-m1-pro-1016jadro-2021-32gb-zaruka.php\">16
+        Apple MacBook Pro M1 Pro 10/16j\xE1dro 2021 32GB  Z\xC1RUKA</a></h2><span
+        class=velikost10> - <span title=\"TOP 2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span>
+        - [23.8. 2026]</span><br>\r\n<div class=popis>16 Apple MacBook Pro M1 10/16
+        j\xE1dro paceGrey. RETINA display 120Hz, SSD Flash 512Gb / 32Gb ! Ram 3733MHz.
+        Na proti\xFA\u010Det lze nab\xEDdnout jak\xFDkoliv v\xFDrobek apple. V p\u0159\xEDpad\u011B
+        z\xE1jmu lze i s Fakturou a z\xE1ruka 1 rok + 980,-) v\u010Detn\u011B nov\xE9
+        nab\xEDje\u010Dky s MagSafe 3 kabelem + 980,- Na prodej i dal\u0161\xED apple
+        MacBook, iP ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  21 980 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha
+        - v\xFDchod<br>250 01</div>\r\n<div class=\"inzeratyview\">111 x</div>\r\n<div
+        class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222576778');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222576778');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','7698752','5562259','Seller7698752');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222576778','pc');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://pc.bazos.cz/inzerat/222576543/27-apple-imac-5k-retina-model-2020-zaruka-lze-az-128gb.php\"><img
+        src=\"https://www.bazos.cz/img/1t/543/222576543.jpg?t=1787294716\" class=\"obrazek\"
+        alt=\"27 APPLE iMac 5K RETINA model 2020 Z\xC1RUKA lze a\u017E 128Gb\" width=\"170\"
+        height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"https://pc.bazos.cz/inzerat/222576543/27-apple-imac-5k-retina-model-2020-zaruka-lze-az-128gb.php\">27
+        APPLE iMac 5K RETINA model 2020 Z\xC1RUKA lze a\u017E 128Gb</a></h2><span
+        class=velikost10> - <span title=\"TOP 2x Plat\xED do 1.9. 2026\" class=\"ztop\">TOP</span>
+        - [23.8. 2026]</span><br>\r\n<div class=popis>TOP 27 Apple iMac model 2020
+        i5 3,1GHz 6j\xE1dro (k dispozici i CTO i7 8j\xE1dro) D\xEDky tomu zvl\xE1dne
+        nejnov\u011Bj\u0161\xED syst\xE9m nav\xEDc s mo\u017Enost\xED upgrade) Apple
+        SSD Flash 256Gb (lze i s 512Gb i5 3,3GHz + 2.800,-) Grafika Radeon Pro 5300
+        4GB - zvl\xE1dne i proti st\u0159ih videa a \xFApravu fotek. 8Gb ram DDR4
+        (mohu nav\xFD\u0161it a\u017E  ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  17 980 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha
+        - v\xFDchod<br>250 01</div>\r\n<div class=\"inzeratyview\">239 x</div>\r\n<div
+        class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222576543');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222576543');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','7698752','5562259','Seller7698752');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222576543','pc');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://mobil.bazos.cz/inzerat/222883403/iphone-14-pro.php\"><img
+        src=\"https://www.bazos.cz/img/1t/403/222883403.jpg?t=1787418663\" class=\"obrazek\"
+        alt=\"Iphone 14 pro\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a
+        href=\"https://mobil.bazos.cz/inzerat/222883403/iphone-14-pro.php\">Iphone
+        14 pro</a></h2><span class=velikost10> - <span title=\"TOP 1x Plat\xED do
+        29.8. 2026\" class=\"ztop\">TOP</span> - [23.8. 2026]</span><br>\r\n<div class=popis>Prod\xE1m
+        <b>iphone</b> 14 pro 128gb ve velmi dobr\xE9m stavu, vypad\xE1 jako nov\xFD.
+        O mobil jsem se staral, v\u0161echno je funk\u010Dn\xED na 100%. Kondice baterky
+        88%. Nov\xFD majitel/ka bude ur\u010Dit\u011B spokojen\xFD.</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">  10 000 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Ostrava<br>702 00</div>\r\n<div class=\"inzeratyview\">96
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222883403');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222883403');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','15539108','14240142','Seller15539108');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222883403','mobil');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://mobil.bazos.cz/inzerat/222880850/iphone-16.php\"><img
+        src=\"https://www.bazos.cz/img/1t/850/222880850.jpg?t=1787413120\" class=\"obrazek\"
+        alt=\"iPhone 16\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a
+        href=\"https://mobil.bazos.cz/inzerat/222880850/iphone-16.php\">iPhone 16</a></h2><span
+        class=velikost10> - <span title=\"TOP 1x Plat\xED do 29.8. 2026\" class=\"ztop\">TOP</span>
+        - [23.8. 2026]</span><br>\r\n<div class=popis>Prod\xE1m zcela nov\xFD, nerozbalen\xFD
+        <b>iphone</b> 16 128 Gb. Kupov\xE1n p\u0159ed p\xE1r dny. Se\u0161ly se mi
+        dva telefony a nakonec si nech\xE1v\xE1m <b>iphone</b> 17 Pro. Telefon bych
+        mohl standardn\u011B vr\xE1tit obchodu, ale za 3 dny odl\xE9t\xE1m na dovolenou
+        a pot\u0159ebuji pen\xEDze hned, ne\u010Dekat na vy\u0159\xEDzen\xED vratky.Podm\xEDnky
+        prodeje :\nPouze osobn\xED p\u0159ed ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  15 500 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Olomouc<br>779
+        00</div>\r\n<div class=\"inzeratyview\">126 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','222880850');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','222880850');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','8478770','5792915','Seller8478770');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222880850','mobil');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"https://mobil.bazos.cz/inzerat/222880064/iphone-air-256gb-space-black.php\"><img
+        src=\"https://www.bazos.cz/img/1t/064/222880064.jpg?t=1787411442\" class=\"obrazek\"
+        alt=\"iPhone AIR 256GB Space Black\" width=\"170\" height=\"128\"></a>\r\n<h2
+        class=nadpis><a href=\"https://mobil.bazos.cz/inzerat/222880064/iphone-air-256gb-space-black.php\">iPhone
+        AIR 256GB Space Black</a></h2><span class=velikost10> - <span title=\"TOP
+        1x Plat\xED do 29.8. 2026\" class=\"ztop\">TOP</span> - [23.8. 2026]</span><br>\r\n<div
+        class=popis>Prod\xE1m Apple <b>iphone</b> Air 256 GB, Space Black.\n\nTelefon
+        je v kr\xE1sn\xE9m stavu, bez viditeln\xFDch od\u011Brek, po celou dobu no\u0161en\xFD
+        v krytu a s ochrann\xFDm sklem.\nKondice baterie 100 %.\n\nZakoupen v PLANEO
+        Elektro v \xFAnoru 2026.\nZ\xE1ruka Apple do 02/2027.\n\nTelefon je samoz\u0159ejm\u011B
+        odhl\xE1\u0161en\xFD z Apple ID, uveden\xFD do tov\xE1rn\xED ...</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">  17 000 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Nymburk<br>289 24</div>\r\n<div class=\"inzeratyview\">104
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222880064');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222880064');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','8649184','6640530','Seller8649184');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222880064','mobil');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n<div
+        id=\"container_two\"></div><br>\r\n<br><div class=\"strankovani\">Str\xE1nka:
+        <b><span class=cisla>1</span></b> <a href=\"search.php?hledat=iphone&hlokalita=&humkreis=25&cenaod=&cenado=&order=&crz=20\"
+        rel=\"nofollow\">2</a> <a href=\"search.php?hledat=iphone&hlokalita=&humkreis=25&cenaod=&cenado=&order=&crz=40\"
+        rel=\"nofollow\">3</a> <a href=\"search.php?hledat=iphone&hlokalita=&humkreis=25&cenaod=&cenado=&order=&crz=60\"
+        rel=\"nofollow\">4</a> <a href=\"search.php?hledat=iphone&hlokalita=&humkreis=25&cenaod=&cenado=&order=&crz=80\"
+        rel=\"nofollow\">5</a> <a href=\"search.php?hledat=iphone&hlokalita=&humkreis=25&cenaod=&cenado=&order=&crz=100\"
+        rel=\"nofollow\">6</a> <a href=\"search.php?hledat=iphone&hlokalita=&humkreis=25&cenaod=&cenado=&order=&crz=120\"
+        rel=\"nofollow\">7</a> <a href=\"search.php?hledat=iphone&hlokalita=&humkreis=25&cenaod=&cenado=&order=&crz=140\"
+        rel=\"nofollow\">8</a> <a href=\"search.php?hledat=iphone&hlokalita=&humkreis=25&cenaod=&cenado=&order=&crz=20\"
+        rel=\"nofollow\"><b>Dal\u0161\xED</b></a></div><br><br><br>\r\n\r\n\r\n</div></div><script
+        type=\"text/javascript\" charset=\"utf-8\">\r\nvar pageOptions = {\r\n  'pubId':
+        'pub-3645948300403337',\r\n  'query' : 'iphone',\r\n  'channel': '4719857758',\r\n
+        \ 'linkTarget' : '_blank',\r\n  'personalizedAds' : 'false',\r\n  'ivt': false,\r\n
+        \ 'styleId' : '6171314811',  'hl': 'cs'\r\n};\r\n\r\n\r\nvar adblock1 = {\r\n
+        \ 'container': 'container_one',\r\n  'width': 'auto',\r\n  'maxTop' : 2\r\n};\r\n\r\nvar
+        adblock2 = {\r\n  'container': 'container_two',\r\n  'width': 'auto',\r\n
+        \ 'number' : 2\r\n};\r\n\r\n_googCsa('ads', pageOptions, adblock2);</script>\r\n<br>\r\n\r\n&copy;2026
+        Bazo\u0161 -  <b>Inzerce, Bazar</b><br>\r\n<a href=\"https://www.bazos.cz/napoveda.php\">N\xE1pov\u011Bda</a>,
+        <a href=\"https://www.bazos.cz/dotazy.php\">Dotazy</a>, <a href=\"https://www.bazos.cz/hodnoceni.php\">Hodnocen\xED</a>,
+        <a href=\"https://www.bazos.cz/kontakt.php\">Kontakt</a>, <a href=\"https://www.bazos.cz/reklama.php\">Reklama</a>,
+        <a href=\"https://www.bazos.cz/podminky.php\">Podm\xEDnky</a>, <a href=\"https://www.bazos.cz/ochrana-udaju.php\">Ochrana
+        \xFAdaj\u016F</a>, <a href=\"https://www.bazos.cz/rss.php?humkreis=25&hledat=iphone\">RSS</a>,
+        <form name=\"formvkm\" id=\"formvkm\" method=\"post\" style=\"display: inline;\"><input
+        type=\"hidden\" name=\"vkm\" value=\"m\"><input type=\"submit\" class=\"vkm\"
+        value=\"Mobiln\xED verze\"></form><br>\r\nInzer\xE1ty celkem:<b>\r\n1503570</b>,
+        inzerce za 24 hodin: <b>52928</b><br><br>\r\n<a href=\"https://www.bazos.cz/mapa-kategorie.php\">Mapa
+        kategori\xED</a>, <a href=\"https://www.bazos.cz/mapa-search.php\">Nejvyhled\xE1van\u011Bj\u0161\xED
+        v\xFDrazy</a>, Tmav\xFD motiv: <form name=\"formdark\" action=\"https://www.bazos.cz\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" name=\"darkmode\"
+        value=\"1\"><input type=\"submit\" class=\"vkm\" value=\"Vypnuto\"></form><br>\r\nZem\u011B:
+        <a href=\"https://www.bazos.cz\">\u010Cesk\xE1 republika</a>, <a href=\"https://www.bazos.sk\">Slovensko</a>,
+        <a href=\"https://www.bazos.pl\">Polsko</a>, <a href=\"https://www.bazos.at\">Rakousko</a>\r\n<br>\r\n<br>\r\n</div>\r\n\r\n<script
+        src=\"https://www.bazos.cz/cookie-consent.js\"></script>\r\n<script>\r\ndocument.addEventListener('DOMContentLoaded',
+        function () {\r\ncookieconsent.run({\"notice_banner_type\":\"simple\",\"consent_type\":\"express\",\"palette\":\"light\",\"language\":\"cs\",\"page_load_consent_levels\":[\"strictly-necessary\"],\"notice_banner_reject_button_hide\":false,\"preferences_center_close_button_hide\":false,\"page_refresh_confirmation_buttons\":false,\"cookie_domain\":
+        \"bazos.cz\"});\r\n});\r\n</script>\r\n<a href=\"#\" id=\"open_preferences_center\">
+        </a>\r\n\r\n<!-- Google tag (gtag.js) -->\r\n<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-NZW1QTHKBB\"></script>\r\n<script>\r\n
+        \ window.dataLayer = window.dataLayer || [];\r\n  function gtag(){dataLayer.push(arguments);}\r\n
+        \ gtag('js', new Date());\r\n  gtag('consent', 'default', {\r\n  'ad_storage':
+        'denied',\r\n  'ad_user_data': 'denied',\r\n  'ad_personalization': 'denied',\r\n});\r\n\r\n
+        \ gtag('config', 'G-NZW1QTHKBB');\r\n</script>\r\n</body>\r\n</html>"
+    headers:
+      Cache-Control:
+      - max-age=60
+      Connection:
+      - keep-alive
+      Content-Type:
+      - text/html; charset=UTF-8
+      Date:
+      - Sun, 23 Aug 2026 09:12:01 GMT
+      Expires:
+      - Sun, 23 Aug 2026 09:13:01 GMT
+      Last-Modified:
+      - Sun, 23 Aug 2026 09:12:01 GMT
+      Server:
+      - nginx
+      Transfer-Encoding:
+      - chunked
+      Vary:
+      - Accept-Encoding
+      X-Frame-Options:
+      - DENY
+      X-XSS-Protection:
+      - 1; mode=block
+      content-length:
+      - '50080'
+    status:
+      code: 200
+      message: OK
+version: 1

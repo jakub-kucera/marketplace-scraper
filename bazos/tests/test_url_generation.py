@@ -3,7 +3,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from bazos.const import BAZOS_BASE_URL, PAGE_SIZE
+from bazos.const import BAZOS_URL, PAGE_SIZE
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 
 
@@ -79,9 +79,18 @@ def test_create_url_general_paginates_crz_by_page_size(query):
 
 
 @pytest.mark.django_db
-def test_create_url_general_uses_base_url_without_category(query):
+def test_create_url_general_targets_the_search_endpoint(query):
+    """A section-less, category-less Query must search, not hit the bare origin.
+
+    This asserted `startswith(BAZOS_BASE_URL)` until 2026-08-23, which was true of
+    the broken URL (`https://bazos.cz?hledat=...`) *and* of the fixed one, since
+    BAZOS_URL starts with BAZOS_BASE_URL. Bazos redirects the bare-origin form to
+    the homepage and drops the query string, so the scraper silently found no ads.
+    Asserting on the path is what makes the difference visible.
+    """
     query.category = None
     query.section = None
     query.save()
     first_url = next(BazosScraper.create_url_general(query))
-    assert first_url.startswith(BAZOS_BASE_URL)
+    assert first_url.startswith(BAZOS_URL)
+    assert urlparse(first_url).path == "/search.php"
