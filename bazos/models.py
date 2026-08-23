@@ -322,7 +322,14 @@ class Ad(TimeStampedModel):
     publish_date = models.DateTimeField(null=True, blank=True, help_text="Null when the marketplace doesn't expose it (e.g. Vinted) — never synthesise a value here.")
     # TODO add topped count
     topped = models.BooleanField(default=False, help_text="Topped ad, publish date is not accurate")
-    short_description = models.CharField(max_length=300)
+    # TextField, not CharField(300): this is the free-form listing snippet scraped from
+    # the marketplace and there is no real invariant behind any particular bound. A Bazos
+    # ad longer than 300 chars raised DataError inside _resolve_ad's save(), which aborted
+    # the whole query walk — and did so every pass, wedging the query indefinitely
+    # (observed live 2026-08-23 on the `audeze` query). Widened rather than truncated
+    # because the keyword rules match against `name + short_description`, so a truncated
+    # tail silently stops `filter_blocklist`/`filter_required` phrases from matching.
+    short_description = models.TextField()
     full_description = models.TextField(null=True, blank=True)
 
     publisher_name = models.CharField(max_length=100)
