@@ -1,6 +1,9 @@
 # E2E / record-and-replay testing for the scraper — research
 
-**Status:** research, nothing implemented. Written 2026-08-23.
+**Status:** research written 2026-08-23. **All four steps in §8 have since been built** — see the
+four commits following this document. What landed differs from the plan in two places, both
+recorded below: §4.8 (a `vcr_config` trap found during implementation) and §4.9 (Bazos serves
+page 1 of a category search with a 404). The §1a bug the research surfaced is fixed.
 **Question asked:** *"Can we record real requests and replay them 1:1, so a refactor that breaks
 something fails a test?"*
 
@@ -468,7 +471,7 @@ Run the same scenario twice in one test (second pass over the same cassette) to 
 **dedup break** end-to-end. That is the single most refactor-sensitive behaviour in the codebase
 and currently only has mock-level coverage.
 
-**PR 4 — freshness (optional, later)**
+**PR 4 — freshness** *(built: `bazos/tests/live/`, `.github/workflows/contract-check.yml`)*
 Cassettes rot silently: the site changes, the cassette doesn't, tests stay green while production
 breaks. Two complementary answers:
 - A `@pytest.mark.live` suite, **deselected by default** and excluded from CI, that re-records and
