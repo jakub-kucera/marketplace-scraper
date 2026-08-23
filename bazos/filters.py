@@ -48,7 +48,7 @@ class PassthroughRule:
 #: Bazos's four placeholder strings with no numeric value at all — "Zdarma" is a fifth
 #: placeholder-shaped string but is handled separately below, since unlike these four it
 #: resolves to a real price of 0, not None. Exhaustive against the measured corpus — see
-#: docs/refactor/PRICE_PARSING_RESEARCH.md §3.1. Only the string keys are Bazos-specific;
+#: docs/research/PRICE_PARSING.md §3.1. Only the string keys are Bazos-specific;
 #: this is shared by both BazosScraper (HTML) and BazosApiScraper's listing parse, since the
 #: API's `price_formatted` follows the same grammar (§4).
 _PLACEHOLDER_TYPES: dict[str, PriceType] = {
@@ -62,7 +62,7 @@ _PLACEHOLDER_TYPES: dict[str, PriceType] = {
 def parse_price_and_type(price_raw: str) -> tuple[int | None, PriceType]:
     """Parse a Bazos price string (e.g. "1 000 Kč", "Dohodou") into (amount, price_type).
 
-    Rules, each traceable to a measurement in PRICE_PARSING_RESEARCH.md §3:
+    Rules, each traceable to a measurement in PRICE_PARSING.md §3:
     - "Zdarma" (free) -> (0, FREE) — a known price of zero, not an unknown one.
     - The other four placeholders -> (None, matching type).
     - Digits present -> strip everything but digits, parse as int, EXACT.
@@ -100,7 +100,7 @@ class PriceRangeRule:
     (Dohodou, V textu, ...), or a marketplace scraper that hasn't been wired to populate
     it yet. Note FREE is NOT covered by that PASS: it carries a real `price=0`, so a free
     ad IS evaluated against the range (and rejected whenever price_lower > 0) — that's the
-    intended behaviour (PRICE_PARSING_RESEARCH.md §3.3), not an oversight.
+    intended behaviour (PRICE_PARSING.md §3.3), not an oversight.
     """
     name = "price_range"
 

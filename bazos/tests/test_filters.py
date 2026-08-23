@@ -4,7 +4,7 @@ PublisherBlocklistRule, PriceDropRule), and the P17 per-query rule registry
 (RULE_REGISTRY, build_rule_engine).
 
 Rules operate on an `AdDelivery` (ad + query + pipeline status) since the Ad/AdDelivery
-split — see docs/refactor/AD_DELIVERY_SPLIT_SPEC.md.
+split — see docs/archive/shipped/AD_DELIVERY_SPLIT.md.
 """
 
 from unittest.mock import patch
@@ -200,7 +200,7 @@ def test_parse_price_and_type_exact():
 
 def test_parse_price_and_type_free_is_zero_not_none():
     """Zdarma is a KNOWN price of zero, not an unknown one — see
-    docs/refactor/PRICE_PARSING_RESEARCH.md §3.3."""
+    docs/research/PRICE_PARSING.md §3.3."""
     assert parse_price_and_type("Zdarma") == (0, PriceType.FREE)
 
 

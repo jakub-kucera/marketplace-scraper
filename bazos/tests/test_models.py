@@ -92,7 +92,7 @@ def test_section_category_constraint_allows_both_null(db):
 
 
 # --- Ad/AdDelivery split: pipeline state lives on AdDelivery, not Ad ---
-# (see docs/refactor/AD_DELIVERY_SPLIT_SPEC.md)
+# (see docs/archive/shipped/AD_DELIVERY_SPLIT.md)
 
 def test_ad_status_choices():
     assert {c.value for c in AdStatus} == {

@@ -6,7 +6,7 @@ helper, which meant the command's own queryset — the APPROVED filter, the
 ``created`` ordering and the batch cap — was never executed by any test.
 
 Operates on AdDelivery, not Ad, since the Ad/AdDelivery split moved pipeline
-status there — see docs/refactor/AD_DELIVERY_SPLIT_SPEC.md.
+status there — see docs/archive/shipped/AD_DELIVERY_SPLIT.md.
 
 DiscordSender.from_model is patched throughout, so no webhook is ever built and
 nothing reaches the network.

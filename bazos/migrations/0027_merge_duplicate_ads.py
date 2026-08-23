@@ -8,7 +8,7 @@ from django.db.models import Count
 #: losing to a PENDING one on an arbitrary pk tie-break would silently re-announce an ad the
 #: sender already delivered. String literals rather than importing AdStatus — this is a
 #: historical migration and should stay isolated from the live model, same reasoning as not
-#: editing 0016 to use the current model (see AD_DELIVERY_SPLIT_SPEC.md §7).
+#: editing 0016 to use the current model (see AD_DELIVERY_SPLIT.md §7).
 _STATUS_MERGE_PRECEDENCE = {
     "SENT": 0,
     "FAILED": 1,
@@ -34,7 +34,7 @@ def _keep_delivery(a, b):
 
 def merge_duplicate_ads(apps, schema_editor):
     """Merge duplicate `Ad` rows sharing a (marketplace, external_id), pre-split leftovers
-    from a query lacking cross-query identity (see AD_DELIVERY_SPLIT_SPEC.md §6).
+    from a query lacking cross-query identity (see AD_DELIVERY_SPLIT.md §6).
 
     For each duplicate group: the lowest-pk row (first discovered) is canonical.
     AdDelivery/PriceChange rows on the others are repointed at it, the duplicates are then
