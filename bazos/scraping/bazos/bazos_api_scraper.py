@@ -26,12 +26,26 @@ from bazos.const import (
     MAX_ATTEMPTS,
 )
 from bazos.exceptions import BazosBlacklistedError
-from bazos.models import Ad, Marketplace, Query
+from bazos.filters import parse_price_and_type
+from bazos.models import Ad, Marketplace, PriceType, Query
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 from bazos.scraping.bazos.user_agent import default_user_agent
 from ip_changer.tor import PROXIES
 
 logger = logging.getLogger(__name__)
+
+#: `ad-detail-2.php`'s own `price_type` vocabulary, measured live 2026-08-23 (see
+#: docs/refactor/PRICE_PARSING_RESEARCH.md §4) — differs from PriceType's names
+#: (NEGOTIATED/OFFERED here vs NEGOTIABLE/MAKE_OFFER there), so the mapping is explicit
+#: rather than assumed. "Zdarma"/"Nerozhoduje" were NOT observed in the live sample, so
+#: their API price_type strings are unknown and deliberately absent here — an
+#: unrecognised value falls back to the listing-parsed price_type instead of guessing.
+_API_PRICE_TYPE_MAP: dict[str, str] = {
+    "EXACT": PriceType.EXACT,
+    "NEGOTIATED": PriceType.NEGOTIABLE,
+    "OFFERED": PriceType.MAKE_OFFER,
+    "IN_TEXT": PriceType.IN_TEXT,
+}
 
 
 def _to_bool(value) -> bool:
@@ -85,12 +99,19 @@ class BazosApiScraper:
     @staticmethod
     def _parse_listing_item(item: dict) -> dict:
         """Pure parsing of one `ads.php` listing entry — thin payload, no
-        description/images/GPS/publisher ids (see §5.1 of the research doc).
+        description/images/GPS/publisher ids, and no structured price (see §5.1 of the
+        research doc) — `price_formatted` follows the same string grammar as the HTML
+        scraper (§4), so it's parsed the same way; `load_full_description` upgrades this
+        to the API's own `price_type` when the detail call happens.
         """
+        price_raw = item["price_formatted"]
+        price, price_type = parse_price_and_type(price_raw)
         return {
             "external_id": int(item["id"]),
             "name": item["title"],
-            "price_raw": item["price_formatted"],
+            "price_raw": price_raw,
+            "price": price,
+            "price_type": price_type,
             "url": item["url"],
             "location": item["locality"],
             "publish_date": BazosApiScraper._parse_listing_date(item["from"]),
@@ -106,6 +127,8 @@ class BazosApiScraper:
             marketplace=Marketplace.BAZOS_API,
             name=parsed["name"],
             price_raw=parsed["price_raw"],
+            price=parsed["price"],
+            price_type=parsed["price_type"],
             url=parsed["url"],
             location=parsed["location"],
             publish_date=parsed["publish_date"],
@@ -167,6 +190,32 @@ class BazosApiScraper:
 
         data = response.json()
         product.full_description = data.get("description")
+
+        api_price_type = data.get("price_type")
+        if api_price_type in _API_PRICE_TYPE_MAP:
+            # `price` is a string even here, and for non-EXACT types it just echoes the
+            # placeholder ("Dohodou", not a number or null) — only int() it for EXACT, and
+            # even then defensively: a malformed/missing value must not raise and abort
+            # the pass (see _handle_new_product's docstring on load_full_description
+            # exceptions) — fall back to the listing-parsed price/price_type instead.
+            if api_price_type == "EXACT":
+                try:
+                    product.price = int(data["price"])
+                    product.price_type = PriceType.EXACT
+                except (KeyError, TypeError, ValueError):
+                    logger.warning(
+                        "Bazos API price_type=EXACT but price=%r isn't a plain int for ad %s — "
+                        "keeping listing-parsed price=%s",
+                        data.get("price"), product.external_id, product.price,
+                    )
+            else:
+                product.price_type = _API_PRICE_TYPE_MAP[api_price_type]
+                product.price = None
+        elif api_price_type:
+            logger.warning(
+                "Unrecognised Bazos API price_type=%r for ad %s — keeping listing-parsed price_type=%s",
+                api_price_type, product.external_id, product.price_type,
+            )
 
         product.email_publisher, product.phone_publisher = BazosScraper._resolve_publishers(
             int(data.get("email_id") or 0), int(data.get("phone_id") or 0)

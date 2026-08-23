@@ -6,6 +6,9 @@
 > memory, and do not "improve" the field mapping.** The traps in §6 are real bugs that were
 > already found — if you deviate, you will re-introduce them.
 >
+> Price semantics are measured across all four marketplaces in
+> [`PRICE_PARSING_RESEARCH.md`](PRICE_PARSING_RESEARCH.md) — read §6 before touching `_format_price`.
+>
 > If something here contradicts what you believe about Sbazar, **this document wins**.
 > If something here contradicts the actual code you are editing, **stop and report it** — do not
 > guess.
@@ -469,9 +472,21 @@ Sbazar encodes a negotiable price as **`price: 0` plus `price_by_agreement: true
 - Emitting the literal string `"Dohodou"` makes `parse_price` return `None`, which is the
   documented "no parseable price" path that makes `PriceRangeRule` **PASS**. That is why
   `_format_price` returns that exact word.
-- ⚠️ **`price == 0` does NOT imply by-agreement.** Measured: 165 rows had `price == 0` but only
-  150 had the flag — **15 genuinely free giveaways** (e.g. *"Suť na zásyp zdarma"*).
-  **Branch on the boolean. Never on the integer.**
+- ⚠️ **`price == 0` does NOT imply by-agreement.** Re-measured 2026-08-23 over **4,000 rows**
+  across categories 22/143/237/437 (`PRICE_PARSING_RESEARCH.md` §6):
+
+  | | Count |
+  |---|---|
+  | `price_by_agreement: true` | 192 (4.8%) |
+  | `price == 0` | 225 |
+  | → of those, by-agreement | 192 |
+  | → **genuine free giveaways** | **33 (0.8%)** |
+  | **by-agreement with a NON-zero price** | **0** |
+
+  So the implication runs **one way only**: by-agreement always means `price == 0`, but `price == 0`
+  means free **33 times in 4,000**. **Branch on the boolean. Never on the integer.** Branching on
+  the integer converts 33 giveaways into "Dohodou" and, worse, `str(0)` → `parse_price` → `0`
+  (not `None`), which makes `PriceRangeRule` **reject every negotiable ad**.
 
 ### 6.2 `short_description` overflows its column
 `description` is **absent from every listing row** and only present on detail. Measured lengths:
@@ -485,12 +500,19 @@ Consequence to be aware of, not to fix here: `load_full_description` only runs w
 `f"{ad.name} {ad.short_description}"`) are weakened to title-only matching.
 
 ### 6.3 Price is an integer — do **not** copy Vinted's decimal handling
-Sbazar's `price` is a plain **int in whole CZK** (1,100 rows sampled: zero floats). Do not round,
-do not divide, do not format with decimals. Two neighbouring marketplaces have opposite traps and
-you must not cross-contaminate them:
-- **Aukro** returns floats (`861.0` → `parse_price` gives `8610`, 10× too large).
-- **Zboží** returns hundredths (`292000` = 2,920 Kč, 100× too large).
-- **Sbazar returns neither.** `11990` means 11,990 Kč.
+Sbazar's `price` is a plain **int in whole CZK** — **4,000/4,000 rows sampled, zero floats**
+(`PRICE_PARSING_RESEARCH.md` §6). Do not round, do not divide, do not format with decimals.
+Range measured: min 0, median 1,599, max exactly 1,000,000. There is **no `currency` field** —
+CZK is implied.
+
+Neighbouring marketplaces have *different* traps and you must not cross-contaminate them
+(all measured, `PRICE_PARSING_RESEARCH.md` §2):
+- **Vinted** returns floats and **72% are non-integer** — `"9902.82"` → `990282`, **100× too
+  large**. The error is 10^(decimal places), not a flat 10×.
+- **Aukro** returns `int` *or* `float` **unstably within one response** (`2` and `2.0` side by
+  side) — so its corruption is intermittent, which is worse than consistent.
+- **Zboží** returns hundredths (`292000` = 2,920 Kč).
+- **Sbazar returns none of these.** `11990` means 11,990 Kč. Write no conversion at all.
 
 ### 6.4 Do not store the seller's real name
 `user.user_service.shop_name` is the seller's **real full name** — personal data, and a GDPR cost

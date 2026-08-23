@@ -84,6 +84,14 @@ def migrate_to_0027():
     call_command("migrate", "bazos", "0027_merge_duplicate_ads", verbosity=0)
 
 
+def _canonical_pk(external_id=111):
+    """`.values_list`, not `.get()`: a plain `Ad.objects.get()` SELECTs every field
+    currently defined on the live model (e.g. `price`/`price_type` from migration 0032),
+    and the physical table here is frozen at 0027's schema, which predates them.
+    """
+    return Ad.objects.filter(marketplace="bazos", external_id=external_id).values_list("pk", flat=True).get()
+
+
 @pytest.mark.django_db
 def test_duplicates_merged_to_one(old_state):
     query, _ = _old_fixtures(old_state)
@@ -104,8 +112,7 @@ def test_canonical_is_the_lowest_pk(old_state):
 
     migrate_to_0027()
 
-    survivor = Ad.objects.get(marketplace="bazos", external_id=111)
-    assert survivor.pk == first.pk
+    assert _canonical_pk() == first.pk
 
 
 @pytest.mark.django_db
@@ -117,9 +124,8 @@ def test_deliveries_repointed_to_canonical(old_state):
 
     migrate_to_0027()
 
-    canonical = Ad.objects.get(marketplace="bazos", external_id=111)
     delivery = AdDelivery.objects.get(pk=delivery_on_dup.pk)
-    assert delivery.ad_id == canonical.pk
+    assert delivery.ad_id == _canonical_pk()
 
 
 @pytest.mark.django_db
@@ -131,9 +137,8 @@ def test_price_history_repointed_to_canonical(old_state):
 
     migrate_to_0027()
 
-    canonical = Ad.objects.get(marketplace="bazos", external_id=111)
-    persisted_change = PriceChange.objects.get(pk=change.pk)
-    assert persisted_change.ad_id == canonical.pk
+    persisted_change_ad_id = PriceChange.objects.filter(pk=change.pk).values_list("ad_id", flat=True).get()
+    assert persisted_change_ad_id == _canonical_pk()
 
 
 @pytest.mark.django_db
@@ -149,9 +154,9 @@ def test_delivery_collision_keeps_lowest_pk_and_deletes_the_other(old_state):
 
     migrate_to_0027()
 
-    canonical = Ad.objects.get(marketplace="bazos", external_id=111)
-    assert AdDelivery.objects.filter(ad=canonical, query=other_query.pk).count() == 1
-    survivor = AdDelivery.objects.get(ad=canonical, query=other_query.pk)
+    canonical_pk = _canonical_pk()
+    assert AdDelivery.objects.filter(ad=canonical_pk, query=other_query.pk).count() == 1
+    survivor = AdDelivery.objects.get(ad=canonical_pk, query=other_query.pk)
     assert survivor.pk == min(delivery_on_canonical.pk, delivery_on_dup.pk)
 
 
@@ -174,8 +179,7 @@ def test_delivery_collision_prefers_sent_over_pending_regardless_of_pk(old_state
 
     migrate_to_0027()
 
-    canonical = Ad.objects.get(marketplace="bazos", external_id=111)
-    survivor = AdDelivery.objects.get(ad=canonical, query=other_query.pk)
+    survivor = AdDelivery.objects.get(ad=_canonical_pk(), query=other_query.pk)
     assert survivor.pk == sent_delivery.pk
     assert survivor.status == "SENT"
 
@@ -190,8 +194,8 @@ def test_groups_with_differing_price_are_merged_without_error(old_state):
 
     migrate_to_0027()
 
-    canonical = Ad.objects.get(marketplace="bazos", external_id=111)
-    assert canonical.price_raw == "1000 Kč"  # unchanged — the canonical row's own facts stand
+    canonical_price_raw = Ad.objects.filter(marketplace="bazos", external_id=111).values_list("price_raw", flat=True).get()
+    assert canonical_price_raw == "1000 Kč"  # unchanged — the canonical row's own facts stand
 
 
 @pytest.mark.django_db

@@ -387,8 +387,19 @@ Part 4b — lower the interval the rest of the way:
 
 ---
 
-### P22 — `Ad.price_raw` → real integer + `price_type`
+### ✅ P22 — `Ad.price_raw` → real integer + `price_type` — done
 > Unblocks P23, and BACKLOG_IDEAS.md #10 (distance/margin scoring).
+> ⚠️ **Read [`PRICE_PARSING_RESEARCH.md`](PRICE_PARSING_RESEARCH.md) first — it samples all four
+> marketplaces live and corrects this prompt in five places:** the `price_type` enum below is
+> **missing `Nerozhoduje`** (93 rows) and has no `CURRENT_BID` for Aukro's auction prices; `Zdarma`
+> must map to **`price=0`, not `None`**; `IntegerField` should be **`BigIntegerField`** (the
+> observed 10-digit shape can overflow int32, and it passes on SQLite while raising on Postgres);
+> step 3's "prefer the API's `price_type`" is right, but Bazos's vocabulary is `NEGOTIATED`/
+> `OFFERED`, **not** `NEGOTIABLE`/`MAKE_OFFER`, so the mapping must be explicit; and step 2's
+> premise is wrong — **a better parser cannot fix this.** `re.sub(r"\D","")` is correct for Bazos
+> only: Vinted is float with 72% non-integer (error is 10^dp), Aukro is `int` *or* `float`
+> unstably within one response, and **three marketplaces encode "zero" differently**. Normalise at
+> the scraper, not the parser.
 
 ```
 `Ad.price_raw` is a CharField holding strings like "12 500 Kč", "Dohodou", "V textu",

@@ -21,7 +21,7 @@ from bazos.const import (
     SBAZAR_MAX_PAGES,
     SBAZAR_PAGE_SIZE,
 )
-from bazos.models import Ad, Marketplace, Query
+from bazos.models import Ad, Marketplace, PriceType, Query
 
 logger = logging.getLogger(__name__)
 
@@ -124,12 +124,15 @@ class SbazarScraper:
 
     @staticmethod
     def _map_item(row: dict[str, Any], base_url: str) -> Ad:
+        price, price_type = SbazarScraper._price_and_type(row)
         return Ad(
             external_id=row["id"],
             marketplace=Marketplace.SBAZAR.value,
             url=f"{base_url}/inzerat/{row['seo_name']}",
             name=(row.get("name") or "")[:120],
             price_raw=SbazarScraper._format_price(row),
+            price=price,
+            price_type=price_type,
             location=SbazarScraper._format_location(row),
             view_count=None,                       # Sbazar exposes none — never synthesise
             publish_date=SbazarScraper._parse_date(row.get("create_date")),
@@ -144,6 +147,21 @@ class SbazarScraper:
         if row.get("price_by_agreement"):
             return "Dohodou"
         return f"{row.get('price', 0)} Kč"
+
+    @staticmethod
+    def _price_and_type(row: dict[str, Any]) -> tuple[int | None, PriceType]:
+        """§6 of docs/refactor/PRICE_PARSING_RESEARCH.md, measured on 4,000 live rows:
+        `price_by_agreement` always implies `price == 0` (0 counter-examples), but the
+        converse fails 33 times — 0.8% are genuine free giveaways, not negotiables. MUST
+        branch on the boolean first, never on `price == 0` alone (same trap `_format_price`
+        guards against).
+        """
+        if row.get("price_by_agreement"):
+            return None, PriceType.NEGOTIABLE
+        price = row.get("price", 0)
+        if price == 0:
+            return 0, PriceType.FREE
+        return price, PriceType.EXACT
 
     @staticmethod
     def _format_location(row: dict[str, Any]) -> str:

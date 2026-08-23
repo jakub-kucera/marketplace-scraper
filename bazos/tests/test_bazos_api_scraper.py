@@ -13,7 +13,7 @@ import pytest
 import requests
 from django.utils import timezone
 
-from bazos.models import Ad, EmailPublisher, PhonePublisher, Query
+from bazos.models import Ad, EmailPublisher, PhonePublisher, PriceType, Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 
@@ -97,6 +97,18 @@ class TestParseListingItem:
         parsed = BazosApiScraper._parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
         assert parsed["price_raw"] == "1 000 Kč"
 
+    def test_price_and_type_parsed_from_price_formatted(self):
+        """The listing payload has no price_type field (§5.1) — price_formatted is
+        parsed the same way as the HTML scraper's price_raw."""
+        parsed = BazosApiScraper._parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
+        assert parsed["price"] == 1000
+        assert parsed["price_type"] == PriceType.EXACT
+
+    def test_price_and_type_parsed_for_placeholder(self):
+        parsed = BazosApiScraper._parse_listing_item(make_listing_item(price_formatted="Dohodou"))
+        assert parsed["price"] is None
+        assert parsed["price_type"] == PriceType.NEGOTIABLE
+
     def test_view_count_is_int(self):
         parsed = BazosApiScraper._parse_listing_item(make_listing_item(views="42"))
         assert parsed["view_count"] == 42
@@ -129,6 +141,11 @@ class TestExtractProduct:
     def test_short_description_is_empty_thin_payload(self):
         ad = BazosApiScraper.extract_product(make_listing_item())
         assert ad.short_description == ""
+
+    def test_price_and_type_set_from_listing(self):
+        ad = BazosApiScraper.extract_product(make_listing_item(price_formatted="429 000 Kč"))
+        assert ad.price == 429000
+        assert ad.price_type == PriceType.EXACT
 
     def test_publishers_unset_until_detail_fetch(self):
         ad = BazosApiScraper.extract_product(make_listing_item())
@@ -285,6 +302,66 @@ class TestLoadFullDescription:
 
         assert result is ad
         assert result.full_description is None
+
+    def test_exact_price_type_sets_numeric_price(self, make_ad, query):
+        """Fixture's detail payload is the real measured sample (§4 of the research doc):
+        price="429000" (a string), price_type="EXACT"."""
+        ad = make_ad(query, bazos_id=221354384)
+        ad.price, ad.price_type = None, PriceType.UNKNOWN  # simulate not-yet-parsed
+        scraper = BazosApiScraper(session=MagicMock())
+        detail = load_fixture("ad_detail.json")
+        scraper.session.get.return_value = FakeResponse(status_code=200, json_data=detail)
+
+        result = scraper.load_full_description(ad)
+
+        assert result.price == 429000
+        assert result.price_type == PriceType.EXACT
+
+    def test_negotiated_price_type_maps_to_negotiable_with_null_price(self, make_ad, query):
+        """detail `price` just echoes the placeholder for non-EXACT types (§4) — must not
+        be int()'d."""
+        ad = make_ad(query, bazos_id=221354384)
+        scraper = BazosApiScraper(session=MagicMock())
+        detail = load_fixture("ad_detail.json")
+        detail = {**detail, "price": "Dohodou", "price_type": "NEGOTIATED", "price_formatted": "Dohodou"}
+        scraper.session.get.return_value = FakeResponse(status_code=200, json_data=detail)
+
+        result = scraper.load_full_description(ad)
+
+        assert result.price is None
+        assert result.price_type == PriceType.NEGOTIABLE
+
+    def test_malformed_exact_price_keeps_listing_parsed_value_without_raising(self, make_ad, query):
+        """price_type=EXACT but price isn't a plain int string — must not raise (see
+        _handle_new_product's docstring: a raise from load_full_description truncates
+        the whole scrape pass) and must not silently corrupt the already-good
+        listing-parsed price either."""
+        ad = make_ad(query, bazos_id=221354384)
+        ad.price, ad.price_type = 429000, PriceType.EXACT  # what the listing parse already set
+        scraper = BazosApiScraper(session=MagicMock())
+        detail = load_fixture("ad_detail.json")
+        detail = {**detail, "price": "15 000", "price_type": "EXACT"}  # not a plain digit string
+        scraper.session.get.return_value = FakeResponse(status_code=200, json_data=detail)
+
+        result = scraper.load_full_description(ad)
+
+        assert result.price == 429000
+        assert result.price_type == PriceType.EXACT
+
+    def test_unrecognised_api_price_type_keeps_listing_parsed_value(self, make_ad, query):
+        """Zdarma/Nerozhoduje weren't observed in the live API sample (§4/§10) — an
+        unmapped price_type must not silently invent a value."""
+        ad = make_ad(query, bazos_id=221354384)
+        ad.price, ad.price_type = 0, PriceType.FREE  # what the listing parse already set
+        scraper = BazosApiScraper(session=MagicMock())
+        detail = load_fixture("ad_detail.json")
+        detail = {**detail, "price": "Zdarma", "price_type": "SOME_FUTURE_VALUE", "price_formatted": "Zdarma"}
+        scraper.session.get.return_value = FakeResponse(status_code=200, json_data=detail)
+
+        result = scraper.load_full_description(ad)
+
+        assert result.price == 0
+        assert result.price_type == PriceType.FREE
 
 
 # ---------------------------------------------------------------------------

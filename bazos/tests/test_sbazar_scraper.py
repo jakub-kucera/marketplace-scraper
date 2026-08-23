@@ -21,7 +21,7 @@ from bazos.const import (
     VINTED_BASE_URL,
 )
 from bazos.filters import parse_price
-from bazos.models import Ad, Marketplace, Query
+from bazos.models import Ad, Marketplace, PriceType, Query
 from bazos.scraping.sbazar.sbazar_scraper import SbazarScraper
 
 
@@ -94,6 +94,27 @@ class TestMapItem:
         assert ad.short_description == ""
         assert ad.publisher_name == "opaque-handle-123"
 
+    def test_price_and_type_are_set_for_normal_price(self):
+        """Regression: PriceRangeRule/PriceDropRule now read ad.price/price_type
+        directly (P22) — Sbazar must populate them itself, not via the Bazos-vocabulary
+        parser (it can't see price_by_agreement, and would misclassify a real "0 Kč"
+        giveaway as EXACT-0 instead of FREE — see spec §6)."""
+        ad = SbazarScraper._map_item(make_row(price=11990, price_by_agreement=False), SBAZAR_BASE_URL)
+        assert ad.price == 11990
+        assert ad.price_type == PriceType.EXACT
+
+    def test_price_by_agreement_is_negotiable_with_null_price(self):
+        ad = SbazarScraper._map_item(make_row(price=0, price_by_agreement=True), SBAZAR_BASE_URL)
+        assert ad.price is None
+        assert ad.price_type == PriceType.NEGOTIABLE
+
+    def test_zero_price_without_agreement_is_free_not_exact(self):
+        """The giveaway case (§6): 0.8% of zero-priced rows are real frees, not
+        negotiables — must never be branch on price == 0 alone."""
+        ad = SbazarScraper._map_item(make_row(price=0, price_by_agreement=False), SBAZAR_BASE_URL)
+        assert ad.price == 0
+        assert ad.price_type == PriceType.FREE
+
     def test_topped_maps_bool(self):
         ad = SbazarScraper._map_item(make_row(topped=True), SBAZAR_BASE_URL)
         assert ad.topped is True
@@ -144,6 +165,26 @@ class TestFormatPrice:
         price_raw = SbazarScraper._format_price({"price": 0, "price_by_agreement": False})
         assert price_raw == "0 Kč"
         assert parse_price(price_raw) == 0
+
+
+class TestPriceAndType:
+    def test_normal_price_is_exact(self):
+        assert SbazarScraper._price_and_type({"price": 11990, "price_by_agreement": False}) == (
+            11990, PriceType.EXACT,
+        )
+
+    def test_price_by_agreement_is_negotiable_regardless_of_price_value(self):
+        """MUST branch on the boolean first — even a nonzero `price` alongside
+        price_by_agreement=True (never observed live, but not something to trust) must
+        still be treated as negotiable, not EXACT."""
+        assert SbazarScraper._price_and_type({"price": 500, "price_by_agreement": True}) == (
+            None, PriceType.NEGOTIABLE,
+        )
+
+    def test_zero_without_agreement_is_free(self):
+        assert SbazarScraper._price_and_type({"price": 0, "price_by_agreement": False}) == (
+            0, PriceType.FREE,
+        )
 
 
 # ---------------------------------------------------------------------------
