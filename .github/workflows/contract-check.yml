@@ -8,7 +8,7 @@
 # catastrophic case.
 #
 # Runs on the self-hosted Pi runner, not a GitHub-hosted one: Bazos refuses
-# GitHub runner IPs. See docs/marketplaces/RECOMMENDATION.md §6 on vantage points.
+# GitHub runner IPs. See docs/research/marketplaces/RECOMMENDATION.md §6 on vantage points.
 #
 # Deps are installed in a throwaway container rather than on the Pi host, since
 # the app image is built with `poetry install --only main` and has no pytest,

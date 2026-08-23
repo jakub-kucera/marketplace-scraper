@@ -18,7 +18,7 @@ refresh them against the live site:
 
 The session MUST be un-proxied when recording (no Tor): with a proxy configured
 vcrpy records the *proxy's* host:port rather than bazos.cz, and replay then fails
-every host/port match. See docs/refactor/E2E_REPLAY_TESTING_RESEARCH.md §4.6.
+every host/port match. See docs/archive/shipped/E2E_REPLAY_TESTING.md §4.6.
 
 `blacklisted_403.yaml` is hand-written, not recorded — you cannot summon a ban on
 demand.
@@ -174,7 +174,7 @@ def test_general_search_returns_ads(scraper, general_query):
     Until 2026-08-23 this built `https://bazos.cz?hledat=...`, which Bazos
     redirects to the homepage with the query string dropped, so the query
     silently scraped nothing on every pass. See
-    docs/refactor/E2E_REPLAY_TESTING_RESEARCH.md §1a.
+    docs/archive/shipped/E2E_REPLAY_TESTING.md §1a.
     """
     ads = list(islice(scraper.run_query(general_query), 5))
 

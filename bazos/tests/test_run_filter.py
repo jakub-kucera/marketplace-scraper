@@ -6,7 +6,7 @@ helper, which meant the command's own queryset — the status filter, the
 ``created`` ordering and the batch cap — was never executed by any test.
 
 Operates on AdDelivery, not Ad, since the Ad/AdDelivery split moved pipeline
-status there — see docs/refactor/AD_DELIVERY_SPLIT_SPEC.md.
+status there — see docs/archive/shipped/AD_DELIVERY_SPLIT.md.
 """
 from unittest.mock import patch
 

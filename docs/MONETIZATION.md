@@ -1,10 +1,17 @@
+---
+title: Monetization Options — Analysis & Plan
+status: active
+updated: 2026-08-23
+verified: 2026-08-23
+---
+
 # Monetization Options — Analysis & Plan
 
 > **Question:** how can this repository be turned into money? Options across selling
 > scraped data, buying/reselling on the back of it, subscription products, and anything
 > else. Plus: does it already exist, what are the financials, what are the legal issues.
 >
-> **Status of claims:** repo/data facts are read from the code and
+> **Provenance of claims:** repo/data facts are read from the code and
 > `data_export_23_3_2024/` on 2026-07-29. Bazos scale numbers are **live-measured**
 > today via `api/v1/ads.php` `x-total-count`. Bazos ToS and `robots.txt` are quoted
 > verbatim from the live site. Competitor and pricing figures are from public 2026
@@ -21,17 +28,21 @@
   already exist on Apify, §4.1). What can't be bought or copied is (a) a multi-year
   price/velocity archive of a market that **deletes itself every 2 months**, and (b)
   your demonstrated reverse-engineering ability. Neither is monetized today.
-- **The archive doesn't exist yet.** 16,987 ads over 10 months (Jun 2023 – Mar 2024),
-  **zero** with full descriptions, price stored as a *string*, one `Ad` row per
-  *query* rather than per real-world ad. Every data-driven option is blocked on three
-  fixes already designed in your own docs (§7.2). If you want the data option ever,
-  **start accumulating now** — it is the only item here that gets strictly more
-  expensive to delay.
-- **The flipping option doesn't work at the current cadence.** A 15–45 min interval means a
-  **~15 minute median detection latency**, while competing services poll every 60 seconds and
-  good deals are gone in minutes. §4.2's economics only exist after this is fixed — and the fix
-  is ~3–5 days of already-designed, already-built work for ~$3–6/mo. **This is the highest-return
-  change in the repository (§7.1).**
+- **The archive still doesn't exist, but the schema no longer blocks it** *(updated
+  2026-08-23)*. Of the three data-model defects in §7.2, **two are fixed**: price is a real
+  integer with a `price_type` enum, and the `Ad`/`AdDelivery` split means one row per
+  real-world ad rather than one per query. The archive is also **backed up** now. What remains
+  is (c), the one that was always the biggest — **you have asking prices, never realised
+  prices** — plus the fact that accumulation itself hasn't started: the corpus is still the
+  16,987 ads of Jun 2023 – Mar 2024. If you want the data option ever, **start accumulating
+  now**; it is the only item here that gets strictly more expensive to delay.
+- **The flipping option still doesn't work at the current cadence.** A 15–45 min interval
+  means a **~15 minute median detection latency**, while competing services poll every 60
+  seconds and good deals are gone in minutes. §4.2's economics only exist after this is fixed.
+  The free half of the fix (removing the redundant blacklist probes) landed 2026-08-23, but
+  **the interval is unchanged and the API cutover hasn't happened**, so none of the latency win
+  has been realised. ~1–2 days of already-designed work gets to ~5 min; ~$3–6/mo gets below
+  that. **Still the highest-return change in the repository (§7.1).**
 - **Ranked by risk-adjusted Y1 return per hour invested:** (1) contract/consulting off
   the back of this portfolio, (2) flipping for your own account, (3) an Apify actor as
   near-free pocket change, (4) a narrow B2B subscription **only with Bazos's written
@@ -46,9 +57,10 @@
 - **One thing must be deleted before any commercialization**, and arguably today: the
   `facebook/` app's leaked-dataset importer (§6.1). It is currently empty in every DB
   checked, but the code path exists and is wired into `PhonePublisher.fb_user`.
-- **Recommended path:** fix the data model → flip for your own account (validates the
-  anomaly detection *and* earns) → monetize the capability as contract work → only then,
-  and only with consent, consider a product. Detailed sequencing in §8.
+- **Recommended path:** cut the latency → flip for your own account (validates the anomaly
+  detection *and* earns) → monetize the capability as contract work → only then, and only with
+  consent, consider a product. Detailed sequencing in §8. *(The data-model half of the old
+  "fix the data model" step is largely done; latency is what's left in front of everything.)*
 
 ---
 
@@ -90,7 +102,7 @@ is worth approximately zero.
 > row. Recorded here because §2.2 is cited as the measured state of the archive, and because
 > it is a concrete instance of §7.2's general point: **the identity columns need auditing
 > before anything is computed on them.** Details and the full measurements:
-> [`refactor/BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) #11.
+> [`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md) #11.
 
 ### 2.3 The market you're pointed at (live-measured today)
 
@@ -380,7 +392,7 @@ five minutes a week is. Low frequency ("I'd need this from time to time") makes 
 better — a pipeline consulted twice a year is one you must debug before each use.
 
 *Incidental validation:* four of the twelve sampled ads returned `from = 2026-07-30 23:01`, the
-topped-ad artifact documented at `bazos-api/BAZOS_HIDDEN_API_RESEARCH.md` §4.3. Freshness scoring
+topped-ad artifact documented at `research/bazos-api/HIDDEN_API.md` §4.3. Freshness scoring
 built on that field would rank every topped ad as brand new.
 
 **(b) Taking the gigs pays less than the alternative you already have.**
@@ -456,7 +468,7 @@ defensible as that gets, but keep it individually written and human-sent — nev
 
 | Component | Verdict |
 |---|---|
-| LLM as a **separate pipeline stage** | ✅ Sound — and already designed in [`refactor/LLM_AD_REVIEW_DESIGN.md`](refactor/LLM_AD_REVIEW_DESIGN.md) §2 |
+| LLM as a **separate pipeline stage** | ✅ Sound — and already designed in [`LLM_AD_REVIEW.md`](proposals/LLM_AD_REVIEW.md) §2 |
 | LLM as a rule inside `RuleEngine` | ❌ Blocks a 50-ad batch on serial network I/O while holding `select_for_update` locks |
 | Bazos Práce as the source | ❌ ~1–11 relevant ads/day, and they're on-site employment |
 | Taking the gigs yourself | ⚠️ ~870 CZK/h, doesn't compound, below §4.5's rate |
@@ -465,10 +477,11 @@ defensible as that gets, but keep it individually written and human-sent — nev
 **Recommendation: don't build it now, and don't build it on Bazos.** Not because the lead-gen
 version is bad — it's good — but because it would add a marketplace, a pipeline stage, and a
 business model on top of a system whose detection latency is still ~15 minutes (§7.1) and which
-cannot yet distinguish "no results" from "broken" (`refactor/PROMPTS.md` P19–P20; P18 is done).
+cannot yet fully distinguish "no results" from "broken" (`backlog/PROMPTS.md` P20; the
+`QueryRun` failure tracking and the zero-results canary are both done).
 The LLM-judge stage *is* worth building; its first application should be **the deal flow you
 already have** (thousands of ads/day, where a judge earns its keep), not job ads (units/day, where
-you can simply read them). Revisit after P19–P24.
+you can simply read them). Revisit after P20–P24.
 
 ---
 
@@ -477,7 +490,7 @@ you can simply read them). Revisit after P19–P24.
 | Idea | Why not |
 |---|---|
 | **Lead gen** — sell "seller wants to sell a car" leads to výkup companies / dealers | Highest revenue potential, **worst** legal profile: GDPR resale of contact data (§6.5) *plus* Act 480/2004 if anyone then emails them. Do not. |
-| **Automated seller outreach** ("I'll buy it for X") | Commercial communication under Act 480/2004; ÚOOÚ has issued fines up to **7.7M CZK**. Your own `LLM_AD_REVIEW_DESIGN.md` already recommends draft-only — keep it that way permanently. |
+| **Automated seller outreach** ("I'll buy it for X") | Commercial communication under Act 480/2004; ÚOOÚ has issued fines up to **7.7M CZK**. Your own `proposals/LLM_AD_REVIEW.md` already recommends draft-only — keep it that way permanently. |
 | **Reselling the reverse-engineered API access** | Aggravates the ToS breach and hands the evidence to a third party. |
 
 ---
@@ -503,7 +516,7 @@ Year-1, realistic (not best-case), assuming continued part-time involvement:
 **Shared running cost across all options: ~2,000–5,000 CZK/year** (proxies $3–6/mo,
 hosting on the existing Pi). If image downloading is ever enabled, budget separately —
 measured at ~5.3 MB/ad, 500 ads/day is **~77 GB/month**, which is ~$231/mo on residential
-and must go over a cheap datacenter pool instead (see `proxies/PROXY_ROTATION_RESEARCH.md`
+and must go over a cheap datacenter pool instead (see `research/proxies/PROXY_ROTATION.md`
 §5.3).
 
 ---
@@ -623,7 +636,7 @@ id, so notifying them is feasible, so the exemption doesn't apply.**
 - **The `ratings.php` reviewer harvest is the worst-exposed piece in the whole design.**
   It yields names and phone numbers of people who *left a review* — private individuals
   who never posted an ad and have no relationship with you whatsoever. Your own
-  `BAZOS_API_DISCOVERY_PIPELINE.md` §5 already flags this as needing an explicit
+  `research/bazos-api/DISCOVERY_PIPELINE.md` §5 already flags this as needing an explicit
   decision. **Make it: store aggregate sentiment counts only, never raw reviewer PII.**
 
 ### 6.6 Anti-spam — Act 480/2004 Sb.
@@ -657,8 +670,8 @@ not extend to messaging private individuals at scale.
 
 ### 7.1 Latency is the binding constraint — and it invalidates §4.2 as currently built
 
-> **Referenced from** [`refactor/BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) (priority table)
-> and [`refactor/PROMPTS.md`](refactor/PROMPTS.md) **P21**, which is the executable version of
+> **Referenced from** [`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md) (priority table)
+> and [`PROMPTS.md`](backlog/PROMPTS.md) **P21**, which is the executable version of
 > the fix. This section is the *commercial* justification for why that prompt outranks
 > everything else in the backlog.
 
@@ -670,10 +683,10 @@ night).**
 It's actually worse than the interval suggests. `BazosRunner.run()` iterates queries **strictly
 sequentially** on a single shared session, and each query costs **3 Bazos requests plus an
 `icanhazip.com` round-trip** (two of the three Bazos calls are the redundant double blacklist
-check — `PROXY_ROTATION_RESEARCH.md` §3), with `sleep(uniform(2,5))` between pages. So the
+check — `research/proxies/PROXY_ROTATION.md` §3), with `sleep(uniform(2,5))` between pages. So the
 *effective* cadence is worse than configured, and it **degrades linearly with every query
 added** — meaning the broad category-scoped sweep that
-[`bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md`](bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md) §1
+[`DISCOVERY_PIPELINE.md`](research/bazos-api/DISCOVERY_PIPELINE.md) §1
 pushes toward makes latency **worse**, not better. That tension isn't acknowledged in either
 doc today.
 
@@ -694,36 +707,51 @@ work available:
 | Step | Status |
 |---|---|
 | `BazosApiScraper` with a small `limit` for the steady-state dedup probe (**1.1 KB/request**) | **built and tested**, inert in production (`marketplace="bazos_api"`) |
-| Collapse the double blacklist check to one probe **per pass** | designed, `PROXY_ROTATION_RESEARCH.md` §8.2 |
-| `HttpProxyIPChanger` + rotating pool so cadence stops being ban-limited | designed, `PROXY_ROTATION_RESEARCH.md` §8 |
+| Collapse the double blacklist check to one probe **per pass** | designed, `research/proxies/PROXY_ROTATION.md` §8.2 |
+| `HttpProxyIPChanger` + rotating pool so cadence stops being ban-limited | designed, `research/proxies/PROXY_ROTATION.md` §8 |
 
-Per `PROXY_ROTATION_RESEARCH.md` §5, that combination puts a **2-minute cadence at ~0.24
+Per `research/proxies/PROXY_ROTATION.md` §5, that combination puts a **2-minute cadence at ~0.24
 GB/month** — i.e. a **~30× latency improvement for roughly the plan minimum**, ~$3–6/mo. This is
 the single best-value change in the repository and it is ~3–5 days of work.
 
-### 7.2 Three data-model defects block every data-driven option
+### 7.2 Three data-model defects block every data-driven option — **(a) and (b) are now fixed**
 
-These are prerequisites, not improvements, and **all three are already designed in your
-own docs** — they just aren't sequenced as a monetization dependency:
+> **✅ Updated 2026-08-23.** Two of the three shipped. They are kept here rather than deleted
+> because this section is the argument for *why* they mattered commercially, and because (c) —
+> the biggest of the three — is still open. See [`SHIPPED.md`](SHIPPED.md).
 
-**(a) `Ad.price_raw` is a `CharField`.** You cannot compute a median, an index, or an
-anomaly threshold from `"12 500 Kč"` / `"Dohodou"` / `"V textu"`. Needs an integer column
-plus a `price_type` enum. Already TODO'd at `bazos/models.py:143`. **Smallest fix, largest
-unlock** — the entire stage-2 cheap anomaly filter in
-`BAZOS_API_DISCOVERY_PIPELINE.md` depends on it.
+**(a) `Ad.price_raw` is a `CharField` — ✅ FIXED (migrations `0032`/`0033`).** `Ad.price` is now
+a `BigIntegerField` (indexed, nullable) alongside `Ad.price_type`, a `PriceType` enum
+distinguishing a real number from `Dohodou` / `V textu` / `Nabídněte` — and, importantly, from
+`Zdarma`, which is a known zero rather than an unknown. Medians, indices and anomaly thresholds
+are all computable now. The measurement that shaped the design is
+[`PRICE_PARSING.md`](research/PRICE_PARSING.md); the first thing to
+build on it is `backlog/PROMPTS.md` P23's `PriceAnomalyRule`. **Note the cross-marketplace caveat**: four
+marketplaces encode price three different ways and "zero" three different ways, so a naive
+`AVG(price)` across marketplaces is still wrong — see that doc's §8.
 
-**(b) `Ad.query` is a single FK.** The same real-world ad matching two queries produces
-**two `Ad` rows**. Any statistic you compute today is silently double-counted, and there
-is no row that answers "have I ever seen this ad." `BACKLOG_IDEAS.md` #1 (the
-`Ad`/`AdDelivery` split, option B) is the fix — and note it's now wanted by *four*
-independent proposals. **It is a precondition for analytics, not a nicety.**
+**(b) `Ad.query` is a single FK — ✅ FIXED (migrations `0026`–`0028`).** The `Ad`/`AdDelivery`
+split landed: `Ad` is now globally unique on `(marketplace, external_id)` and holds only scraped
+facts, while `AdDelivery` holds per-`(ad, query)` pipeline state. There is finally a row that
+answers "have I ever seen this ad", and statistics are no longer silently double-counted by query
+overlap. **The precondition for analytics is met.**
 
-**(c) You have asking prices, never realized prices.** This is the single biggest gap.
+**(c) You have asking prices, never realized prices — ❌ still open, and still the biggest gap.** This is the single biggest gap.
 Every valuation or deal-scoring product needs to know what things actually *sold* for.
 The closest available proxy is **time-to-delisting plus last-seen price**, obtainable
 cheaply via the bulk `ad_id[]=` refresh and the HTTP 410 signal — both already documented
-in `BAZOS_HIDDEN_API_RESEARCH.md`. **This is the highest-leverage feature you don't have,
-for both flipping and any future data product.**
+in `research/bazos-api/HIDDEN_API.md`, and now written up executably as `backlog/PROMPTS.md` **P24**.
+**This is the highest-leverage feature you don't have, for both flipping and any future data
+product.**
+
+> **Update 2026-08-22 — there is now a second route, with a measured caveat.** The marketplace
+> study found that **Aukro publishes genuinely realised prices**: ended auctions are readable
+> unauthenticated ≥2.75 years back, and `biddersCount > 0` + `price` is what an item actually
+> sold for ([`AUKRO.md`](research/marketplaces/AUKRO.md) §6a). That is the only source in 13
+> assessed candidates that closes this gap directly. **But §6a.1 tempers it**: only ~11% of
+> sampled ended items had bids, buy-now listings expose no sold signal at all, and Aukro may be
+> incompatible with the Tor stack. Treat it as a real but partial answer, not a replacement for
+> P24's delisting proxy.
 
 ### 7.3 The archive is the only compounding asset — start now
 
@@ -734,23 +762,34 @@ the broad category sweep today is ~$5/month and a few days of work. That is a ch
 option on a large payoff — and it is the *only* item on this list where delay is
 irreversible.
 
-> **⚠️ And it is currently unbacked (added 2026-08-08).** The argument above says the
-> archive cannot be rebuilt at any price — yet there is **no backup of the database of any
-> kind**: no `pg_dump`, no snapshot, no off-host copy, nothing in `docker-compose.yml`,
-> `deploy.sh`, or the deploy workflow (which runs `migrate` against production without
-> dumping first). The only copies are the live `postgres_data/` bind mount on the Pi and
-> the **March-2024** CSV export. An SD-card failure — the dominant Pi failure mode — takes
-> the entire compounding asset with it. **Fix cost: ~2 hours, ~$0/mo** at the current 83 MB.
-> Options, retention/GDPR interaction, and a concrete plan: [`BACKUPS.md`](BACKUPS.md).
-> This belongs in §8's Phase 0, which currently omits it.
+> **✅ And it is now backed up (2026-08-16).** This box used to read "it is currently unbacked",
+> which was the single largest unhedged risk in this document: no `pg_dump`, no snapshot, no
+> off-host copy, and a deploy workflow that ran `migrate` against production without dumping
+> first. That is fixed. A one-shot `backup/` container dumps to `./backups/` and pushes to
+> `restic` when `RESTIC_REPOSITORY` is set, scheduled by a systemd timer on the Pi with
+> `Persistent=true` so a backup missed while the Pi was down is caught up rather than skipped.
+> The deploy workflow now takes a **pre-migration dump that aborts the deploy if it fails** — a
+> bad migration being the likeliest data-loss event here. Options, the retention/GDPR
+> interaction, and the restore procedure: [`BACKUPS.md`](BACKUPS.md).
+>
+> **What is still open**: the dumps hold seller PII, so §7 of that doc's retention/purge
+> argument applies — a PII purge that doesn't reach the backups isn't a purge.
 
 ### 7.4 Concentration risk
 
-One marketplace, one ToS clause, one sole trader who can end this in an afternoon. Stage 8
-(Vinted) is the diversification, and it's legally different too — Vinted has a real API
-and affiliate posture, so the "third party" column of §3 may be open there in a way it
-isn't on Bazos. If a product is ever the goal, **build it multi-marketplace from day one**
-or don't build it.
+One marketplace, one ToS clause, one sole trader who can end this in an afternoon.
+
+**✅ Partly hedged since 2026-08-22.** Vinted and Sbazar are both live (`Marketplace.VINTED`,
+`Marketplace.SBAZAR`), so the codebase is genuinely multi-marketplace rather than
+Bazos-with-an-abstraction. Vinted is legally different too — it has a real API and an affiliate
+posture, so the "third party" column of §3 may be open there in a way it isn't on Bazos.
+
+**The hedge is thinner than the row count suggests, though.** Sbazar has the *worst* legal
+posture of the three (`Disallow: /` plus `Disallow: /api/` — see
+[`SBAZAR.md`](research/marketplaces/SBAZAR.md) §3) and adds **no new capability**, so it
+diversifies operational risk without diversifying legal risk. And no production `Query` volume
+has moved off Bazos. If a product is ever the goal, **build it multi-marketplace from day one**
+or don't build it — that advice stands.
 
 ### 7.5 Should you ask Bazos for consent?
 
@@ -786,32 +825,30 @@ build is re-implementing a free feature.
 ## 8. Recommended sequencing
 
 **Phase 0 — hygiene (1 day, do regardless).**
-**Set up database backups first** — nightly `pg_dump -Fc` off-host, ~2 hours, see
-[`BACKUPS.md`](BACKUPS.md) §8. Everything below assumes the archive still exists.
-Then: delete the `facebook/` app, model, migration, importer and the
+~~Set up database backups first~~ — **✅ done 2026-08-16** (`backup/`, systemd timer,
+pre-migration dump gating the deploy; [`BACKUPS.md`](BACKUPS.md)). Everything below assumes the
+archive still exists, and now it survives an SD-card failure.
+Remaining: delete the `facebook/` app, model, migration, importer and the
 `PhonePublisher.fb_user` FK; verify the production table is empty first (and do this
 **before** starting a backup rotation, so a leaked-data table never enters the archives —
 `BACKUPS.md` §7). Write down a retention policy: listing facts kept, contact identifiers
 purged at 6 months — and cap **backup** retention to match, or the purge is cosmetic.
 Decide, explicitly, that the current operating posture is **private use** (§3, left column).
 
-**Phase 1 — fix latency first, then make the data usable (2–4 weeks).**
-**Start with the latency chain (§7.1)** — but take it in two steps, per `PROMPTS.md` P21's
-2026-08-08 split. **P21a first**: production API cutover + collapse the double blacklist
-check + interval to ~10 min. That is ~3× of the latency win at *unchanged* Bazos request
-volume, for **no cost and no external dependency** — the efficiency gains pay for the extra
-cadence exactly. **P21b second**, and only once P21a's observed block rate justifies it:
-`IP_CHANGER_TYPE=HTTP_PROXY` on a rotating pool (~$3–6/mo) to get below 5 minutes. Nothing
-else in this plan pays off while detection runs 15 minutes behind the market.
-⚠️ P21b has a second, independent justification as of 2026-08-08: **Tor is already failing
-in production** (403s on exits plus dead circuits crashing the runner — `PROMPTS.md` P20),
-so the proxy migration is arguably reliability work, not just latency work.
-Then the data fixes in §7.2: price as integer + `price_type`; delisting/sold detection via
-bulk `ad_id[]=` + HTTP 410. **Defer** the `Ad`/`AdDelivery` split (`BACKLOG_IDEAS.md` #1
-option B) — it's a precondition for the *data/product* direction and for broad category
-sweeps, but not for flipping on narrow queries, where overlap is rare and duplicates are a
-nuisance rather than a correctness problem. **Phase 2 can't be measured without delisting
-detection.**
+**Phase 1 — fix latency, then finish the data (1–2 weeks — smaller than it was).**
+**Start with the latency chain (§7.1)**, per `backlog/PROMPTS.md` P21's split. Part 2 of **P21a** (the
+guard collapse) landed 2026-08-23 — both redundant blacklist probes are gone. What's left of
+P21a is the **tunable API page size and the production cutover, then the interval to ~10 min**:
+~3× of the latency win at *unchanged* Bazos request volume, for **no cost and no external
+dependency**. **P21b second**, and only once P21a's observed block rate justifies it:
+`IP_CHANGER_TYPE=HTTP_PROXY` on a rotating pool (~$3–6/mo) to get below 5 minutes. Nothing else
+in this plan pays off while detection runs 15 minutes behind the market.
+⚠️ P21b still has a second, independent justification: **Tor is the transport and it is still
+failing** (403s on exits, dead circuits — `backlog/PROMPTS.md` P20), so the proxy migration is arguably
+reliability work, not just latency work.
+Of the data fixes in §7.2, **price-as-integer and the `Ad`/`AdDelivery` split are both done**.
+What's left is **delisting/sold detection** via bulk `ad_id[]=` + HTTP 410 — `backlog/PROMPTS.md` P24.
+**Phase 2 can't be measured without it**, so it is no longer deferrable the way the split was.
 
 **Phase 2 — flip, for your own account (ongoing, starts week 3).**
 Pick **one** category you genuinely know. Target 1–2 flips/week. Register the živnost as
@@ -855,7 +892,7 @@ consumer-facing Bazos listings app.
 - [Cebia — AUTOTRACER tržní cena vozidla](https://www.cebia.cz/novinky/proverovani/autotracer-od-cebia-nove-ukazuje-i-trzni-cenu-vozidla)
 - [Bazoš — návštěvnost a pozice na trhu](https://recenzer.cz/bazos/) · [Bazoš vstoupil na polský trh (MediaGuru)](https://www.mediaguru.cz/inzertni-server-bazos-vstoupil-na-polsky-trh)
 
-**Related internal docs:** [`bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md`](bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md) §5 (PII scope decision),
-[`proxies/PROXY_ROTATION_RESEARCH.md`](proxies/PROXY_ROTATION_RESEARCH.md) §5.3 (image bandwidth),
-[`refactor/BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) #1 (Ad/AdDelivery split),
-[`refactor/LLM_AD_REVIEW_DESIGN.md`](refactor/LLM_AD_REVIEW_DESIGN.md) §4.2 (draft-only outreach).
+**Related internal docs:** [`DISCOVERY_PIPELINE.md`](research/bazos-api/DISCOVERY_PIPELINE.md) §5 (PII scope decision),
+[`PROXY_ROTATION.md`](research/proxies/PROXY_ROTATION.md) §5.3 (image bandwidth),
+[`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md) #1 (Ad/AdDelivery split),
+[`LLM_AD_REVIEW.md`](proposals/LLM_AD_REVIEW.md) §4.2 (draft-only outreach).
