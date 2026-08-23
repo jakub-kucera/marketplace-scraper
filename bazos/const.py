@@ -20,7 +20,7 @@ BAZOS_URL: Final[str] = "https://bazos.cz/search.php"
 BAZOS_BLACKLIST_CHECK_URL: Final[str] = "https://www.bazos.cz/search.php?hledat=iphone&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat&kitx=ano"
 BAZOS_API_BASE_URL: Final[str] = "https://www.bazos.cz/api/v1"
 # Server-enforced hard cap on `ads.php`'s `limit` param, confirmed live —
-# see docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md §4.0. Requesting more is
+# see docs/research/bazos-api/HIDDEN_API.md §4.0. Requesting more is
 # silently clamped back down to this value.
 API_PAGE_SIZE: Final[int] = 210
 
@@ -30,16 +30,16 @@ MAX_ATTEMPTS = 5
 
 VINTED_BASE_URL: Final[str] = "https://www.vinted.cz"
 # Server-enforced hard cap on the search `per_page` param, confirmed live —
-# see docs/refactor/STAGE8_VINTED_SPEC.md §3. Requesting more (e.g. 200) is
+# see docs/archive/shipped/VINTED_SCRAPER.md §3. Requesting more (e.g. 200) is
 # silently clamped back down to this value.
 VINTED_PAGE_SIZE: Final[int] = 96
 # Safety bound on run_query's page loop, so a misbehaving response (e.g. one
 # that never returns a short page) cannot page forever.
 VINTED_MAX_PAGES: Final[int] = 20
 # A new_query backfill can fire up to NEW_PRODUCT_LOAD_MAX unpaced item() detail
-# requests in a row — the exact kind of burst STAGE8_VINTED_DESIGN.md §1a measured
+# requests in a row — the exact kind of burst VINTED_SCRAPER_DESIGN.md §1a measured
 # tripping the Cloudflare/DataDome session-cookie bootstrap. Search itself doesn't need
-# this (6 rapid searches measured clean, no 429 — see STAGE8_VINTED_SPEC.md §9); only
+# this (6 rapid searches measured clean, no 429 — see VINTED_SCRAPER.md §9); only
 # the detail-fetch burst does.
 VINTED_DETAIL_WAIT_TIME: Final[tuple[float, float]] = (0.5, 1.5)
 
@@ -53,7 +53,7 @@ SBAZAR_MAX_PAGES: Final[int] = 20
 # tolerates before stopping (see SbazarScraper.dedup_break_streak). Sbazar's default
 # ordering is sorting_date (~= edit time), not creation time, so an old already-known ad
 # can resurface above genuinely new listings just because it was edited — see
-# docs/marketplaces/SBAZAR.md §5b.4 and docs/refactor/STAGE9_SBAZAR_SPEC.md §11.
+# docs/research/marketplaces/SBAZAR.md §5b.4 and docs/archive/shipped/SBAZAR_SCRAPER.md §11.
 # NOT a measured value (unlike the constants above): derived from SBAZAR.md §2.1's
 # bump rate for the busiest measured category (tools, ~19 bumps/hour) over the longest
 # poll gap (90 min, night-doubled INTERVAL_UPPER), ~28 in the worst case, rounded up with

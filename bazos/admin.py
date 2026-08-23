@@ -240,7 +240,7 @@ class AdAdmin(admin.ModelAdmin):
         "created",
     )
     # Plain "-publish_date" would put every Vinted ad (publish_date is always null —
-    # see STAGE8_VINTED_SPEC.md §2.2) above the newest Bazos ads: Postgres's DESC
+    # see VINTED_SCRAPER.md §2.2) above the newest Bazos ads: Postgres's DESC
     # defaults to NULLS FIRST. nulls_last keeps "newest first" meaning what it says.
     ordering = (models.F("publish_date").desc(nulls_last=True),)  # type: ignore[assignment]  # django-stubs types ordering as Sequence[str]; F().desc() is valid at runtime
     list_filter = ("marketplace", "deliveries__query", HasFullDescriptionFilter)
@@ -333,7 +333,7 @@ class PublisherAdminBase(admin.ModelAdmin):
     The partner list is the point: a seller's identity on Bazos is a *pair* of ids, and the
     same person routinely posts under several. One email pairing with four phones over four
     months is a real, observed pattern (a recruiter posting job ads), and it's invisible
-    until you look at the pairing. See docs/refactor/BACKLOG_IDEAS.md — this is the cheap
+    until you look at the pairing. See docs/backlog/BACKLOG_IDEAS.md — this is the cheap
     precursor to reseller detection.
     """
 

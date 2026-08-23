@@ -3,7 +3,7 @@
 Mocks `requests.Session.get` directly via recorded fixture dicts shaped like real
 `/api/v1/items/search` and `/api/v1/items/<id>` responses; never hits the network.
 Field shapes and the four traps below come from a live probe of the Sbazar API —
-see docs/refactor/STAGE9_SBAZAR_SPEC.md and docs/marketplaces/SBAZAR.md §5a.
+see docs/archive/shipped/SBAZAR_SCRAPER.md and docs/research/marketplaces/SBAZAR.md §5a.
 """
 from datetime import timedelta
 from unittest.mock import MagicMock
