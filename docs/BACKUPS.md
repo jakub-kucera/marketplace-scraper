@@ -111,7 +111,7 @@ observation is what makes "off-host destination" (§6) non-optional rather than 
 | Scenario | New ads/yr | Compressed growth/yr |
 |---|---|---|
 | Today's ~6–12 narrow queries | ~20,000 | **~4 MB** |
-| Broad category sweep, busy scope (~3,000 new/day, per `proxies/PROXY_ROTATION_RESEARCH.md` §5.2) | ~1.1M | **~190 MB** |
+| Broad category sweep, busy scope (~3,000 new/day, per `research/proxies/PROXY_ROTATION.md` §5.2) | ~1.1M | **~190 MB** |
 
 **Takeaway:** even the aggressive future is **under 1 GB/year compressed**. Storage cost is
 irrelevant to the decision; pick on restore ergonomics and operational simplicity, not size.
@@ -271,9 +271,9 @@ Three options, given the Pi already runs systemd (`deploy.sh` drives
    a second copy of the DB credentials outside `.env`. Version skew between host client and
    container server is a real trap on a long-lived Pi. This is the option #1 replaces by
    keeping the client in the container and letting the host only *schedule*.
-4. **A `Job` in the future job queue** (`refactor/JOB_QUEUE_DESIGN.md`) — ❌ deliberately not.
+4. **A `Job` in the future job queue** (`proposals/JOB_QUEUE.md`) — ❌ deliberately not.
    Backups must keep working when the application is broken; coupling them to the app's own
-   worker means an app that won't start also stops backing up. Same reasoning `PROMPTS.md` P24
+   worker means an app that won't start also stops backing up. Same reasoning `backlog/PROMPTS.md` P24
    step 5 uses to keep `check_delisted` out of the `Job` model for now.
 
 **Also add a pre-deploy dump.** ✅ Done. Per §3.1, a bad migration is the most likely loss
@@ -375,7 +375,7 @@ This is the part that's easy to get wrong permanently.
 1. ✅ **Nightly `pg_dump -Fc -Z0`** from a one-shot `backup` container built on `postgres:15.2`,
    writing to `./backups/` on the Pi. `-Z0`, not `-Z6` — see §6.1. Scheduled by a systemd timer
    with `Persistent=true`, not a sleep loop — see §5. **Installing the timer is a manual step on
-   the Pi** (`backup/systemd/README.md`); until it is installed, only the pre-deploy dump runs.
+   the Pi** (`README.md`); until it is installed, only the pre-deploy dump runs.
 2. ✅ **`restic`** immediately after each dump, encrypted, with
    `forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune`. Off-host is **opt-in at
    runtime**: with `RESTIC_REPOSITORY` empty the backup still takes and rotates local dumps and
@@ -385,7 +385,7 @@ This is the part that's easy to get wrong permanently.
 3. ✅ **Pre-`migrate` dump** in `deploy.yml`, last 5 releases retained. A failed dump aborts the
    deploy — that is the point. *(Highest value per line, see §5.)*
 4. ✅ **Alert on failure**, plus a Monday heartbeat so silence is itself informative — the
-   pathology `PROMPTS.md` P19 identifies in the scraper. Via `BACKUP_DISCORD_WEBHOOK_URL`
+   pathology `backlog/PROMPTS.md` P19 identifies in the scraper. Via `BACKUP_DISCORD_WEBHOOK_URL`
    (falling back to `DISCORD_LOGGER_WEBHOOK_URL`), **not** the `Discord(for_logging=True)` row
    this doc originally suggested: an alert that has to read Postgres cannot report that Postgres
    is broken.
@@ -399,7 +399,7 @@ delete the backup history.
 
 **Total ~2 hours**, ~$0/mo at current size. Given §3.1's threat model and a 2.5-year-stale
 last-known-good copy, this outranks every feature item in
-[`refactor/PROMPTS.md`](refactor/PROMPTS.md) on expected value — not because it's important
+[`PROMPTS.md`](backlog/PROMPTS.md) on expected value — not because it's important
 work, but because the downside it removes is total and irreversible, and the cost is two
 hours.
 
@@ -508,6 +508,6 @@ proof the data is in it. `restic ls <id>` to be sure.
 
 **Related docs:** [`MONETIZATION.md`](MONETIZATION.md) §7.3 (the archive as the only
 compounding asset), §6.1/§6.5 (retention and GDPR constraints on what may sit in a dump);
-[`refactor/JOB_QUEUE_DESIGN.md`](refactor/JOB_QUEUE_DESIGN.md) (why backups deliberately stay
-outside it, §5); [`refactor/PROMPTS.md`](refactor/PROMPTS.md) P19 (the silent-failure pattern
+[`JOB_QUEUE.md`](proposals/JOB_QUEUE.md) (why backups deliberately stay
+outside it, §5); [`PROMPTS.md`](backlog/PROMPTS.md) P19 (the silent-failure pattern
 §8 step 4 avoids repeating).

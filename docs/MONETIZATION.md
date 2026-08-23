@@ -102,7 +102,7 @@ is worth approximately zero.
 > row. Recorded here because §2.2 is cited as the measured state of the archive, and because
 > it is a concrete instance of §7.2's general point: **the identity columns need auditing
 > before anything is computed on them.** Details and the full measurements:
-> [`refactor/BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) #11.
+> [`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md) #11.
 
 ### 2.3 The market you're pointed at (live-measured today)
 
@@ -392,7 +392,7 @@ five minutes a week is. Low frequency ("I'd need this from time to time") makes 
 better — a pipeline consulted twice a year is one you must debug before each use.
 
 *Incidental validation:* four of the twelve sampled ads returned `from = 2026-07-30 23:01`, the
-topped-ad artifact documented at `bazos-api/BAZOS_HIDDEN_API_RESEARCH.md` §4.3. Freshness scoring
+topped-ad artifact documented at `research/bazos-api/HIDDEN_API.md` §4.3. Freshness scoring
 built on that field would rank every topped ad as brand new.
 
 **(b) Taking the gigs pays less than the alternative you already have.**
@@ -468,7 +468,7 @@ defensible as that gets, but keep it individually written and human-sent — nev
 
 | Component | Verdict |
 |---|---|
-| LLM as a **separate pipeline stage** | ✅ Sound — and already designed in [`refactor/LLM_AD_REVIEW_DESIGN.md`](refactor/LLM_AD_REVIEW_DESIGN.md) §2 |
+| LLM as a **separate pipeline stage** | ✅ Sound — and already designed in [`LLM_AD_REVIEW.md`](proposals/LLM_AD_REVIEW.md) §2 |
 | LLM as a rule inside `RuleEngine` | ❌ Blocks a 50-ad batch on serial network I/O while holding `select_for_update` locks |
 | Bazos Práce as the source | ❌ ~1–11 relevant ads/day, and they're on-site employment |
 | Taking the gigs yourself | ⚠️ ~870 CZK/h, doesn't compound, below §4.5's rate |
@@ -477,7 +477,7 @@ defensible as that gets, but keep it individually written and human-sent — nev
 **Recommendation: don't build it now, and don't build it on Bazos.** Not because the lead-gen
 version is bad — it's good — but because it would add a marketplace, a pipeline stage, and a
 business model on top of a system whose detection latency is still ~15 minutes (§7.1) and which
-cannot yet fully distinguish "no results" from "broken" (`refactor/PROMPTS.md` P20; the
+cannot yet fully distinguish "no results" from "broken" (`backlog/PROMPTS.md` P20; the
 `QueryRun` failure tracking and the zero-results canary are both done).
 The LLM-judge stage *is* worth building; its first application should be **the deal flow you
 already have** (thousands of ads/day, where a judge earns its keep), not job ads (units/day, where
@@ -490,7 +490,7 @@ you can simply read them). Revisit after P20–P24.
 | Idea | Why not |
 |---|---|
 | **Lead gen** — sell "seller wants to sell a car" leads to výkup companies / dealers | Highest revenue potential, **worst** legal profile: GDPR resale of contact data (§6.5) *plus* Act 480/2004 if anyone then emails them. Do not. |
-| **Automated seller outreach** ("I'll buy it for X") | Commercial communication under Act 480/2004; ÚOOÚ has issued fines up to **7.7M CZK**. Your own `LLM_AD_REVIEW_DESIGN.md` already recommends draft-only — keep it that way permanently. |
+| **Automated seller outreach** ("I'll buy it for X") | Commercial communication under Act 480/2004; ÚOOÚ has issued fines up to **7.7M CZK**. Your own `proposals/LLM_AD_REVIEW.md` already recommends draft-only — keep it that way permanently. |
 | **Reselling the reverse-engineered API access** | Aggravates the ToS breach and hands the evidence to a third party. |
 
 ---
@@ -516,7 +516,7 @@ Year-1, realistic (not best-case), assuming continued part-time involvement:
 **Shared running cost across all options: ~2,000–5,000 CZK/year** (proxies $3–6/mo,
 hosting on the existing Pi). If image downloading is ever enabled, budget separately —
 measured at ~5.3 MB/ad, 500 ads/day is **~77 GB/month**, which is ~$231/mo on residential
-and must go over a cheap datacenter pool instead (see `proxies/PROXY_ROTATION_RESEARCH.md`
+and must go over a cheap datacenter pool instead (see `research/proxies/PROXY_ROTATION.md`
 §5.3).
 
 ---
@@ -636,7 +636,7 @@ id, so notifying them is feasible, so the exemption doesn't apply.**
 - **The `ratings.php` reviewer harvest is the worst-exposed piece in the whole design.**
   It yields names and phone numbers of people who *left a review* — private individuals
   who never posted an ad and have no relationship with you whatsoever. Your own
-  `BAZOS_API_DISCOVERY_PIPELINE.md` §5 already flags this as needing an explicit
+  `research/bazos-api/DISCOVERY_PIPELINE.md` §5 already flags this as needing an explicit
   decision. **Make it: store aggregate sentiment counts only, never raw reviewer PII.**
 
 ### 6.6 Anti-spam — Act 480/2004 Sb.
@@ -670,8 +670,8 @@ not extend to messaging private individuals at scale.
 
 ### 7.1 Latency is the binding constraint — and it invalidates §4.2 as currently built
 
-> **Referenced from** [`refactor/BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) (priority table)
-> and [`refactor/PROMPTS.md`](refactor/PROMPTS.md) **P21**, which is the executable version of
+> **Referenced from** [`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md) (priority table)
+> and [`PROMPTS.md`](backlog/PROMPTS.md) **P21**, which is the executable version of
 > the fix. This section is the *commercial* justification for why that prompt outranks
 > everything else in the backlog.
 
@@ -683,10 +683,10 @@ night).**
 It's actually worse than the interval suggests. `BazosRunner.run()` iterates queries **strictly
 sequentially** on a single shared session, and each query costs **3 Bazos requests plus an
 `icanhazip.com` round-trip** (two of the three Bazos calls are the redundant double blacklist
-check — `PROXY_ROTATION_RESEARCH.md` §3), with `sleep(uniform(2,5))` between pages. So the
+check — `research/proxies/PROXY_ROTATION.md` §3), with `sleep(uniform(2,5))` between pages. So the
 *effective* cadence is worse than configured, and it **degrades linearly with every query
 added** — meaning the broad category-scoped sweep that
-[`bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md`](bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md) §1
+[`DISCOVERY_PIPELINE.md`](research/bazos-api/DISCOVERY_PIPELINE.md) §1
 pushes toward makes latency **worse**, not better. That tension isn't acknowledged in either
 doc today.
 
@@ -707,10 +707,10 @@ work available:
 | Step | Status |
 |---|---|
 | `BazosApiScraper` with a small `limit` for the steady-state dedup probe (**1.1 KB/request**) | **built and tested**, inert in production (`marketplace="bazos_api"`) |
-| Collapse the double blacklist check to one probe **per pass** | designed, `PROXY_ROTATION_RESEARCH.md` §8.2 |
-| `HttpProxyIPChanger` + rotating pool so cadence stops being ban-limited | designed, `PROXY_ROTATION_RESEARCH.md` §8 |
+| Collapse the double blacklist check to one probe **per pass** | designed, `research/proxies/PROXY_ROTATION.md` §8.2 |
+| `HttpProxyIPChanger` + rotating pool so cadence stops being ban-limited | designed, `research/proxies/PROXY_ROTATION.md` §8 |
 
-Per `PROXY_ROTATION_RESEARCH.md` §5, that combination puts a **2-minute cadence at ~0.24
+Per `research/proxies/PROXY_ROTATION.md` §5, that combination puts a **2-minute cadence at ~0.24
 GB/month** — i.e. a **~30× latency improvement for roughly the plan minimum**, ~$3–6/mo. This is
 the single best-value change in the repository and it is ~3–5 days of work.
 
@@ -725,8 +725,8 @@ a `BigIntegerField` (indexed, nullable) alongside `Ad.price_type`, a `PriceType`
 distinguishing a real number from `Dohodou` / `V textu` / `Nabídněte` — and, importantly, from
 `Zdarma`, which is a known zero rather than an unknown. Medians, indices and anomaly thresholds
 are all computable now. The measurement that shaped the design is
-[`refactor/PRICE_PARSING_RESEARCH.md`](refactor/PRICE_PARSING_RESEARCH.md); the first thing to
-build on it is `PROMPTS.md` P23's `PriceAnomalyRule`. **Note the cross-marketplace caveat**: four
+[`PRICE_PARSING.md`](research/PRICE_PARSING.md); the first thing to
+build on it is `backlog/PROMPTS.md` P23's `PriceAnomalyRule`. **Note the cross-marketplace caveat**: four
 marketplaces encode price three different ways and "zero" three different ways, so a naive
 `AVG(price)` across marketplaces is still wrong — see that doc's §8.
 
@@ -740,14 +740,14 @@ overlap. **The precondition for analytics is met.**
 Every valuation or deal-scoring product needs to know what things actually *sold* for.
 The closest available proxy is **time-to-delisting plus last-seen price**, obtainable
 cheaply via the bulk `ad_id[]=` refresh and the HTTP 410 signal — both already documented
-in `BAZOS_HIDDEN_API_RESEARCH.md`, and now written up executably as `PROMPTS.md` **P24**.
+in `research/bazos-api/HIDDEN_API.md`, and now written up executably as `backlog/PROMPTS.md` **P24**.
 **This is the highest-leverage feature you don't have, for both flipping and any future data
 product.**
 
 > **Update 2026-08-22 — there is now a second route, with a measured caveat.** The marketplace
 > study found that **Aukro publishes genuinely realised prices**: ended auctions are readable
 > unauthenticated ≥2.75 years back, and `biddersCount > 0` + `price` is what an item actually
-> sold for ([`marketplaces/AUKRO.md`](marketplaces/AUKRO.md) §6a). That is the only source in 13
+> sold for ([`AUKRO.md`](research/marketplaces/AUKRO.md) §6a). That is the only source in 13
 > assessed candidates that closes this gap directly. **But §6a.1 tempers it**: only ~11% of
 > sampled ended items had bids, buy-now listings expose no sold signal at all, and Aukro may be
 > incompatible with the Tor stack. Treat it as a real but partial answer, not a replacement for
@@ -786,7 +786,7 @@ posture, so the "third party" column of §3 may be open there in a way it isn't 
 
 **The hedge is thinner than the row count suggests, though.** Sbazar has the *worst* legal
 posture of the three (`Disallow: /` plus `Disallow: /api/` — see
-[`marketplaces/SBAZAR.md`](marketplaces/SBAZAR.md) §3) and adds **no new capability**, so it
+[`SBAZAR.md`](research/marketplaces/SBAZAR.md) §3) and adds **no new capability**, so it
 diversifies operational risk without diversifying legal risk. And no production `Query` volume
 has moved off Bazos. If a product is ever the goal, **build it multi-marketplace from day one**
 or don't build it — that advice stands.
@@ -836,7 +836,7 @@ purged at 6 months — and cap **backup** retention to match, or the purge is co
 Decide, explicitly, that the current operating posture is **private use** (§3, left column).
 
 **Phase 1 — fix latency, then finish the data (1–2 weeks — smaller than it was).**
-**Start with the latency chain (§7.1)**, per `PROMPTS.md` P21's split. Part 2 of **P21a** (the
+**Start with the latency chain (§7.1)**, per `backlog/PROMPTS.md` P21's split. Part 2 of **P21a** (the
 guard collapse) landed 2026-08-23 — both redundant blacklist probes are gone. What's left of
 P21a is the **tunable API page size and the production cutover, then the interval to ~10 min**:
 ~3× of the latency win at *unchanged* Bazos request volume, for **no cost and no external
@@ -844,10 +844,10 @@ dependency**. **P21b second**, and only once P21a's observed block rate justifie
 `IP_CHANGER_TYPE=HTTP_PROXY` on a rotating pool (~$3–6/mo) to get below 5 minutes. Nothing else
 in this plan pays off while detection runs 15 minutes behind the market.
 ⚠️ P21b still has a second, independent justification: **Tor is the transport and it is still
-failing** (403s on exits, dead circuits — `PROMPTS.md` P20), so the proxy migration is arguably
+failing** (403s on exits, dead circuits — `backlog/PROMPTS.md` P20), so the proxy migration is arguably
 reliability work, not just latency work.
 Of the data fixes in §7.2, **price-as-integer and the `Ad`/`AdDelivery` split are both done**.
-What's left is **delisting/sold detection** via bulk `ad_id[]=` + HTTP 410 — `PROMPTS.md` P24.
+What's left is **delisting/sold detection** via bulk `ad_id[]=` + HTTP 410 — `backlog/PROMPTS.md` P24.
 **Phase 2 can't be measured without it**, so it is no longer deferrable the way the split was.
 
 **Phase 2 — flip, for your own account (ongoing, starts week 3).**
@@ -892,7 +892,7 @@ consumer-facing Bazos listings app.
 - [Cebia — AUTOTRACER tržní cena vozidla](https://www.cebia.cz/novinky/proverovani/autotracer-od-cebia-nove-ukazuje-i-trzni-cenu-vozidla)
 - [Bazoš — návštěvnost a pozice na trhu](https://recenzer.cz/bazos/) · [Bazoš vstoupil na polský trh (MediaGuru)](https://www.mediaguru.cz/inzertni-server-bazos-vstoupil-na-polsky-trh)
 
-**Related internal docs:** [`bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md`](bazos-api/BAZOS_API_DISCOVERY_PIPELINE.md) §5 (PII scope decision),
-[`proxies/PROXY_ROTATION_RESEARCH.md`](proxies/PROXY_ROTATION_RESEARCH.md) §5.3 (image bandwidth),
-[`refactor/BACKLOG_IDEAS.md`](refactor/BACKLOG_IDEAS.md) #1 (Ad/AdDelivery split),
-[`refactor/LLM_AD_REVIEW_DESIGN.md`](refactor/LLM_AD_REVIEW_DESIGN.md) §4.2 (draft-only outreach).
+**Related internal docs:** [`DISCOVERY_PIPELINE.md`](research/bazos-api/DISCOVERY_PIPELINE.md) §5 (PII scope decision),
+[`PROXY_ROTATION.md`](research/proxies/PROXY_ROTATION.md) §5.3 (image bandwidth),
+[`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md) #1 (Ad/AdDelivery split),
+[`LLM_AD_REVIEW.md`](proposals/LLM_AD_REVIEW.md) §4.2 (draft-only outreach).

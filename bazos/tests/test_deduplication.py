@@ -155,7 +155,7 @@ def test_new_query_topped_ads_do_not_count_toward_limit(query, make_ad, monkeypa
 
 # --- Stage 3: status transitions after cut-over ---
 # The scraper now only writes PENDING/SUPPRESSED deliveries. Sending is handled by
-# run_filter + run_sender, which operate on AdDelivery (see AD_DELIVERY_SPLIT_SPEC.md).
+# run_filter + run_sender, which operate on AdDelivery (see AD_DELIVERY_SPLIT.md).
 
 # run_existing_query
 
@@ -380,7 +380,7 @@ def test_existing_query_price_change_on_topped_ad_still_continues_scan(query, ma
     assert runner.new_product_counter == 1
 
 
-# --- Cross-query dedup — the reason for the split (AD_DELIVERY_SPLIT_SPEC.md) ---
+# --- Cross-query dedup — the reason for the split (AD_DELIVERY_SPLIT.md) ---
 
 @pytest.mark.django_db
 def test_two_queries_matching_one_listing_create_one_ad_and_two_deliveries(query, category, make_ad):
@@ -530,7 +530,7 @@ def test_price_change_flips_every_delivery_of_that_ad(query, category, make_ad, 
 def test_price_change_unsuppresses_a_suppressed_delivery(query, make_ad, make_delivery):
     """Preserves pre-split behaviour exactly, including the part that looks wrong: a
     SUPPRESSED delivery (e.g. from ignore_first_run) is unconditionally flipped to
-    PRICE_CHANGED too. See AD_DELIVERY_SPLIT_SPEC.md §3.2 — this is a known, deliberately
+    PRICE_CHANGED too. See AD_DELIVERY_SPLIT.md §3.2 — this is a known, deliberately
     unfixed quirk, not something to "improve" here.
     """
     existing = make_ad(query, bazos_id=111)

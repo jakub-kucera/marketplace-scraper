@@ -13,7 +13,7 @@ which may legitimately end in different states.
 
 Nothing reaches the network: HTTP is replayed by vcrpy and DiscordSender._send
 is captured. See test_bazos_scraper_transport.py for how to re-record, and
-docs/refactor/E2E_REPLAY_TESTING_RESEARCH.md §6 for the determinism rules these
+docs/archive/shipped/E2E_REPLAY_TESTING.md §6 for the determinism rules these
 snapshots depend on.
 
     UPDATE_SNAPSHOTS=1 pytest bazos/tests/test_pipeline_e2e.py   # regenerate
