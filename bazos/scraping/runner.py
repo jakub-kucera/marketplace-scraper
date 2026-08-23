@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 class ScrapeRunner:
 
-    def __init__(self):
+    def __init__(self, unsafe: bool = False):
+        self.unsafe = unsafe
         discord_loggers = Discord.objects.filter(for_logging=True)
         self.interval_multiplier = NightMultiplier()
         self.discord_loggers = [DiscordSender.from_model(s) for s in discord_loggers]
@@ -34,12 +35,26 @@ class ScrapeRunner:
     def run(self):
         while True:
             self.log(f"Waking up at {datetime.utcnow()} UTC")
-            if self.ip_changer.check_ip_local():
-                # Once per pass, not once per query: it is a property of the transport,
-                # not of the query, and each check costs an icanhazip round-trip.
-                self.log("WARNING: IP IS LOCAL, skipping this pass", level=logging.WARNING)
-            else:
-                self._run_pass()
+            try:
+                if self.ip_changer.check_ip_local():
+                    # Once per pass, not once per query: it is a property of the transport,
+                    # not of the query, and each check costs an icanhazip round-trip.
+                    self.log("WARNING: IP IS LOCAL, skipping this pass", level=logging.WARNING)
+                else:
+                    self._run_pass()
+            except Exception:
+                # The daemon has to outlive a broken transport. `run_scraper` does restart
+                # it, but that rebuilds ScrapeRunner from scratch and so resets
+                # zero_rows_passes / zero_new_ads_passes — meaning a genuine parser-drift
+                # streak could never reach its alert threshold if a crash landed in the
+                # middle of it. Skipping to the next pass keeps the counters.
+                #
+                # A failed `check_ip_local` lands here too, and skipping is the right
+                # answer: if we cannot see our own egress the transport is down, and
+                # scraping on would either fail anyway or leak the residential IP.
+                if self.unsafe:
+                    raise
+                logger.exception("Pass failed, skipping to the next one")
             sleep_interval = self.get_next_interval()
             self.log(f"sleeping for {sleep_interval}")
             self._interruptible_sleep(sleep_interval)
@@ -123,7 +138,14 @@ class ScrapeRunner:
             # Only the MarketplaceBlockedError path falls through to here.
             if attempt >= MAX_BLACKLIST_RETRIES:
                 break
-            if not self.change_ip():
+            try:
+                rotated = self.change_ip()
+            except Exception:
+                # Contained here rather than left to the pass-level guard so one query's
+                # failed rotation doesn't cost the other queries their turn.
+                logger.exception("IP rotation failed while retrying %s", query)
+                rotated = False
+            if not rotated:
                 self.log(
                     f"Could not rotate away from {query_run.exit_ip or 'the current IP'}, "
                     f"abandoning {query} this pass",

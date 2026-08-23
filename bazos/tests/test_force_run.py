@@ -25,6 +25,7 @@ from bazos.scraping.runner import ScrapeRunner
 def make_runner() -> ScrapeRunner:
     """Construct a ScrapeRunner bypassing __init__ — only the sleep logic is under test."""
     runner = ScrapeRunner.__new__(ScrapeRunner)
+    runner.unsafe = False
     runner.discord_loggers = []
     runner.interval_multiplier = MagicMock()
     return runner
