@@ -1,7 +1,7 @@
 """MarketplaceScraper protocol.
 
 Any scraper that satisfies this interface can be plugged into
-BazosQueryRunner without code changes. BazosScraper already satisfies it
+QueryRunner without code changes. BazosScraper already satisfies it
 implicitly — no changes to that class are needed.
 """
 from typing import Iterator, Protocol
@@ -19,7 +19,7 @@ class MarketplaceScraper(Protocol):
 
     Optional extension point, not a Protocol member: a scraper may define a class
     attribute ``dedup_break_streak: int``, read via ``getattr(..., 1)`` in
-    ``BazosQueryRunner.run_existing_query``. It says how many consecutive already-known,
+    ``QueryRunner.run_existing_query``. It says how many consecutive already-known,
     non-topped ads the dedup walk tolerates before stopping — see that method's
     docstring. The default of 1 assumes the scraper's default result order is by
     creation time; ``SbazarScraper`` overrides it because Sbazar's isn't.

@@ -242,12 +242,12 @@ class TestRunQuery:
         """A block is detected on the real ads.php request, not a separate probe (P26) —
         the probe that used to sit at the top of run_query is gone.
         """
-        from bazos.exceptions import BazosBlacklistedError
+        from bazos.exceptions import MarketplaceBlockedError
 
         scraper = self._scraper_not_blacklisted(monkeypatch)
         scraper.session.get.return_value = FakeResponse(status_code=status_code, json_data={})
 
-        with pytest.raises(BazosBlacklistedError):
+        with pytest.raises(MarketplaceBlockedError):
             list(scraper.run_query(query))
 
         assert scraper.sent_requests_count == 1
@@ -372,7 +372,7 @@ class TestLoadFullDescription:
 @pytest.mark.django_db
 class TestScraperRegistry:
     def test_registry_includes_all_scrapers(self):
-        from bazos.scraping.bazos_query_runner import _build_scrapers
+        from bazos.scraping.query_runner import _build_scrapers
         from bazos.scraping.sbazar.sbazar_scraper import SbazarScraper
         from bazos.scraping.vinted.vinted_scraper import VintedScraper
 
@@ -383,8 +383,8 @@ class TestScraperRegistry:
         assert isinstance(scrapers["sbazar"], SbazarScraper)
 
     def test_default_query_marketplace_still_resolves_html_scraper(self, query):
-        from bazos.scraping.bazos_query_runner import BazosQueryRunner
+        from bazos.scraping.query_runner import QueryRunner
 
         assert query.marketplace == "bazos"
-        runner = BazosQueryRunner(query, MagicMock())
+        runner = QueryRunner(query, MagicMock())
         assert isinstance(runner.scraper, BazosScraper)

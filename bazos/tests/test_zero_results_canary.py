@@ -10,20 +10,20 @@ import pytest
 from django.test import override_settings
 
 from bazos.models import QueryRun
-from bazos.scraping.bazos_query_runner import BazosQueryRunner
-from bazos.scraping.bazos_runner import BazosRunner
+from bazos.scraping.query_runner import QueryRunner
+from bazos.scraping.runner import ScrapeRunner
 
 
 class StopLoop(Exception):
-    """Sentinel used to escape BazosRunner.run()'s `while True`."""
+    """Sentinel used to escape ScrapeRunner.run()'s `while True`."""
 
 
 def make_runner():
-    """Construct a BazosRunner bypassing __init__, with a no-op IP changer.
+    """Construct a ScrapeRunner bypassing __init__, with a no-op IP changer.
 
     __init__ is skipped, so the two canary counters must be initialised by hand here.
     """
-    runner = BazosRunner.__new__(BazosRunner)
+    runner = ScrapeRunner.__new__(ScrapeRunner)
     runner.discord_loggers = []
     runner.interval_multiplier = MagicMock()
     runner.ip_changer = MagicMock()
@@ -35,7 +35,7 @@ def make_runner():
 
 
 def run_n_passes(runner, n):
-    """Run BazosRunner.run() for exactly n passes, then escape the infinite loop."""
+    """Run ScrapeRunner.run() for exactly n passes, then escape the infinite loop."""
     state = {"passes": 0}
 
     def fake_sleep(_seconds):
@@ -50,7 +50,7 @@ def run_n_passes(runner, n):
 
 
 def patched_query_runner(rows_seen: int, new_ads: int):
-    """Patch BazosQueryRunner.run so every query reports the given rows / new ads.
+    """Patch QueryRunner.run so every query reports the given rows / new ads.
 
     Only `run` is patched — `__init__` still executes for real, so `rows_seen_counter`
     exists on the instance exactly as in production.
@@ -60,7 +60,7 @@ def patched_query_runner(rows_seen: int, new_ads: int):
         self.new_product_counter = new_ads
         return new_ads
 
-    return patch.object(BazosQueryRunner, "run", fake_run)
+    return patch.object(QueryRunner, "run", fake_run)
 
 
 def alerts_at(log_mock, level):
@@ -73,7 +73,7 @@ def alerts_at(log_mock, level):
 
 @pytest.mark.django_db
 def test_rows_seen_counter_counts_every_parsed_row(query, make_ad):
-    runner_query_runner = BazosQueryRunner(query, MagicMock())
+    runner_query_runner = QueryRunner(query, MagicMock())
     ads = [make_ad(query, bazos_id=i) for i in range(1, 4)]
 
     with patch.object(runner_query_runner.scraper, "run_query", return_value=iter(ads)):
@@ -88,7 +88,7 @@ def test_rows_seen_counter_counts_the_row_that_breaks_dedup(query, make_ad, make
     known.save()
     make_delivery(known, query)
 
-    runner_query_runner = BazosQueryRunner(query, MagicMock())
+    runner_query_runner = QueryRunner(query, MagicMock())
     repeat_of_known = make_ad(query, bazos_id=1, topped=False)
     extra_ads = [make_ad(query, bazos_id=2), make_ad(query, bazos_id=3)]
 
@@ -197,7 +197,7 @@ def test_a_zero_row_pass_resets_the_zero_new_ads_counter(query):
 def test_pass_where_every_query_failed_does_not_count_as_zero_rows(query):
     runner = make_runner()
 
-    with patch.object(BazosQueryRunner, "run", side_effect=RuntimeError("boom")):
+    with patch.object(QueryRunner, "run", side_effect=RuntimeError("boom")):
         with patch.object(runner, "log") as log_mock:
             run_n_passes(runner, 3)
 

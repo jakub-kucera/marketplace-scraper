@@ -1,8 +1,8 @@
 """Tests for the Force Run Now feature.
 
 Covers:
-- BazosRunner._interruptible_sleep: exits early when flag file is present
-- BazosRunner._interruptible_sleep: sleeps full duration when flag is absent
+- ScrapeRunner._interruptible_sleep: exits early when flag file is present
+- ScrapeRunner._interruptible_sleep: sleeps full duration when flag is absent
 - admin force_run_now view: creates the flag file and redirects
 - admin force_run_now view: flag is deleted after _interruptible_sleep detects it
 """
@@ -15,16 +15,16 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 
 from bazos.admin import QueryAdmin
 from bazos.models import Query
-from bazos.scraping.bazos_runner import BazosRunner
+from bazos.scraping.runner import ScrapeRunner
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def make_runner() -> BazosRunner:
-    """Construct a BazosRunner bypassing __init__ — only the sleep logic is under test."""
-    runner = BazosRunner.__new__(BazosRunner)
+def make_runner() -> ScrapeRunner:
+    """Construct a ScrapeRunner bypassing __init__ — only the sleep logic is under test."""
+    runner = ScrapeRunner.__new__(ScrapeRunner)
     runner.discord_loggers = []
     runner.interval_multiplier = MagicMock()
     return runner
@@ -57,7 +57,7 @@ class TestInterruptibleSleep:
 
         start = time.monotonic()
         # Full duration is 60 s — we expect it to exit within one 5-second tick
-        with patch("bazos.scraping.bazos_runner.sleep") as mock_sleep:
+        with patch("bazos.scraping.runner.sleep") as mock_sleep:
             # Make the patched sleep a no-op so the test is instant
             mock_sleep.side_effect = None
             runner._interruptible_sleep(60)
@@ -73,7 +73,7 @@ class TestInterruptibleSleep:
 
         runner = make_runner()
 
-        with patch("bazos.scraping.bazos_runner.sleep"):
+        with patch("bazos.scraping.runner.sleep"):
             runner._interruptible_sleep(60)
 
         assert not flag_path.exists(), "Flag file was not deleted after early exit"

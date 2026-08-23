@@ -21,7 +21,7 @@ from bazos.const import (
     MAX_ATTEMPTS,
     PAGE_SIZE,
 )
-from bazos.exceptions import BazosBlacklistedError
+from bazos.exceptions import MarketplaceBlockedError
 from bazos.filters import parse_price_and_type
 from bazos.models import Ad, Marketplace, Query, EmailPublisher, PhonePublisher
 from ip_changer.tor import PROXIES
@@ -239,7 +239,7 @@ class BazosScraper:
         return response.status_code == 403
 
     def load_full_description(self, product: Ad) -> Ad:
-        """Paced: BazosQueryRunner._handle_new_product calls this once per new ad with no
+        """Paced: QueryRunner._handle_new_product calls this once per new ad with no
         delay of its own, so an N-new-ad query used to fire N detail GETs back-to-back
         straight after its listing page (15 in a row, measured 2026-08-23). Sleeping
         before the request rather than after paces it against whatever preceded it.
@@ -273,7 +273,7 @@ class BazosScraper:
                 logger.warning("Failed to load %s after %d attempts, stopping query", url, MAX_ATTEMPTS)
                 break
             if response.status_code == 403:
-                raise BazosBlacklistedError()
+                raise MarketplaceBlockedError()
 
             products = list(self.get_page_products(response))
             yield from products

@@ -187,7 +187,7 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "simple": {
-            # e.g.  09:31:18 INFO  [bazos.scraping.bazos_runner] Running query ...
+            # e.g.  09:31:18 INFO  [bazos.scraping.runner] Running query ...
             "format": "{asctime} {levelname:<8} [{name}] {message}",
             "datefmt": "%H:%M:%S",
             "style": "{",

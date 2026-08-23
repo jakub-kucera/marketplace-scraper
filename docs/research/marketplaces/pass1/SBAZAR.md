@@ -266,7 +266,7 @@ Disallow: /inzerat/*/topovano
 Disallow: /*categoryId=
 ```
 
-`Disallow: /*/nejnovejsi` — **the newest-first sort, exactly the ordering `BazosQueryRunner.run_existing_query`
+`Disallow: /*/nejnovejsi` — **the newest-first sort, exactly the ordering `QueryRunner.run_existing_query`
 depends on, is disallowed** (in the Slurp/DuckDuckBot/Baiduspider/YandexBot/msnbot/Naverbot blocks; not in
 Googlebot's or SeznamBot's). The same lesson as the Bazos robots.txt: the disallowed paths are precisely the
 useful ones. `topovani`/`topovano` confirms a **"topping"/promotion feature exists**; `watchdog_*` confirms a

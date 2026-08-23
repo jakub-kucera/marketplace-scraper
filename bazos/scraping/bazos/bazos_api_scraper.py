@@ -2,7 +2,7 @@
 
 Alternate implementation of the `MarketplaceScraper` protocol, sitting next to
 `BazosScraper` for validation (see docs/research/bazos-api/HIDDEN_API.md).
-Registered in `BazosQueryRunner._build_scrapers()` under the `bazos_api` key —
+Registered in `QueryRunner._build_scrapers()` under the `bazos_api` key —
 no existing `Query` row uses that marketplace value, so this is inert for the
 production `run_scraper` loop until a `Query` is deliberately switched over.
 
@@ -26,7 +26,7 @@ from bazos.const import (
     BAZOS_PAGE_WAIT_TIME,
     MAX_ATTEMPTS,
 )
-from bazos.exceptions import BazosBlacklistedError
+from bazos.exceptions import MarketplaceBlockedError
 from bazos.filters import parse_price_and_type
 from bazos.models import Ad, Marketplace, PriceType, Query
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
@@ -158,7 +158,7 @@ class BazosApiScraper:
             logger.warning("BazosApiScraper: no response fetching offset=%d, stopping query", offset)
             return [], None
         if response.status_code in (403, 429):
-            raise BazosBlacklistedError()
+            raise MarketplaceBlockedError()
         if response.status_code != 200:
             logger.warning("BazosApiScraper: status=%d fetching offset=%d, stopping query", response.status_code, offset)
             return [], None

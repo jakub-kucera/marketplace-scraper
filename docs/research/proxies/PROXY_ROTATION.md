@@ -79,10 +79,10 @@ aren't pre-flagged (so they aren't 403'd on arrival).
 **IP layer** (`ip_changer/`): `IPChanger` ABC holds a `requests.Session`; concrete
 `TorIPChanger` routes it through `socks5h://TOR_PROXY_IP:9050` and renews identity via
 the Tor control port (`Signal.NEWNYM`). `DummyIPChanger` is a no-op for dev. Selected
-in `BazosRunner.__init__` by `settings.IP_CHANGER_TYPE` (`TOR` / `DUMMY`).
+in `ScrapeRunner.__init__` by `settings.IP_CHANGER_TYPE` (`TOR` / `DUMMY`).
 
 **Request pattern per query, steady state (no new ads)** — tracing
-`BazosRunner.run()` → `BazosQueryRunner` → `BazosScraper.run_query()`:
+`ScrapeRunner.run()` → `QueryRunner` → `BazosScraper.run_query()`:
 
 | # | Request | Target | Purpose |
 |---|---|---|---|
@@ -338,7 +338,7 @@ class HttpProxyIPChanger(IPChanger):
 
 Wire-up:
 
-1. Add an `HTTP_PROXY` branch in `BazosRunner.__init__` alongside `DUMMY`/`TOR`
+1. Add an `HTTP_PROXY` branch in `ScrapeRunner.__init__` alongside `DUMMY`/`TOR`
    (gate on `IP_CHANGER_TYPE`), and `PROXY_URL` in settings/`.env`. Nothing changes
    until it's set.
 2. **Collapse the double blacklist check** (§3, requests #1 and #3) to a single probe

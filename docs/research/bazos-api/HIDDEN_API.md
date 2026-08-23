@@ -59,7 +59,7 @@ seller's entire current active inventory directly. See §6.4 and §8.
 
 **Recommendation: migrate Bazos scraping to the API**, implemented as a new
 `MarketplaceScraper` protocol implementation registered in
-`BazosQueryRunner._build_scrapers()`, keeping the HTML scraper as a fallback.
+`QueryRunner._build_scrapers()`, keeping the HTML scraper as a fallback.
 This fits the existing marketplace-abstraction layer with **zero pipeline changes**.
 
 ---
@@ -434,7 +434,7 @@ consistent with `from` reflecting a bump/rebroadcast time rather than when the a
 was first posted. This means client-side re-sorting by `from` cannot recover true
 chronological order for topped ads either — the pinning is unavoidable by any
 means found so far, and the existing "stop scanning once we hit a known
-non-topped ad" logic in `bazos_query_runner.py` should be kept as-is **for the
+non-topped ad" logic in `query_runner.py` should be kept as-is **for the
 per-`Query` polling model**.
 
 **If the actual goal is different — capturing every ad on the site, not just
@@ -926,7 +926,7 @@ under the project's real Tor-rotated load pattern before removing the existing
 ## 8. Proposed implementation plan (fits the existing architecture)
 
 The pipeline is already decoupled through `Ad.status`, and the marketplace layer
-already keys scrapers by `query.marketplace` in `BazosQueryRunner._build_scrapers()`.
+already keys scrapers by `query.marketplace` in `QueryRunner._build_scrapers()`.
 So this is a **drop-in scraper implementation**, not a pipeline change.
 
 > **Two additional arguments for the migration, added 2026-07-29** — neither was captured
@@ -963,7 +963,7 @@ under real Tor rotation before removing the existing backoff/blacklist safety ne
 ### Stage B — `BazosApiScraper` implementing the `MarketplaceScraper` protocol — **done, 2026-07-24**
 `bazos/scraping/bazos/bazos_api_scraper.py` implements this, satisfying
 `bazos/scraping/marketplace.py` as a peer of `BazosScraper`. Registered in
-`BazosQueryRunner._build_scrapers()` under `marketplace = "bazos_api"` —
+`QueryRunner._build_scrapers()` under `marketplace = "bazos_api"` —
 **inert for production**, since no existing `Query` row uses that value, so
 `run_scraper` stays HTML-only until a `Query` is deliberately switched over.
 Unit tests (`bazos/tests/test_bazos_api_scraper.py`) cover query-param mapping,
@@ -1005,7 +1005,7 @@ Original plan, for reference:
 - Reuse the existing Tor `requests.Session`/`PROXIES` and `run_request` retry/backoff.
 
 ### Stage C — Register & select
-- Add to `BazosQueryRunner._build_scrapers()` keyed by `query.marketplace`.
+- Add to `QueryRunner._build_scrapers()` keyed by `query.marketplace`.
 - Roll out per-query: set `marketplace="bazos_api"` on a canary `Query`, compare
   results against the HTML scraper, then migrate the rest. HTML scraper stays as
   fallback.

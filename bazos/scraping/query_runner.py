@@ -25,7 +25,7 @@ def get_scraper(marketplace: str, session: requests.Session) -> MarketplaceScrap
     return _build_scrapers(session)[marketplace]
 
 
-class BazosQueryRunner:
+class QueryRunner:
     def __init__(self, query: Query, session: requests.Session):
         self.query = query
         self.session = session
