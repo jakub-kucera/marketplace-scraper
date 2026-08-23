@@ -116,7 +116,7 @@ under the radar), not by order of appearance below.
 
 ### Where it would and wouldn't help, concretely
 
-`BazosRunner.run()` (`bazos_runner.py:36`) loops over enabled queries **strictly sequentially**,
+`ScrapeRunner.run()` (`runner.py:36`) loops over enabled queries **strictly sequentially**,
 in random order, sharing **one** `requests.Session` bound to **one** Tor circuit for the entire
 pass (`self.ip_changer.session`, created once in `__init__`). `DiscordSender._send` already carries
 a `# TODO make thread safe` comment (`discord_sender.py:41`) — concurrency here has been anticipated
@@ -326,7 +326,7 @@ This feeds directly into `bazos/scraping/interval_multiplier.py`'s `NightMultipl
 density curve could replace that blunt heuristic with one that tracks actual posting patterns:
 poll more often during genuine peak-posting hours, back off harder than a flat 2× overnight if
 volume is even lower than "night" currently assumes. `NightMultiplier` is already the right
-extension point — this replaces its internals, not the interface `BazosRunner.get_next_interval`
+extension point — this replaces its internals, not the interface `ScrapeRunner.get_next_interval`
 calls.
 
 **Recommendation**: good first pass at reducing wasted/late polls — no new dependencies, all data
@@ -368,7 +368,7 @@ ad happens to sit at a given pass's dedup boundary.
 
 ### The actual problem: price-change detection today is incidental, not comprehensive
 
-`run_existing_query` (`bazos_query_runner.py:71-95`) walks a query's results newest→oldest and stops
+`run_existing_query` (`query_runner.py:71-95`) walks a query's results newest→oldest and stops
 at the first known non-TOP ad, assuming (correctly) that everything older was already seen — this is
 the "Existing-query dedup" behavior noted in `CLAUDE.md`. But that means price is only ever re-checked
 for two kinds of ad per pass: known TOP ads encountered before the break (they don't trigger it), and
@@ -381,10 +381,10 @@ ever act on the one ad each pass happens to stop at.
 ### The proposed mechanism
 
 A per-query opt-in boolean (same pattern as `load_full_description`/`ignore_first_run`) — e.g.
-`Query.full_rescan` — that changes the branch at `bazos_query_runner.py:91-95`: instead of `break` on
+`Query.full_rescan` — that changes the branch at `query_runner.py:91-95`: instead of `break` on
 a known non-TOP ad, `continue`, exactly like the existing TOP-ad case already does. Every known ad the
 query has ever seen then gets its price compared on every pass, and on a drop gets the existing
-`PriceChange`/`AdStatus.PRICE_CHANGED` treatment (`bazos_query_runner.py:78-89`) — no new pipeline
+`PriceChange`/`AdStatus.PRICE_CHANGED` treatment (`query_runner.py:78-89`) — no new pipeline
 mechanics needed, `run_filter` and `PriceDropRule` already handle `PRICE_CHANGED` re-entry correctly.
 
 ### The real cost — quantified from `PROXY_ROTATION.md`
@@ -397,7 +397,7 @@ its cost from O(1) request/pass to O(listing size / `PAGE_SIZE`) requests **ever
 forever** — for the doc's own `auto` category example (49,372 active listings), that's hundreds of
 requests per pass instead of one, at whatever cadence that query runs (240 passes/day at a 5-min
 interval per the doc's model). It also serializes badly: queries run strictly sequentially, sharing
-one Tor session (`BazosRunner.run()`, see idea #2 above), so one deep-rescan query would dominate
+one Tor session (`ScrapeRunner.run()`, see idea #2 above), so one deep-rescan query would dominate
 wall-clock and delay every other query's turn during its pass.
 
 ### Recommendation

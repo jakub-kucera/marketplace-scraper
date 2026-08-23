@@ -113,7 +113,7 @@ def test_tor_renew_signals_newnym_on_every_round_not_just_once(tor_changer):
 
 
 def test_tor_renew_gives_up_after_max_attempts_and_reports_the_unchanged_ip(tor_changer):
-    """Bounded, and honest about failing: BazosRunner.change_ip compares the result to the
+    """Bounded, and honest about failing: ScrapeRunner.change_ip compares the result to the
     old IP to decide whether retrying the query is worth anything.
     """
     tor_changer.get_current_ip = MagicMock(return_value="1.1.1.1")

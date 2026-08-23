@@ -350,7 +350,7 @@ This was the headline risk and the answer is good news, with one sharp edge.
 on the 1,000-row tools page: after dropping the 334 promoted rows, `sorting_date` across the
 remaining **666 organic rows is monotonically non-increasing with zero violations**
 (`all(sd[i] >= sd[i+1])` → `True`, violations list empty). The same held on the 100-row notebooks
-page. So `BazosQueryRunner.run_existing_query`'s "walk newest→oldest, break on the first known
+page. So `QueryRunner.run_existing_query`'s "walk newest→oldest, break on the first known
 non-topped ad" is **correct as written**.
 ⚠️ Two caveats worth writing into any spec: the ordering key is **`sorting_date` (≈ `edit_date`),
 not `create_date`** — `create_date` is *not* monotonic in the response (an item created 2017-05-30

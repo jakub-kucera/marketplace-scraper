@@ -580,7 +580,7 @@ def test_price_drop_rule_passes_when_history_unparseable(query, make_ad, make_de
 @pytest.mark.django_db
 def test_price_drop_rule_rejects_vinted_price_increase_via_query_runner(query, make_delivery):
     """Regression: the query runner propagates known_ad.price/product.price into
-    PriceChange.old_price_amount/new_price_amount (bazos_query_runner.run_existing_query)
+    PriceChange.old_price_amount/new_price_amount (query_runner.run_existing_query)
     — this only works end to end if the scraper populated .price in the first place. Drive
     it through the real VintedScraper mapping rather than constructing the PriceChange by
     hand, so a future scraper regression here fails this test too."""
@@ -588,7 +588,7 @@ def test_price_drop_rule_rejects_vinted_price_increase_via_query_runner(query, m
 
     from vinted_scraper.models import VintedItem
 
-    from bazos.scraping.bazos_query_runner import BazosQueryRunner
+    from bazos.scraping.query_runner import QueryRunner
     from bazos.scraping.vinted.vinted_scraper import VintedScraper
 
     query.marketplace = "vinted"
@@ -611,7 +611,7 @@ def test_price_drop_rule_rejects_vinted_price_increase_via_query_runner(query, m
     )
     product = VintedScraper._map_item(new_item)
 
-    runner = BazosQueryRunner(query, MagicMock())
+    runner = QueryRunner(query, MagicMock())
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
         runner.run_existing_query()
 

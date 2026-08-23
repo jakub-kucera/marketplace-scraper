@@ -34,7 +34,7 @@ class SbazarScraper:
     marketplace = Marketplace.SBAZAR.value
 
     # Not part of the MarketplaceScraper protocol — an optional extension point
-    # BazosQueryRunner.run_existing_query reads via getattr(..., 1). Sbazar's default
+    # QueryRunner.run_existing_query reads via getattr(..., 1). Sbazar's default
     # listing order is edit time, not creation time (see SBAZAR_DEDUP_BREAK_STREAK's
     # comment in bazos/const.py), so the walk needs more than one known hit before it
     # can be confident it has reached genuinely old content.
@@ -77,7 +77,7 @@ class SbazarScraper:
     def load_full_description(self, ad: Ad) -> Ad:
         """NOT a no-op: `description` is absent from every search result.
 
-        Called by BazosQueryRunner._handle_new_product with NO try/except, so an
+        Called by QueryRunner._handle_new_product with NO try/except, so an
         exception escaping here aborts the rest of that query's pass. Catch everything.
         """
         try:

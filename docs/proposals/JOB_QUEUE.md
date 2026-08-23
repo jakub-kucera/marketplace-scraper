@@ -21,7 +21,7 @@ verified: 2026-07-26
 ## 0. The idea, as floated
 
 Today, `run_scraper` (`bazos/management/commands/run_scraper.py`) is a single monolithic loop:
-`BazosRunner.run()` (`bazos_runner.py:29-64`) iterates every enabled `Query` sequentially, sharing
+`ScrapeRunner.run()` (`runner.py:29-64`) iterates every enabled `Query` sequentially, sharing
 one Tor session/`IPChanger` for the whole pass, then sleeps one shared interval
 (`NightMultiplier`, `get_next_interval`) — interruptible only by a single global sentinel file
 (`_interruptible_sleep`, `settings.FORCE_RUN_FLAG_PATH`). There is no persistence of individual
@@ -114,7 +114,7 @@ volume/complexity outgrows A later — not before.
 
 ## 2. The blocker that applies no matter which option is picked
 
-`IPChanger`/the shared `requests.Session` (one Tor circuit, created once in `BazosRunner.__init__`)
+`IPChanger`/the shared `requests.Session` (one Tor circuit, created once in `ScrapeRunner.__init__`)
 is not designed for concurrent callers — already flagged in `BACKLOG_IDEAS.md` idea #2:
 *"needs either a lock around IP rotation or a stop-the-world, rotate, resume checkpoint model, not
 concurrent races on the same circuit change."* The moment job dispatch stops being "one sequential
@@ -305,7 +305,7 @@ over-engineering trap this project falls into.
 | 1 | `Job` model + migration, `JOB_REGISTRY`/`JobHandler` protocol, `run_jobs` worker, admin registration (list/filter by status/type, manual retry action — matches `PROMPTS.md` P9's admin-polish spirit). No behavior change yet — nothing is migrated onto it. | Low — additive, nothing consumes it yet |
 | 2 | Migrate one low-stakes existing loop onto it as a proof of concept — the posting-time-of-day analysis (`BACKLOG_IDEAS.md` #6/P14) is a good first candidate: no network, no `requires_bazos_session`, easy to verify. | Low |
 | 3 | Add the Bazos-session lock (§2) and migrate a `requires_bazos_session=True` job — `AdWatch`/`run_ad_watch` (`DISCORD_BOT.md` §2.1) or the sold/removed sweep are good candidates, both already fully designed elsewhere. | Medium — first real test of the concurrency lock |
-| 4 | Decompose `run_scraper` itself into one job per `Query`, retiring `BazosRunner.run()`'s monolithic loop; wire per-query force-run (§3.5) as a side effect. | Medium/High — touches the core, most-load-bearing loop in the project |
+| 4 | Decompose `run_scraper` itself into one job per `Query`, retiring `ScrapeRunner.run()`'s monolithic loop; wire per-query force-run (§3.5) as a side effect. | Medium/High — touches the core, most-load-bearing loop in the project |
 | — | Full-listing rescan (#8), seller enrichment, repost detection, LLM review — layer in as new job types once Phase 3/4 validate the pattern under real Bazos-network load. | Low once Phase 3 lands — these are "just another job type" at that point |
 
 Phases 1–2 are low-risk and validate the design without touching anything load-bearing. Phase 4

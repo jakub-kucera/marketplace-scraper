@@ -336,7 +336,7 @@ The relevant recent history, because it determines what "fit" means:
 - **`Ad` / `AdDelivery` are split** (migrations `0026`–`0028`). `Ad` holds scraped *facts* and is
   globally unique on `(marketplace, external_id)`. `AdDelivery` holds per-`(ad, query)` pipeline
   state (`status`, `filter_reason`, `sent_at`, `send_attempts`). A new scraper yields plain `Ad`
-  objects; `BazosQueryRunner` owns persistence and delivery creation.
+  objects; `QueryRunner` owns persistence and delivery creation.
 - **`Ad.external_id` is now `BigIntegerField`**, widened for Vinted's ~9.7-billion ids.
 - **`Ad.view_count` and `Ad.publish_date` are now nullable**, with help_text saying
   *"never synthesise a value here."* Respect that — see §5c.
@@ -357,7 +357,7 @@ Answer each explicitly, with the marketplace's real field names:
    `re.sub(r"\D", "", ...)`. A decimal price string silently parses 10× too large. Does this
    marketplace have decimals, multiple currencies, price ranges, "make offer" placeholders,
    or auction bid-vs-buy-now (§5d)?
-4. **Newest-first ordering.** `BazosQueryRunner.run_existing_query` walks results newest→oldest
+4. **Newest-first ordering.** `QueryRunner.run_existing_query` walks results newest→oldest
    and **breaks on the first already-known non-topped ad**. If the marketplace cannot guarantee
    that ordering, the dedup walk is wrong. Vinted needed an explicit `order=newest_first`.
 5. **A "topped"/promoted concept?** `Ad.topped` exists because promoted ads appear out of

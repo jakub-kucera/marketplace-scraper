@@ -2,10 +2,10 @@
 
 ## Big picture architecture
 - This is a Django project (`scraper/settings.py`) with app boundaries: `bazos` (scraping + domain), `ip_changer` (network identity rotation), `senders` (delivery), and `facebook` (publisher linking).
-- Primary runtime path is `python manage.py run_scraper` -> `bazos/management/commands/run_scraper.py` -> `bazos/scraping/bazos_runner.py` -> `BazosQueryRunner` -> `BazosScraper`.
+- Primary runtime path is `python manage.py run_scraper` -> `bazos/management/commands/run_scraper.py` -> `bazos/scraping/runner.py` -> `QueryRunner` -> `BazosScraper`.
 - Scraping is query-driven from DB models (`bazos/models.py`): `Query` defines what to search, `Ad` stores discoveries, `QueryRun` stores run metrics.
 - `Query.new_query` controls first-run behavior; first pass uses capped backfill (`NEW_PRODUCT_LOAD_MAX`) and may suppress sends via `ignore_first_run`.
-- Existing-query flow stops on first non-TOP already-known ad (`bazos/scraping/bazos_query_runner.py`), assuming results are ordered newest-first.
+- Existing-query flow stops on first non-TOP already-known ad (`bazos/scraping/query_runner.py`), assuming results are ordered newest-first.
 
 ## Runtime and workflow commands
 - Local dev is Django-first, not `main.py` (README has stale sections). Use:
@@ -28,7 +28,7 @@
 ## Integration points and dependencies
 - PostgreSQL is the active default DB backend (`scraper/settings.py`); SQLite config exists but is commented out.
 - Environment is loaded from `.env`; start from `.env.sample`. Critical vars: `SECRET_KEY`, `POSTGRES_*`, `TOR_PROXY_IP`, `TOR_PROXY_PASSWORD`, `LOCAL_IP_SUBNET`.
-- IP rotation strategy is selected by `IP_CHANGER_TYPE` (`TOR` default, `DUMMY` for no-op) in `BazosRunner`.
+- IP rotation strategy is selected by `IP_CHANGER_TYPE` (`TOR` default, `DUMMY` for no-op) in `ScrapeRunner`.
 - Tor path: HTTP requests use SOCKS proxy (`ip_changer/tor.py`), and identity changes via Stem control port 9051.
 - Optional infra in `docker-compose.yml`: `postgres`, `adminer`, `tor_proxy`; scraper container entries are currently commented out.
 
