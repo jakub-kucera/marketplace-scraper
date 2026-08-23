@@ -34,7 +34,7 @@ def query(category):
 @pytest.fixture
 def make_ad():
     """`query` is not stored on `Ad` (it moved to `AdDelivery` in the Ad/AdDelivery
-    split — see docs/refactor/AD_DELIVERY_SPLIT_SPEC.md) but stays a required parameter
+    split — see docs/archive/shipped/AD_DELIVERY_SPLIT.md) but stays a required parameter
     here: call sites pass it through to `make_delivery(ad, query)` right after, and
     keeping the same signature avoids a mechanical rename across ~120 call sites.
     """
@@ -69,7 +69,7 @@ def make_delivery():
 # ---------------------------------------------------------------------------
 # VCR cassette configuration
 #
-# See docs/refactor/E2E_REPLAY_TESTING_RESEARCH.md §4 for why each of these is
+# See docs/archive/shipped/E2E_REPLAY_TESTING.md §4 for why each of these is
 # set the way it is — every one of them was measured, and the defaults are
 # wrong for this repo in at least three ways.
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 Implements the `MarketplaceScraper` protocol (bazos/scraping/marketplace.py) for Vinted.
 Field names and API behaviour below come from a live probe of `vinted-scraper` 4.0.0
-against `vinted.cz` — see docs/refactor/STAGE8_VINTED_SPEC.md, which this module follows
+against `vinted.cz` — see docs/archive/shipped/VINTED_SCRAPER.md, which this module follows
 exactly. Deviating from that spec without updating it there will re-open bugs it already
 found (Ad.external_id overflow, decimal prices multiplying 10x through parse_price, an
 uncaught detail-fetch RuntimeError truncating a scrape mid-pass).
@@ -32,7 +32,7 @@ class VintedScraper:
 
     Deliberately ignores the `session` the runner passes in: the library builds its own
     httpx client, and Vinted bans proxy/VPN traffic, so Vinted requests egress from the
-    host's real IP rather than through Tor. See STAGE8_VINTED_DESIGN.md §2.
+    host's real IP rather than through Tor. See VINTED_SCRAPER_DESIGN.md §2.
     """
     marketplace = Marketplace.VINTED.value
 
@@ -141,7 +141,7 @@ class VintedScraper:
     @staticmethod
     def _price_amount(item) -> int | None:
         """Integer CZK only — `parse_price` strips non-digits, so a decimal point would
-        silently multiply the parsed value by 10. See STAGE8_VINTED_SPEC.md §4.5.
+        silently multiply the parsed value by 10. See VINTED_SCRAPER.md §4.5.
 
         Uses `total_item_price` (buyer-protection fee included) rather than `price`,
         falling back to `price` when the fee isn't present. None means "no usable price"

@@ -12,7 +12,7 @@ docstring explains: `bazos.filters` will keep changing after this migration is h
 importing it here would let a future edit silently change what an old migration does.
 
 Grammar and the placeholder vocabulary are measured against the full 2024-03 Bazos export
-(16,981 ads) — see docs/refactor/PRICE_PARSING_RESEARCH.md §3. Note the corpus-wide
+(16,981 ads) — see docs/research/PRICE_PARSING.md §3. Note the corpus-wide
 non-numeric rate (~49%) is a `Práce` (job ads) artifact — goods categories measure 0-10%
 (§3.2) — so don't expect a flat ratio when eyeballing the printed counts; segment by query
 if that matters.

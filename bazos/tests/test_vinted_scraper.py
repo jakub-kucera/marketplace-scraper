@@ -2,7 +2,7 @@
 
 Mocks VintedApiClient.search / .item directly (injected into `_clients`); never hits the
 network. Field shapes mirror a live probe of `vinted-scraper` 4.0.0 against `vinted.cz` —
-see docs/refactor/STAGE8_VINTED_SPEC.md.
+see docs/archive/shipped/VINTED_SCRAPER.md.
 """
 from unittest.mock import MagicMock
 
@@ -119,7 +119,7 @@ class TestMapItem:
         """Kept as a second, backend-independent check on the round trip above.
 
         The suite runs on Postgres now, so the save/reload does enforce int4's
-        2,147,483,647 cap for real (see STAGE8_VINTED_SPEC.md §2.1). It stops enforcing
+        2,147,483,647 cap for real (see VINTED_SCRAPER.md §2.1). It stops enforcing
         anything the moment it is run under `TEST_DB=sqlite`, which has no fixed-width
         integer columns and would pass identically against a plain IntegerField. Pinning
         the field type directly holds either way.
@@ -262,7 +262,7 @@ class TestRunQuery:
         assert len(ads) == VINTED_PAGE_SIZE
 
     def test_malformed_row_is_skipped_without_aborting_the_pass(self, query):
-        """One bad row (plausible under the anti-bot throttling STAGE8_VINTED_DESIGN.md
+        """One bad row (plausible under the anti-bot throttling VINTED_SCRAPER_DESIGN.md
         §1a measured) must not raise out of the generator — that would abort the rest of
         the pass, the exact failure mode load_full_description's try/except exists to
         avoid one function over.

@@ -180,7 +180,7 @@ def test_live_publisher_ids_are_still_exposed(live_ads):
 
 @pytest.mark.django_db
 def test_live_first_page_still_returns_404_with_a_body(scraper, live_query):
-    """Pins the surprise in E2E_REPLAY_TESTING_RESEARCH.md §4.9.
+    """Pins the surprise in E2E_REPLAY_TESTING.md §4.9.
 
     If Bazos ever starts serving a real 404 here, the scraper silently stops
     finding anything on page 1 — this is the early warning.
