@@ -1,3 +1,10 @@
+---
+title: Facebook Marketplace — Pass 1 triage
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Facebook Marketplace — Pass 1 triage
 
 > Probed 2026-08-22. Requests used: 1/5. Egress: VPN datacenter IP (M247 AS9009, Prague CZ, 185.242.6.116).

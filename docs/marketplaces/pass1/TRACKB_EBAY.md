@@ -1,3 +1,10 @@
+---
+title: eBay sold/completed listings — Track B assessment
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # eBay sold/completed listings — Track B assessment
 
 > Assessed **2026-08-22**. Requests used **15/15** (budget exhausted — see §8 and §9).

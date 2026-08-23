@@ -1,3 +1,10 @@
+---
+title: Proxy / IP-Rotation Research — Replacing Tor for Bazos Requests
+status: reference
+updated: 2026-07-26
+verified: 2026-07-26
+---
+
 # Proxy / IP-Rotation Research — Replacing Tor for Bazos Requests
 
 > **Question:** the current Tor-based `IPChanger` throws errors, and a previously
@@ -5,7 +12,7 @@
 > alternatives — including reasonably-priced paid ones — and what request volume do
 > they need to sustain, especially if we want to **run queries more often**?
 >
-> **Status of claims:** the architecture/volume sections are read directly from the
+> **Provenance of claims:** the architecture/volume sections are read directly from the
 > code (`bazos/scraping/*`, `ip_changer/*`, `bazos/const.py`, `scraper/settings.py`)
 > as of 2026-07-26. The byte-size / latency numbers in §4 are **live-measured** with
 > `experiments/bench_proxy.py` against `bazos.cz` on 2026-07-26 — see §9 for the tool.

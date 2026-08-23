@@ -1,3 +1,10 @@
+---
+title: Sbazar.cz — Pass 1 scale triage
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Sbazar.cz — Pass 1 scale triage
 
 > Probed **2026-08-22, 14:47–14:59 UTC** (16:47–16:59 Prague). Requests used: **11** — 5 initial + a

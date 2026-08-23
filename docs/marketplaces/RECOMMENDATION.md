@@ -1,3 +1,10 @@
+---
+title: Which marketplace to build next — ranked recommendation
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Which marketplace to build next — ranked recommendation
 
 > Completed 2026-08-22. Two ranked lists per RESEARCH_BRIEF §8: **Track A** (marketplaces to

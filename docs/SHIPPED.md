@@ -1,3 +1,10 @@
+---
+title: Shipped
+status: active
+updated: 2026-08-23
+verified: 2026-08-23
+---
+
 # Shipped
 
 **What has actually been implemented, and where to read why.** One row per piece of work. This

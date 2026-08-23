@@ -1,3 +1,10 @@
+---
+title: Aukro.cz — Pass 1 scale triage
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Aukro.cz — Pass 1 scale triage
 
 > Probed **2026-08-22, 16:48–16:57 CEST (14:48–14:57 UTC)**.

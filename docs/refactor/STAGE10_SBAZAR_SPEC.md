@@ -1,3 +1,11 @@
+---
+title: "Stage 10 — `SbazarScraper`: implementation spec"
+status: shipped
+updated: 2026-08-23
+verified: 2026-08-22
+shipped_in: 0030
+---
+
 # Stage 10 — `SbazarScraper`: implementation spec
 
 > **Follow this document literally.** Every field name, endpoint, type and limit below was

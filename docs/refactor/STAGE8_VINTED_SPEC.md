@@ -1,3 +1,11 @@
+---
+title: "Stage 8 — `VintedScraper`: implementation spec"
+status: shipped
+updated: 2026-08-23
+verified: 2026-08-23
+shipped_in: 0029
+---
+
 # Stage 8 — `VintedScraper`: implementation spec
 
 > **✅ Built 2026-08-22** — `Marketplace.VINTED` is live, migration `0029_vinted_support`. See

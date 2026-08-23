@@ -1,3 +1,10 @@
+---
+title: Ready-to-Run Prompts
+status: active
+updated: 2026-08-23
+verified: 2026-08-23
+---
+
 # Ready-to-Run Prompts
 
 Copy-paste any of these when you have tokens to burn.

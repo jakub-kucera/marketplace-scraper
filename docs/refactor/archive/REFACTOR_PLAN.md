@@ -1,3 +1,10 @@
+---
+title: Refactor Plan — Consolidated
+status: superseded
+updated: 2026-07-19
+superseded_by: docs/refactor/PIPELINE_REFACTOR.md
+---
+
 # Refactor Plan — Consolidated
 
 > **Archived — superseded by [`PIPELINE_REFACTOR.md`](../PIPELINE_REFACTOR.md).**

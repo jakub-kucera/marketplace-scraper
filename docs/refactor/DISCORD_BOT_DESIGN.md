@@ -1,6 +1,13 @@
+---
+title: Discord Bot — Exploration & Proposal
+status: proposal
+updated: 2026-07-24
+verified: 2026-07-24
+---
+
 # Discord Bot — Exploration & Proposal
 
-> Status: **proposal, not scheduled**. Not wired into `PIPELINE_REFACTOR.md`'s stage list or
+> **Nothing here has been built, and it is not scheduled.** Not wired into `PIPELINE_REFACTOR.md`'s stage list or
 > `PROMPTS.md`. Nothing here has been built. This is a thorough exploration, written the same
 > way `BAZOS_API_DISCOVERY_PIPELINE.md` and `LLM_AD_REVIEW_DESIGN.md` were — grounded in what
 > the code actually does today, not a generic "add a Discord bot" writeup.

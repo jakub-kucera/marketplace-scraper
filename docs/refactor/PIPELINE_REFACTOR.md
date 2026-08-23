@@ -1,3 +1,11 @@
+---
+title: Pipeline Refactor Plan
+status: shipped
+updated: 2026-08-23
+verified: 2026-08-23
+shipped_in: 0016-0030 — Stages 1-4 and 6-10. Stage 5 is the only open one and lives as PROMPTS.md P2
+---
+
 # Pipeline Refactor Plan
 
 > **Status 2026-08-23: 9 of the 10 stages are done.** Only Stage 5 (query priority) is open, and

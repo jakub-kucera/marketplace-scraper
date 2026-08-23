@@ -1,3 +1,10 @@
+---
+title: Pass 1 ranking — written before any Pass 2 work began
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Pass 1 ranking — written before any Pass 2 work began
 
 > RESEARCH_BRIEF §1 requires the ranking be committed *before* Pass 2, so the cut is made on

@@ -1,3 +1,11 @@
+---
+title: Bazos Mobile App — User-Agent Behaviour
+status: shipped
+updated: 2026-07-19
+verified: 2026-07-19
+shipped_in: bazos/scraping/bazos/user_agent.py
+---
+
 # Bazos Mobile App — User-Agent Behaviour
 
 How the official Android app (`cz.ackee.bazos`) builds the `User-Agent` header it

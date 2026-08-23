@@ -1,3 +1,10 @@
+---
+title: Bazos API-Driven Discovery Pipeline — Design & Workflow Ideas
+status: proposal
+updated: 2026-08-10
+verified: 2026-08-10
+---
+
 # Bazos API-Driven Discovery Pipeline — Design & Workflow Ideas
 
 Builds on `BAZOS_HIDDEN_API_RESEARCH.md` (endpoint reference, live-verified facts).

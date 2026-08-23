@@ -1,3 +1,11 @@
+---
+title: `Ad` / `AdDelivery` split — implementation spec
+status: shipped
+updated: 2026-08-23
+verified: 2026-08-23
+shipped_in: 0026, 0027, 0028, 0031
+---
+
 # `Ad` / `AdDelivery` split — implementation spec
 
 > Executable expansion of [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #1, **Option B**. The option

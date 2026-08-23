@@ -1,3 +1,10 @@
+---
+title: Research brief — which Czech marketplace to implement next
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Research brief — which Czech marketplace to implement next
 
 > **You are being asked to research, not to implement.** No code changes. The deliverable is one

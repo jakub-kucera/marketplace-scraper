@@ -1,6 +1,13 @@
+---
+title: Sbazar.cz — feasibility assessment
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Sbazar.cz — feasibility assessment
 
-> Status: assessed 2026-08-22. Verdict: **VIABLE**.
+> **Verdict: VIABLE** — assessed 2026-08-22.
 > All claims measured unless marked ⚠️ ASSUMED.
 > Egress: residential Czech ISP, `194.212.162.35`, **T-Mobile CZ, AS13036** (verified via
 > `ip-api.com`). Pass 1 ran from an M247 datacenter VPN and could not retrieve a single content

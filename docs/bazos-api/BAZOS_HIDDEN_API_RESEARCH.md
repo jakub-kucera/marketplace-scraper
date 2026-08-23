@@ -1,3 +1,10 @@
+---
+title: Bazos Hidden Mobile API — Research & Scraping Assessment
+status: reference
+updated: 2026-08-07
+verified: 2026-07-26
+---
+
 # Bazos Hidden Mobile API — Research & Scraping Assessment
 
 > Source: decompiled Android app `cz.ackee.bazos` **v2.19.1** (versionCode 4630),
@@ -5,7 +12,7 @@
 > under `sources/cz/ackee/bazos/**/retrofit/*ApiDescription.java` and the request
 > assembly in `AdRetrofitDataSource.java` / `OkHttpClientFactory.java`.
 >
-> **Status of claims:** endpoint paths, query keys, headers and the response model
+> **Provenance of claims:** endpoint paths, query keys, headers and the response model
 > are read directly from bytecode. **Update 2026-07-19:** the key open questions
 > have now been checked against the live API (direct connection, no Tor) — see
 > §7 for the full probe log. Auth-free access, the real pagination cap, the
