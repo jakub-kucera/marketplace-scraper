@@ -13,7 +13,7 @@ import requests
 from requests import Response
 from selenium.common.exceptions import TimeoutException
 
-from bazos.const import BAZOS_PAGE_WAIT_TIME, MAX_ATTEMPTS, PAGE_SIZE, BAZOS_BLACKLIST_CHECK_URL
+from bazos.const import BAZOS_PAGE_WAIT_TIME, MAX_ATTEMPTS, PAGE_SIZE, BAZOS_BLACKLIST_CHECK_URL, BAZOS_URL
 from bazos.exceptions import BazosBlacklistedError
 from bazos.filters import parse_price_and_type
 from bazos.models import Ad, Marketplace, Query, EmailPublisher, PhonePublisher
@@ -43,11 +43,24 @@ class BazosScraper:
 
     @classmethod
     def create_url_general(cls, query: Query) -> Iterator[str]:
+        """Whole-site search, for a Query with neither a section nor a category.
+
+        Uses BAZOS_URL (`/search.php`), NOT `query.url`. `query.url` falls back to
+        BAZOS_BASE_URL — a bare origin with no path — and Bazos redirects
+        `https://bazos.cz?hledat=...` to the homepage, dropping the query string
+        entirely. The scraper then parsed a page with zero `inzeraty` elements and
+        broke out of the page loop, so a section-less, category-less Query scraped
+        nothing at all, silently and on every pass. Measured 2026-08-23; see
+        docs/refactor/E2E_REPLAY_TESTING_RESEARCH.md §1a.
+
+        Fixed here rather than in `Query.url` because that property is also read by
+        `create_url_category` (correct today), by the runner's IP-guard calls, and
+        by the Vinted/Sbazar base-URL branches.
+        """
         params = cls.get_query_url_dict(query)
-        url: str = query.url
         for i in itertools.count(start=0, step=PAGE_SIZE):
             params['crz'] = i
-            yield f"{url}?{urlencode(params)}"
+            yield f"{BAZOS_URL}?{urlencode(params)}"
 
     @staticmethod
     def get_query_url_dict(query: Query):

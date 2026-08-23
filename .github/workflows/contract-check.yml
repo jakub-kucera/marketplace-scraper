@@ -1,0 +1,56 @@
+# Weekly drift check against the live bazos.cz.
+#
+# The committed cassettes prove the scraper still handles the HTML recorded on
+# the day they were made — not that it handles Bazos today. This job re-parses
+# the live site and compares which fields still come back against the cassette,
+# so partial drift (e.g. view_count quietly disappearing) surfaces here instead
+# of in production. The zero-results canary in BazosRunner already covers the
+# catastrophic case.
+#
+# Runs on the self-hosted Pi runner, not a GitHub-hosted one: Bazos refuses
+# GitHub runner IPs. See docs/marketplaces/RECOMMENDATION.md §6 on vantage points.
+#
+# Deps are installed in a throwaway container rather than on the Pi host, since
+# the app image is built with `poetry install --only main` and has no pytest,
+# and the host is not assumed to carry poetry at all. `--without notebooks` keeps
+# jupyter and its tree out of a slim ARM image that only needs to run six tests.
+#
+# NOTE: trigger this once manually (workflow_dispatch) after merging to confirm
+# it works on the runner before relying on the schedule.
+
+name: Live contract check
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays 06:00 UTC. Deliberately not more often: this makes real requests
+    # to a third-party site we do not own.
+    - cron: "0 6 * * 1"
+
+jobs:
+  contract:
+    runs-on: self-hosted
+    # The Pi has a single runner, shared with deploy.yml. A live scrape that
+    # stalls would block deploys until someone noticed.
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run live contract tests
+        env:
+          SECRET_KEY: ci-secret-key-not-used-in-production
+        run: |
+          # The container runs as root against a bind-mounted checkout, so anything
+          # it writes there stays root-owned and the next actions/checkout cleanup
+          # — which runs as the runner user — fails. Keep it from writing at all:
+          # no .pyc files, no .pytest_cache.
+          docker run --rm \
+            -v "$PWD:/app" -w /app \
+            -e SECRET_KEY="$SECRET_KEY" \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            python:3.11-slim \
+            sh -c "pip install --quiet poetry && \
+                   poetry config virtualenvs.create false && \
+                   poetry install --no-root --without notebooks --no-interaction --no-ansi && \
+                   pytest -m live -v -p no:cacheprovider"
