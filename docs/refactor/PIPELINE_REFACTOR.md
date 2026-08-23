@@ -1,6 +1,11 @@
 # Pipeline Refactor Plan
 
-> This is the live, authoritative stage plan for the pipeline refactor — its ✅
+> **Status 2026-08-23: 9 of the 10 stages are done.** Only Stage 5 (query priority) is open, and
+> it exists in executable form as [`PROMPTS.md`](PROMPTS.md) **P2** — that is the copy to work
+> from. What shipped, when, and in which migration is recorded in
+> [`../SHIPPED.md`](../SHIPPED.md). This file is kept for the stage-by-stage rationale.
+>
+> This was the live, authoritative stage plan for the pipeline refactor — its ✅
 > checkmarks are kept in sync with the code. Superseded alternate drafts live in
 > [`archive/`](./archive/). See [`docs/README.md`](../README.md) for the full doc index.
 >
@@ -523,28 +528,37 @@ Delete `bazos/mixins.py` once all references are removed.
 
 ---
 
-## Stage 8 — VintedScraper
+## ✅ Stage 8 — VintedScraper
+
+**Done 2026-08-22** — `VintedScraper` is registered, `Marketplace.VINTED` is live, migrations through
+`0029_vinted_support`. Built from [STAGE8_VINTED_SPEC.md](./STAGE8_VINTED_SPEC.md) after a live
+library probe that overturned four of the design's original claims. See
+[`../SHIPPED.md`](../SHIPPED.md).
 
 New scraper behind the `MarketplaceScraper` interface. Vinted has an unofficial REST JSON API — no BeautifulSoup needed.
 
 📄 **Full design & decision log**: [STAGE8_VINTED_DESIGN.md](./STAGE8_VINTED_DESIGN.md)
 
-### Key decisions (summary)
+### Key decisions (summary — as implemented)
 
-- **Library**: `vinted-scraper` v3.1.1 (Giglium) — handles cookie management automatically.
+- **Library**: `vinted-scraper` **4.0.0** (Giglium) — handles cookie management automatically.
+  *(The 3.1.1 originally named here was never run; the 2026-08-21 probe corrected it.)*
 - **Tor / session**: Vinted bans proxies. `VintedScraper` ignores the Tor session and manages its own.
 - **Query model**: Option C — keep one `Query` table, add `extra_params = JSONField(default=dict)`. Vinted-specific search params (e.g. `catalog_ids`) go in `extra_params`. The `section`/`category` FKs remain Bazos-only and are `null` for Vinted queries.
 - **`url` property**: returns `https://www.vinted.cz` (or whichever domain is in `extra_params["base_url"]`) when `marketplace="vinted"`.
 - **Publisher FKs**: `EmailPublisher` / `PhonePublisher` will be `null` for Vinted ads — Vinted doesn't expose contact info.
-- **`topped`**: always `False` for Vinted (no promoted-listing concept in the search API).
+- ~~**`topped`**: always `False` for Vinted~~ — **wrong**. `promoted` exists and behaves exactly
+  like Bazos's topped ads; hardcoding `False` would have broken the dedup walk.
 
-### Open questions (see design doc)
+### Open questions — all resolved by the 2026-08-21 probe
 
-- Czech (`vinted.cz`) vs Slovak (`vinted.sk`) domain — per-query or Django setting?
-- Stopping logic for existing queries — Vinted has no `topped` equivalent to skip over.
-- Rate-limiting back-off strategy.
+- Czech vs Slovak domain → per-query, via `Query.extra_params["base_url"]`.
+- Stopping logic → `promoted` maps to `topped`, so the existing dedup walk works unchanged.
+- Rate-limiting → the library manages its own `httpx` client and cookies; Vinted bans proxy/VPN
+  traffic, so the shared Tor session is deliberately ignored.
 
-**Files**: `bazos/scraping/vinted/vinted_scraper.py` (new), `bazos/models.py`, migration `0019_query_extra_params`
+**Files as built**: `bazos/scraping/vinted/vinted_scraper.py`, `bazos/models.py`, migration
+`0029_vinted_support` (not `0019` — the numbering in this section predates ten other migrations)
 
 ---
 
@@ -616,6 +630,22 @@ publisher admins); `Query`'s new JSON fields show on the default change form sin
 
 ---
 
+## ✅ Stage 10 — SbazarScraper
+
+**Done 2026-08-22** — added after this document's original ten-stage plan was written, on the
+recommendation of the marketplace study ([`../marketplaces/RECOMMENDATION.md`](../marketplaces/RECOMMENDATION.md)).
+`Marketplace.SBAZAR`, `bazos/scraping/sbazar/`, unauthenticated `/api/v1/items/search`, zero
+`Ad` migrations needed (Sbazar ids are plain integers). Built from
+[STAGE10_SBAZAR_SPEC.md](./STAGE10_SBAZAR_SPEC.md).
+
+**One post-review correctness fix worth knowing before touching the dedup walk**: Sbazar sorts
+newest-first by *edit* time, not *creation* time, so an edited old ad resurfaces above genuinely
+new listings. `run_existing_query` now breaks after `scraper.dedup_break_streak` **consecutive**
+known non-topped ads rather than the first one; `SbazarScraper` sets it to
+`SBAZAR_DEDUP_BREAK_STREAK` (40), every other scraper keeps the default of 1. See that spec's §11.
+
+---
+
 ## Migration Path (implementation steps)
 
 Each step is independently deployable. The scraper remains fully functional throughout.
@@ -641,7 +671,7 @@ Data migration on `Ad` and `Query`. BazosScraper sets `marketplace="bazos"`.
 ### ✅ Step 7: Extract protocols (`MarketplaceScraper`, `Sendable`)
 Structural refactor — no behaviour change.
 
-### Step 8: Implement `VintedScraper`
+### ✅ Step 8: Implement `VintedScraper`
 New scraper behind the shared interface. Add Vinted queries.
 
 ### ✅ Step 9: Add real filter rules

@@ -2,20 +2,18 @@
 
 Copy-paste any of these when you have tokens to burn.
 
-**Sections are ordered by priority, not by prompt number** — P18–P24 (added 2026-07-29) sit above
-the older P6–P17 improvements because they're defects and prerequisites rather than enhancements.
-See [Order recommendation](#order-recommendation) at the bottom for the actual sequence to work in.
+**Sections are ordered by priority, not by prompt number** — the defects and prerequisites
+(P20–P24) sit above the older improvements (P7–P17) because they're things quietly broken or
+blocking, not enhancements. See [Order recommendation](#order-recommendation) at the bottom for
+the actual sequence to work in.
+
+**Prompt numbers are stable and gapped on purpose.** P1, P3–P6, P15, P17–P19 and P22 are gone
+from this file because they are **done** — they are recorded in [`../SHIPPED.md`](../SHIPPED.md)
+with the migration and commit that landed them. Numbers are never reused.
 
 ---
 
 ## 🔴 Blocked / Missing (pipeline stages not yet implemented)
-
-### ✅ P1 — Stage 4: Price History — done
-`PriceChange` model, `_get_known` (renamed from `_is_known`, returns `Ad | None`), price-change
-detection in `run_existing_query`, migration `0020_price_change.py`, `PriceChangeInline` on
-`AdAdmin`, and tests are all in place. Nothing left to do here.
-
----
 
 ### P2 — Stage 5: Query Priority
 ```
@@ -35,131 +33,45 @@ Steps:
 
 ---
 
-### ⚠️ P3 + P4 — Stage 8: Vinted — **superseded by a spec, do not run these prompts**
+### P20 — IP-guard hardening: no request timeouts, two unguarded call sites
 
-> **Replaced 2026-08-21 by [`STAGE8_VINTED_SPEC.md`](STAGE8_VINTED_SPEC.md).** Both prompts were
-> written against `STAGE8_VINTED_DESIGN.md`'s *asserted* field mapping, which had never been run.
-> The library was probed live that day (`vinted-scraper` 4.0.0 against `vinted.cz`) and the
-> prompts below are wrong in ways that crash rather than degrade. They are kept only as a record.
+> **🔶 Two of the three original cases are done; this is what is left.** P20 was written
+> 2026-07-29 against three failure modes — (a) `check_ip_local()` silently skipping every query
+> forever, (b) unbounded rotation loops, (c) the guards *raising* and killing the whole pass.
 >
-> **Use the spec. Do not paste these into a model.**
+> - **(a) — done, differently than proposed.** `check_ip_local()` now runs **once per pass** at
+>   the top of `BazosRunner.run` and skips the whole pass rather than `continue`-ing per query,
+>   so a misconfigured `LOCAL_IP_SUBNET` can no longer burn a pass one silent skip at a time.
+>   *Leftover:* it logs at WARNING, and step 5's escalating consecutive-detection counter was
+>   not built. A guard that disables all work should probably be ERROR.
+> - **(b) — done.** `renew_ip_bazos_ok` takes a `max_attempts` cap, and `tor.py`'s second
+>   unbounded loop is now `for attempt in range(1, MAX_RENEW_ATTEMPTS + 1)` (`= 5`), re-signalling
+>   NEWNYM each round instead of polling a circuit that never rotated. `NEWNYM_WAIT_SECONDS = 10`
+>   paces the retries; step 8's *escalating* backoff was not built and probably isn't needed.
+> - **(c) — still open, and it is the whole of this prompt now.** See below.
 
-**What P4 got wrong** — nine items, verified against live responses:
+**What is still broken, verified against the tree 2026-08-23:**
 
-| P4 said | Reality |
-|---|---|
-| `publish_date=None, view_count=None` | Both columns are **NOT NULL with no default** → `IntegrityError` on the first save. Must be made nullable first. |
-| *(nothing about `external_id`)* | Vinted ids are ~9.7 billion — **4.5× over Postgres `int4` max**. `Ad.external_id` is an `IntegerField` → `NumericValueOutOfRange`. Needs `BigIntegerField`. **Neither failure is caught by the test suite**, which runs on SQLite. |
-| `load_full_description` — "no-op, return ad unchanged" | `description` is **`None` on every search result**. The detail call is required, succeeds ~5/8, and has **two** failure modes — a sparse `{'id'}` dict on 200, and a raised `RuntimeError` on non-200 (sold/deleted listing). Uncaught, the second one truncates the query's whole pass. |
-| `short_description=item.description or ""` | Always `""` for the above reason — which means keyword rules match on the **title alone** on Vinted. |
-| `price_raw=str(item.price)` | Vinted prices are FX-converted **decimals** (`6307.5`). `parse_price` strips non-digits, so that string parses to **63075** — a silent 10× error. Must round to an integer. Also `price` excludes the buyer-protection fee; `total_item_price` is what a buyer pays. |
-| `topped=False` | **`promoted` exists** and behaves exactly like Bazos's topped ads. Hardcoding `False` breaks the dedup walk. |
-| `marketplace = "vinted"` | `Marketplace.VINTED` is **commented out** in `models.py` and must be uncommented; use `Marketplace.VINTED.value`. |
-| `__init__(self)` instantiating `VintedScraper(base_url)` | The library's class is **also** called `VintedScraper` — the prompt is ambiguous about which is which. The spec mandates `import VintedScraper as VintedApiClient`. |
-| `check_blacklisted(url: str = "")` | Signature changed in `2fb37f8`; it now takes no `url`. |
-| step 5: add a `marketplace_vinted` compose service | Not needed — `run_scraper` already dispatches on `query.marketplace`. **Resolved: confirmed.** |
+1. **There are no request timeouts anywhere in `ip_changer/`.** `grep -rn timeout ip_changer/`
+   is empty and `requests` has no default. `IPChanger.get_current_ip` does a bare
+   `self.session.get('https://icanhazip.com')` over a Tor SOCKS proxy that regularly drops
+   circuits — the observed hang was **~4 minutes on one socket**.
+2. **`check_ip_local()` at `bazos_runner.py:37` has no try/except.** It is the first thing
+   `run()` does each pass, it calls `get_current_ip()`, and if that raises the exception escapes
+   `run()` entirely — `run_scraper` catches at top level, sleeps 60s and rebuilds the runner.
+   The whole pass is lost before a single query is attempted.
+3. **`change_ip()` at `bazos_runner.py:120` sits *outside* the per-attempt `try`.** In
+   `_run_query_with_rotation` it is called after the `finally`, on the fall-through from
+   `BazosBlacklistedError`. Both `get_current_ip()` (in `change_ip`'s own log line) and
+   `renew_ip_and_check_new()` can raise there, and nothing catches it — so the rotation path,
+   which by definition only runs when the transport is already unhealthy, is the one path with
+   no protection.
 
-**What P3 got wrong** — less severe, but still: migration `0020` (stale by eight — the split took `0026`/`0027`, so Vinted's is `0028`), and "update `QueryAdmin` to expose `extra_params`",
-which is a no-op because `QueryAdminForm.Meta.fields = "__all__"` already picks it up.
+The pre-flight `blacklist_check(query.url)` call that used to be the third exposure site is
+**gone** — removing the probe removed that crash surface as a side effect.
 
-P3's substance — add `extra_params`, branch `Query.url` on marketplace — survives intact and is
-carried forward as §3 of the spec.
-
----
-
-### ✅ P5 — Stage 9: Real Filter Rules — done
-All five rules (`PriceRangeRule`, `BlocklistKeywordRule`, `RequiredKeywordRule`,
-`PublisherBlocklistRule`, `PriceDropRule`) plus `parse_price` are in `bazos/filters.py`. Migration
-`0021_emailpublisher_blocked_phonepublisher_blocked_and_more.py` adds
-`Query.filter_blocklist`/`filter_required` and `EmailPublisher.blocked`/`PhonePublisher.blocked`,
-admin exposes them (block/unblock actions on both publisher admins), and
-`bazos/tests/test_filters.py` covers each rule. Nothing left to do here. (`run_filter` no longer
-uses a fixed `RuleEngine([PassthroughRule()])`/`RuleEngine([...five rules])` — see P17 below,
-also done, for how rule selection is now per-query.)
-
----
-
-## 🐛 Silent-failure defects
-
-> Added 2026-07-29. These are **not ideas** — they are things quietly broken today, each with a
-> known fix. Common theme: **the pipeline cannot currently distinguish "nothing to find" from
-> "not working"**, so every failure mode below looks like a quiet market. Do these before any
-> feature work; they're ~1 day in total and they protect the value of everything else.
-
-### ✅ P18 — `QueryRun` is lost whenever a query raises — done
-`bazos/scraping/bazos_runner.py::run` now saves the `QueryRun` row **before** the query
-executes, wraps the per-query body in `try/except/finally`, records `success=False` +
-`error` on failure, and always stamps `run_end` in the `finally`. `QueryRun.success`
-(BooleanField, default True) and `QueryRun.error` (nullable TextField) are in
-`bazos/models.py` with migration `0023_queryrun_error_queryrun_success.py`. `QueryRunAdmin`
-shows both in `list_display` and filters on `success`. Four tests in
-`bazos/tests/test_query_run_tracking.py` cover the row surviving a raise, the success path,
-one failing query not aborting the pass, and persistence-before-execution.
-
-**One deliberate deviation from the original step 2:** the `except` block `continue`s
-instead of re-raising. That's the right call — re-raising would defeat step 3 — so the
-prompt's wording, not the implementation, was wrong.
-
-> ⚠️ **Residual gap, not covered by P18 — see P20.** The three IP-guard calls at the top of
-> the query loop (`check_bazos_blacklisted`, `change_ip`, `check_ip_local`) sit **outside**
-> the new `try`, so an exception there still escapes `run()` and takes down the whole
-> runner via `run_scraper`'s 60s-sleep-and-restart handler — losing the rest of the pass
-> exactly as before. **This is an observed failure, not a theoretical one** (2026-08-08:
-> `RemoteDisconnected` from `get_current_ip()`'s `icanhazip.com` call over a dead Tor
-> circuit, crashing at `bazos_runner.py:41` and `:43`). P20 owns this; note that P20 as
-> written only covers the guards *returning misleading values*, not *raising* — see its
-> own ⚠️ note.
-
----
-
-### ✅ P19 — No zero-results canary (parser drift is invisible) — done
-Implemented per the executable spec, now archived at
-[`archive/P19_ZERO_RESULTS_CANARY.md`](archive/P19_ZERO_RESULTS_CANARY.md). Two in-memory
-counters on `BazosRunner` (`zero_rows_passes`, `zero_new_ads_passes`), evaluated once per
-pass in `_check_zero_results_canary`: zero **parsed rows** across a pass alerts at ERROR
-after `ZERO_ROWS_ALERT_THRESHOLD` (default 2) consecutive passes (near-certain defect —
-Sentry only auto-captures ERROR+); zero **new** ads with rows parsed alerts at WARNING after
-`ZERO_NEW_ADS_ALERT_THRESHOLD` (default 10) consecutive passes (weak signal — quiet markets
-look identical). `BazosQueryRunner.rows_seen_counter` feeds the first signal. Neither alert
-is fatal, and a pass where every query raised counts as neither (P18's `QueryRun.success`
-already covers that case loudly). 10 tests in `bazos/tests/test_zero_results_canary.py`.
-
----
-
-### P20 — Three IP-guard failure modes: silent total skip, unbounded retry loop, and raising guards
-
-> **🔶 Partially done 2026-08-09 — case (b) is largely landed.** `renew_ip_bazos_ok` now takes
-> a `max_attempts` cap (default `MAX_ATTEMPTS`), raises `BazosBlacklistedError` when
-> exhausted, and `BazosRunner.run` catches it via `logger.exception` (not `self.log` — this
-> was deliberate: `self.log`'s WARNING level only reaches the Discord log channels, and
-> Sentry's logging integration only auto-captures ERROR+, so a plain WARNING here would have
-> stayed invisible in Sentry) and **skips that query while keeping the pass**. Two tests cover
-> the bounded-retry/pluggable-check behavior in `ip_changer/tests/test_ip_changer.py`
-> (`test_renew_ip_bazos_ok_raises_after_max_attempts_exhausted`,
-> `test_renew_ip_bazos_ok_uses_custom_is_blacklisted_check`); three more in
-> `bazos/tests/test_bazos_runner_blacklist.py` cover the dispatch itself — a `bazos_api`
-> query's pre-check hits `BazosApiScraper.check_blacklisted`, a `bazos` query's hits
-> `BazosScraper.check_blacklisted`, and a query that exhausts retries is skipped without
-> aborting the rest of the pass. The `is_blacklisted` callable is also newly pluggable so a
-> query dispatched to `BazosApiScraper` is checked against the API surface rather than the
-> HTML one (via `BazosRunner._blacklist_checker`, new) — a correctness improvement beyond
-> what step 6 asked for, since the two surfaces block independently; this is what fixed the
-> `bazos_api`-marketplace query that was raising `BazosBlacklistedError` every pass in
-> production (root-caused 2026-08-08, landed 2026-08-09).
->
-> **Still outstanding in this prompt:** case **(a)** entirely; case **(b)** step 7
-> (`tor.py:34`'s *second* unbounded `while True:` in `renew_ip_and_check_new`) and step 8
-> (backoff between rotation attempts); and **all of case (c)** — there are still no timeouts
-> anywhere in `ip_changer/`, and the exposure is actually two call sites now, not one: the
-> pre-flight `blacklist_check(query.url)` call in `BazosRunner.run` (`bazos_runner.py:40`) has
-> no try/except around it at all, and inside `change_ip` (`bazos_runner.py:102`) only
-> `BazosBlacklistedError` is caught — `get_current_ip()`'s bare `session.get(...)`
-> (`bazos_runner.py:103` → `ip_changer.py:33`) or a `ConnectionError` surfacing through
-> `is_blacklisted(url)` itself would both still escape and kill the runner.
-
-> **⚠️ Scope corrected 2026-08-08 — case (c) added.** As originally written this prompt only
-> covered the guards **returning misleading values**. It missed the case that actually
-> happened in production: the guards **raising**. Observed crash, twice in one log:
+> **The original evidence, still the justification.** Observed crash, twice in one log
+> (2026-08-08):
 >
 > ```
 > ip_changer.py:31 get_current_ip → session.get('https://icanhazip.com')
@@ -167,85 +79,49 @@ already covers that case loudly). 10 tests in `bazos/tests/test_zero_results_can
 >     RemoteDisconnected('Remote end closed connection without response'))
 > ```
 >
-> reached from `bazos_runner.py:41` (`change_ip`) and `bazos_runner.py:43`
-> (`check_ip_local`). Diagnosis: **not** Bazos rate-limiting — the failing host is
-> `icanhazip.com`, and `RemoteDisconnected` means no HTTP response arrived at all, unlike a
-> 403/429 which `check_bazos_blacklisted` already handles. It is a dead Tor circuit /
-> refused exit (`PROXY_ROTATION_RESEARCH.md` §2), compounded by icanhazip being
-> Cloudflare-fronted and therefore hostile to Tor exits by default.
->
-> Two aggravating factors, both cheap to fix and both in the steps below:
-> **no timeouts anywhere** (`grep -rn timeout ip_changer/ bazos/scraping/` is empty and
-> `requests` has no default) — the observed hang was **~4 minutes** on one socket; and these
-> guard calls sit **outside** P18's new per-query `try`, so the exception still escapes
-> `run()` and costs the entire pass.
+> Diagnosis: **not** Bazos rate-limiting — the failing host is `icanhazip.com`, and
+> `RemoteDisconnected` means no HTTP response arrived at all, unlike a 403/429. It is a dead Tor
+> circuit / refused exit (`../proxies/PROXY_ROTATION_RESEARCH.md` §2), compounded by icanhazip
+> being Cloudflare-fronted and therefore hostile to Tor exits by default.
 
 ```
-Fix three guard bugs in the IP layer that can each stall the scraper invisibly.
+Harden the IP guards in ip_changer/ and bazos/scraping/bazos_runner.py against raising.
 
-Context (a) — silent total skip: `BazosRunner.run` does
-`if self.ip_changer.check_ip_local(): self.log(...); continue`. `continue` skips the query.
-If `check_ip_local()` is persistently True — a misconfigured `LOCAL_IP_SUBNET`, or Tor down
-so the session egresses from the local network — then EVERY query is skipped on EVERY pass,
-forever, while each pass reports completing normally. Total silent failure.
+Context: every request in ip_changer/ is a bare session.get() with no timeout, over a Tor
+SOCKS proxy that regularly drops circuits. Two call sites are unguarded, and both of them
+cost an entire scraper pass when they raise: check_ip_local() at the top of BazosRunner.run,
+and change_ip() on the blacklist-rotation fall-through in _run_query_with_rotation.
 
-Context (b) — unbounded loop: `IPChanger.renew_ip_bazos_ok` is `while True:` with no attempt
-cap — it rotates and re-probes until Bazos stops returning 403. If Bazos is blocking the
-whole exit-node pool (the documented Tor reputation problem, see
-../proxies/PROXY_ROTATION_RESEARCH.md §2), this spins indefinitely, hammering both Tor's
-control port and Bazos.
-
-Context (c) — the guards RAISE, killing the whole pass: `get_current_ip` (ip_changer.py:33)
-and `check_bazos_blacklisted` (:37) do bare `session.get(...)` with NO timeout, over a Tor
-SOCKS proxy that regularly drops circuits. When one raises, the exception escapes the
-per-query try/except added by P18 (those guard calls are ABOVE it in `BazosRunner.run`), so
-`run_scraper` catches at top level, sleeps 60s, and rebuilds the entire runner — losing
-every remaining query in the pass. Observed 2026-08-08; see the note above this block. As of
-the 2026-08-09 partial fix this is now reachable from two spots in `bazos_runner.py`, neither
-guarded: the pre-flight `blacklist_check(query.url)` call (:40, no try/except at all) and
-`get_current_ip()` inside `change_ip` (:103, only `BazosBlacklistedError` is caught there).
-Note also `tor.py:34`'s SECOND unbounded `while True:` in `renew_ip_and_check_new` — if Tor
-keeps returning the same IP it loops forever at 5s/iteration. P20 previously named only
-`renew_ip_bazos_ok`'s loop.
-
-Steps — do (c) first; it is ~30 minutes and stops an active production crash loop:
-1. For (c): add explicit timeouts to EVERY request in `ip_changer/` — `timeout=(5, 15)`
-   (connect, read) on `get_current_ip`, `check_bazos_blacklisted`, and anything else doing
-   `session.get`. Prefer setting it once on the session/adapter so new call sites can't
-   forget. A 4-minute hang on a dead socket is worse than a fast failure.
-2. For (c): make `get_current_ip` resilient rather than trusting one Cloudflare-fronted host
-   over Tor — retry with fallbacks (api.ipify.org, ifconfig.me, ident.me) and raise only if
-   all fail. Consider skipping the check entirely when IP_CHANGER_TYPE=TOR, where a local
+Steps:
+1. Add explicit timeouts to EVERY request in ip_changer/ — timeout=(5, 15) (connect, read)
+   on get_current_ip and check_bazos_blacklisted. Prefer setting it once on the session or a
+   mounted adapter in renew_session() so new call sites cannot forget. A 4-minute hang on a
+   dead socket is worse than a fast failure.
+2. Make get_current_ip resilient rather than trusting one Cloudflare-fronted host over Tor:
+   try a small list of fallbacks (api.ipify.org, ifconfig.me, ident.me) and raise only if all
+   fail. Consider skipping the local-IP check entirely when IP_CHANGER_TYPE=TOR, where a local
    egress is impossible by construction (socks5h fails closed, it does not fall back to a
    direct connection) — it is currently the most Tor-hostile request in the pipeline and it
-   guards against a case that transport makes unreachable.
-3. For (c): move the guard calls INSIDE a try/except in `BazosRunner.run` so a guard failure
-   costs one query (or one pass), not the whole runner. Record it on the QueryRun row the
-   way P18 already does for scraper failures.
-4. For (a): treat a local IP as a pass-level fatal condition, not a per-query skip — break
-   out of the query loop, log at ERROR (so it reaches the Discord logging channels), and let
-   the pass end so the next one retries after the normal sleep. A guard that can silently
-   disable all work must be loud.
-5. For (a): also count consecutive local-IP detections and escalate (ERROR + longer backoff)
-   rather than re-probing at full cadence.
-6. For (b): add a max-attempts cap to `renew_ip_bazos_ok` (reuse `MAX_ATTEMPTS` from
-   `bazos/const.py`, currently 5), raise `BazosBlacklistedError` when exhausted, and let the
-   caller decide — do not loop forever inside the IP layer.
-7. For (b): apply the same cap to `tor.py::renew_ip_and_check_new`'s inner `while True:`.
-8. For (b): add a bounded backoff between rotation attempts so a fully-blocked pool doesn't
-   generate a tight request loop.
-9. Write tests: a guard that raises does not abort the pass; timeouts are actually set on
-   the session; `check_ip_local` returning True aborts the pass loudly rather than silently
-   skipping each query; `renew_ip_bazos_ok` and `renew_ip_and_check_new` both raise after
-   MAX_ATTEMPTS rather than hanging.
+   guards a case the transport makes unreachable.
+3. Wrap check_ip_local() in BazosRunner.run so a failure skips the pass the same way a True
+   result does, instead of escaping run() and forcing a 60s rebuild of the whole runner.
+4. Wrap the change_ip() call in _run_query_with_rotation so a rotation failure ends that
+   query's retry loop (return None, keep the pass) rather than killing the pass. Record it on
+   the QueryRun row the way the existing except branches already do.
+5. For the (a) leftover: raise check_ip_local's log level to ERROR so it reaches the Discord
+   log channels and Sentry (which only auto-captures ERROR+), and count consecutive local-IP
+   passes so a persistent misconfiguration escalates instead of repeating quietly forever.
+6. Tests: a guard that raises does not abort the pass (one for each of the two call sites);
+   timeouts are actually set on the session; check_ip_local returning True skips the pass
+   loudly; get_current_ip falls through to a second host when the first one fails.
 ```
 
-> **Note on the durable fix.** Steps 1–3 are damage control for a transport that is failing
-> on reputation, not on anything you're doing wrong — your volume (~6 queries × 3 requests
-> per 15–45 min) is nowhere near a rate limit. **P21b** replaces Tor entirely and makes most
-> of this moot: `HttpProxyIPChanger.renew_ip` is a no-op, so the icanhazip round-trip that
-> crashes here largely stops existing. Do P20 anyway — a guard that can take down the runner
-> is worth fixing regardless of transport — but don't expect it to make the 403s go away.
+> **Note on the durable fix.** These are damage control for a transport failing on reputation,
+> not on anything you're doing wrong — your volume is nowhere near a rate limit. **P21b**
+> replaces Tor entirely and makes most of this moot: `HttpProxyIPChanger.renew_ip` is a no-op,
+> so the icanhazip round-trip that crashes here largely stops existing. Do P20 anyway — a guard
+> that can take down the runner is worth fixing regardless of transport — but don't expect it to
+> make the 403s go away.
 
 ---
 
@@ -261,7 +137,7 @@ Steps — do (c) first; it is ~30 minutes and stops an active production crash l
 > this prompt is the missing executable version. It also unblocks
 > [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6, which needs the API's second-resolution timestamps.
 
-### P21 — Cut latency: API cutover + guard collapse + rotating proxy
+### P21 — Cut latency: API cutover + rotating proxy
 
 > **⚠️ Split into P21a / P21b, 2026-08-08.** This was one 3–5 day unit, which hid the fact
 > that it bundles **two very different risk profiles**:
@@ -277,7 +153,8 @@ Steps — do (c) first; it is ~30 minutes and stops an active production crash l
 >
 > | | Bazos req/query/pass | Passes/day | **Bazos req/query/day** | Median latency |
 > |---|---|---|---|---|
-> | Today (HTML, 3 guards) | 3 | 40 (30 min avg) | **120** | ~15 min |
+> | Original (HTML, 3 guards) | 3 | 40 (30 min avg) | **120** | ~15 min |
+> | Today (HTML, **probes removed 2026-08-23**) | ~1 (+ detail per new ad) | 40 | **~40** | ~15 min |
 > | **After P21a @ 10 min** | ~1 | 120 | **~120** | **~5 min** |
 > | After P21a @ 5 min | ~1 | 240 | ~240 (2×) | ~2.5 min |
 > | After P21a @ 2 min | ~1 | 600 | ~600 (5×) | ~1 min |
@@ -296,9 +173,16 @@ Steps — do (c) first; it is ~30 minutes and stops an active production crash l
 
 ---
 
-#### P21a — The free 3×: API cutover + guard collapse + interval to ~10 min
-> ⚠️ Do P19–P20 first — you want failure visibility *before* you increase cadence.
-> (P18 is done.) No external dependency; nothing here costs money.
+#### P21a — The free 3×: API cutover + interval to ~10 min
+> ⚠️ Do P20 first — you want failure visibility *before* you increase cadence.
+> No external dependency; nothing here costs money.
+>
+> **✅ Part 2 (guard collapse) landed 2026-08-23**, and more aggressively than this prompt
+> asked: rather than collapsing the two blacklist probes into one per pass, **both were
+> deleted** — the query attempt is now the probe (`BazosRunner._run_query_with_rotation`), and
+> `check_ip_local()` moved to once per pass. That is the request-volume saving this part was
+> written to buy, already banked. **Parts 1 and 4a are still open**, and they are what actually
+> moves latency: the interval is unchanged.
 
 ```
 Take detection latency from a ~15 min median to a ~5 min median at UNCHANGED Bazos request
@@ -314,17 +198,9 @@ Part 1 — tunable API page size (do this first, it's the prerequisite):
    request drops from ~15 KB to ~1.1 KB (research doc §4).
 2. Keep 210 for `run_new_query` backfill and any bulk `ad_id[]=` path.
 
-Part 2 — collapse the duplicate guards (this is what pays for the extra cadence):
-3. Per PROXY_ROTATION_RESEARCH.md §3 there are ~3 Bazos requests per query per pass, and TWO
-   of them are redundant blacklist probes: `BazosRunner.run`'s
-   `ip_changer.check_bazos_blacklisted(query.url)` and the scraper-level
-   `scraper.check_blacklisted(...)`. Collapse to a SINGLE probe ONCE PER PASS (not per
-   query) in `BazosRunner.run`, before the query loop.
-4. `check_ip_local()` calls icanhazip.com per query — move that to once per pass too. This
-   also cuts the blast radius of the observed 2026-08-08 crash (see P20's ⚠️ note) by ~6×,
-   since that request is the one that died.
-5. Be careful with the interaction with P20: the guards must still be loud on failure, just
-   evaluated less often.
+Part 2 — DONE, do not redo. Both blacklist probes were deleted and check_ip_local moved to
+once per pass (2026-08-23). Do NOT reintroduce a pre-flight probe — see CLAUDE.md's
+"Blacklist / IP guards" note for why the fixed-URL probe was actively misleading.
 
 Part 4a — cut over and take the free cadence:
 6. Switch ONE canary `Query` to `marketplace="bazos_api"`, run
@@ -383,53 +259,6 @@ Part 4b — lower the interval the rest of the way:
 6. Re-check detail-endpoint volume at the new cadence (PROXY_ROTATION_RESEARCH.md §5.1) —
    the table there shows 300 tracked ads at 5 min is already 72,000 detail req/day, which is
    the documented ban vector. Pool size is what absorbs it.
-```
-
----
-
-### ✅ P22 — `Ad.price_raw` → real integer + `price_type` — done
-> Unblocks P23, and BACKLOG_IDEAS.md #10 (distance/margin scoring).
-> ⚠️ **Read [`PRICE_PARSING_RESEARCH.md`](PRICE_PARSING_RESEARCH.md) first — it samples all four
-> marketplaces live and corrects this prompt in five places:** the `price_type` enum below is
-> **missing `Nerozhoduje`** (93 rows) and has no `CURRENT_BID` for Aukro's auction prices; `Zdarma`
-> must map to **`price=0`, not `None`**; `IntegerField` should be **`BigIntegerField`** (the
-> observed 10-digit shape can overflow int32, and it passes on SQLite while raising on Postgres);
-> step 3's "prefer the API's `price_type`" is right, but Bazos's vocabulary is `NEGOTIATED`/
-> `OFFERED`, **not** `NEGOTIABLE`/`MAKE_OFFER`, so the mapping must be explicit; and step 2's
-> premise is wrong — **a better parser cannot fix this.** `re.sub(r"\D","")` is correct for Bazos
-> only: Vinted is float with 72% non-integer (error is 10^dp), Aukro is `int` *or* `float`
-> unstably within one response, and **three marketplaces encode "zero" differently**. Normalise at
-> the scraper, not the parser.
-
-```
-`Ad.price_raw` is a CharField holding strings like "12 500 Kč", "Dohodou", "V textu",
-"Nabídněte" — so no median, percentile, index, or margin arithmetic is possible. This is
-already flagged as a TODO in `bazos/models.py` on the price_raw field.
-
-Note `parse_price(price_raw) -> int | None` ALREADY EXISTS in `bazos/filters.py` and is used
-by PriceRangeRule/PriceDropRule — reuse it, don't write a second parser.
-
-Steps:
-1. Add `price` (IntegerField, null=True, db_index=True) and `price_type` (CharField with
-   TextChoices: EXACT / NEGOTIABLE ("Dohodou") / IN_TEXT ("V textu") / MAKE_OFFER
-   ("Nabídněte") / FREE / UNKNOWN) to `Ad`. KEEP `price_raw` — it's the audit trail and the
-   source for backfill.
-2. Extend the parsing in `bazos/filters.py` (or move it to a shared helper both filters and
-   scrapers import) so it returns BOTH the amount and the detected type, rather than just
-   `int | None`. Keep the existing `parse_price` signature working for current callers.
-3. Populate both new fields at scrape time in `BazosScraper` and `BazosApiScraper`. The API
-   path can do better than parsing: the detail endpoint returns a real `price_type` field
-   (BAZOS_HIDDEN_API_RESEARCH.md §5.2) and listings carry `currency` — prefer those when
-   available and fall back to string parsing for the HTML path.
-4. Write a data migration backfilling `price`/`price_type` from existing `price_raw` values.
-   Log/count rows that fail to parse rather than silently leaving them null.
-5. Update `PriceRangeRule` and `PriceDropRule` to use `ad.price` directly (keeping their
-   current PASS-on-unparseable behaviour, which is still correct when `price is None`).
-6. `PriceChange.old_price`/`new_price` are also CharFields — decide deliberately whether to
-   migrate them too (recommended: yes, same treatment, or price history stays unusable for
-   the same reasons).
-7. Tests: parsing of each price form incl. thousands separators and non-numeric variants;
-   the backfill migration; both filter rules still behaving identically on edge cases.
 ```
 
 ---
@@ -524,12 +353,6 @@ Steps:
 ---
 
 ## 🟡 Improvements (not pipeline-blocking, but useful)
-
-### ✅ P6 — Sentry integration — done
-`sentry-sdk[django]` is in `pyproject.toml`, and `scraper/settings.py` initializes it behind
-`SENTRY_DSN` (empty disables it, per `CLAUDE.md`'s Environment section). Nothing left to do here.
-
----
 
 ### P7 — `price_lower == 0` as "no price" → nullable
 ```
@@ -701,19 +524,6 @@ Steps:
 
 ---
 
-### ✅ P15 — True AND/OR query probe — done
-Probed live 2026-07-26 against both `api/v1/ads.php?query=` and HTML `search.php?hledat=`
-(identical totals on both, confirming shared backend). **`OR` confirmed real** — boolean
-union, case-insensitive, works with 3+ terms, quoting/parens optional
-(`iphone OR traktor` = 18481 vs. 6940+11542=18482 baseline sum, near-exact since the two
-terms barely overlap). **`AND` confirmed fake** — not a parsed operator, just an additional
-literal required word; `macbook AND pro` = 71 vs. `macbook pro`'s already-implicit-AND 1101,
-a 15x drop from requiring literal "and" text too. Full evidence and probe commands in
-`BAZOS_HIDDEN_API_RESEARCH.md` §4.1a. Follow-up (not done here): actually using `OR` to
-consolidate `Query` rows is a separate, un-started idea — see `BACKLOG_IDEAS.md` #7.
-
----
-
 ### P16 — Discord thumbnail embed
 > Promoted from `BACKLOG_IDEAS.md` #3a — see there for full rationale (including why this is
 > low-risk unlike #3b's image mirroring). One open sub-question below before starting.
@@ -744,19 +554,6 @@ Steps:
 5. Write tests for the new message-building path (mock the Discord client, assert the embed
    payload shape).
 ```
-
----
-
-### ✅ P17 — Per-query filter rule registry — done
-`RULE_REGISTRY` (name → rule instance for all five Stage 9 rules) and `DEFAULT_RULE_NAMES` are
-in `bazos/filters.py`, along with `build_rule_engine(query)` — empty `filter_rule_names` applies
-all default rules, a subset (e.g. `["price_range"]`) applies only those, and an unknown name
-raises `ValueError` (fail loudly on a typo). `Query.filter_rule_names` (migration
-`0022_query_filter_rule_names.py`) exposes it — shows on `QueryAdmin`'s default form (raw JSON
-widget, per the original "fine for a first pass" note; no multi-select built yet). `run_filter`'s
-loop now calls `build_rule_engine(ad.query)` per ad instead of a module-level singleton. Tests in
-`bazos/tests/test_filters.py` cover the registry, the default/subset/unknown-name cases, and that
-a scoped rule set doesn't apply rules outside its list. Nothing left to do here.
 
 ---
 
@@ -932,79 +729,58 @@ substance (see `AD_DELIVERY_SPLIT_SPEC.md` §7's note on why `0028` inherits tha
 
 ## Order recommendation
 
-> **Revised 2026-07-29.** The old ordering optimised for "cheapest independent win". That was
-> reasonable while the goal was tidying the pipeline, but it doesn't survive contact with what the
-> project is *for*: see [`../MONETIZATION.md`](../MONETIZATION.md) §7.1. Latency, then failure
-> visibility, then data usability — features after that.
-
-> **Amended 2026-08-08:** P18 is done; P21 is split into P21a/P21b (see its own note for the
-> arithmetic); and a **zeroth** item was added that no prompt covered — there is no database
-> backup at all, which is a bigger downside than anything below it is an upside.
+> **Revised 2026-08-23.** Earlier revisions optimised for "cheapest independent win"; that
+> doesn't survive contact with what the project is *for* (see
+> [`../MONETIZATION.md`](../MONETIZATION.md) §7.1). The priority is **latency, then failure
+> visibility, then data usability** — features after that. What changed in this revision: the
+> zeroth item (database backups) shipped, Vinted and Sbazar shipped, P22 shipped, and P21a's
+> guard-collapse half shipped. Everything already done now lives in
+> [`../SHIPPED.md`](../SHIPPED.md), not here.
 
 **Do these first, in this order:**
 
-0. **Database backups** — ~2 hours, ~$0/mo. Not a prompt in this file; see
-   [`../BACKUPS.md`](../BACKUPS.md) §8. The archive is the one asset that can't be rebuilt
-   ([`../MONETIZATION.md`](../MONETIZATION.md) §7.3) and it currently sits unbacked on a
-   single Pi SD card. Every item below assumes it still exists.
-1. **P20 case (c)** — ~30 min. Timeouts + resilient `get_current_ip` + guards inside a
-   try/except. **Do this immediately**: it is an *active* production crash loop as of
-   2026-08-08 (~5 min burned per cycle, no data collected), not a latent defect.
-2. **P19–P20** (the rest of the silent-failure defects) — ~1 day. Get failure visibility
-   *before* raising cadence, otherwise P21 just fails faster and quieter.
-3. **P21a** (free 3×: API cutover + guard collapse + ~10 min interval) — ~2 days, **no cost,
-   no external dependency.** ~15 min → ~5 min median latency at *unchanged* Bazos request
-   volume. Best value-per-day in this file.
-4. **P22** (price → int + `price_type`) — ~1 day. Unblocks everything numeric.
-5. **P21b** (rotating proxy → ~1–2 min) — ~1–2 days + ~$3–6/mo. Deliberately *after* P22:
-   it's the only item requiring a paid account and an unrun benchmark, so let P21a's
-   observed block rate decide whether it's needed. **Note the independent reliability
-   argument** — Tor is already failing (see P20's ⚠️), so this may be worth doing on those
-   grounds alone.
-6. **P24** (delisting / time-to-disappear) — ~1–2 days. The feedback signal for P23 and the
-   prerequisite for any valuation or index work.
-7. **P23** (`PriceAnomalyRule`) — ~1–2 days, in shadow mode first. The first rule that finds
-   deals rather than matching keywords.
+1. **P20** — ~1 hour. Timeouts in `ip_changer/`, a resilient `get_current_ip`, and the two
+   remaining unguarded call sites (`check_ip_local` in `run()`, `change_ip()` on the rotation
+   fall-through). Cases (a) and (b) are done; this is the leftover, and it is still the thing
+   that can lose a whole pass to one dropped socket.
+2. **P21a Parts 1 + 4a** (tunable API page size, then the production cutover and ~10 min
+   interval) — ~1–2 days, **no cost, no external dependency.** Part 2 already landed, so this
+   is now a smaller prompt than it was: ~15 min → ~5 min median latency. Best value-per-day
+   in this file.
+3. **P21b** (rotating proxy → ~1–2 min) — ~1–2 days + ~$3–6/mo. Deliberately last of the
+   latency chain: the only item requiring a paid account and an unrun benchmark. **Note the
+   independent reliability argument** — Tor is still the transport and still failing, so this
+   may be worth doing on those grounds alone.
+4. **P24** (delisting / time-to-disappear) — ~1–2 days. The feedback signal for P23 and the
+   prerequisite for any valuation or index work. Now genuinely unblocked: `Ad.price` exists.
+5. **P23** (`PriceAnomalyRule`) — ~1–2 days, in shadow mode first. The first rule that finds
+   deals rather than matching keywords, and the first real payoff from P22's numeric prices.
 
 **Then, if flipping is the actual goal**, the two cheap items from
 [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) that aren't prompts yet: **#9** (`AdOutcome`, ~half a day —
 the only source of ground truth for calibrating P23) and **#10** (distance/travel-cost scoring),
 built together with **P16** since all three touch the notification-formatting path.
 
-**Already done:** ~~P1~~ (price history), ~~P5~~ (real filter rules), ~~P17~~ (per-query filter
-registry), ~~P6~~ (Sentry), ~~P15~~ (AND/OR probe), ~~P18~~ (`QueryRun` failure tracking).
-
 **Still worthwhile, lower priority:**
 
-- **Stage 8 / Vinted** — see [`STAGE8_VINTED_SPEC.md`](STAGE8_VINTED_SPEC.md), which replaces
-  ~~P3~~/~~P4~~. Re-estimated after the 2026-08-21 live probe: **not** the "15 minutes" P3
-  claimed. Two schema blockers must land first (`Ad.external_id` → `BigIntegerField`,
-  `publish_date`/`view_count` → nullable), both of which fail on Postgres while passing on
-  SQLite. Still worth doing — multi-marketplace is the concentration-risk hedge
-  (`../MONETIZATION.md` §7.4) — but budget ~2–3 days, not an afternoon.
-- **P10** (coverage audit) — quick wins on confidence.
-- **P13** (filter-before-detail-fetch) — matters more once cadence rises.
-- **P16** (Discord thumbnail) — best visible payoff; P21 makes it nearly free by putting
-  `image_thumbnail` in the production payload, so it's worth doing *after* the cutover rather than
-  adding HTML-scraper parsing that P21 obsoletes.
-- **P7** / **P8** / **P9** / **P12** — housekeeping, no dependencies.
-- **P25** (`load_full_description` drops the publisher name) — ~15 min, no dependencies, but it
-  only takes effect on queries with `load_full_description=True`; read its scope note first.
-- **P14** (interval tuning) — ⚠️ **blocked**, and it was previously listed here as a zero-dependency
-  quick win. It isn't: `extract_date` discards the time component, so `ExtractHour("publish_date")`
-  returns 0 for every row. P21 unblocks it by supplying the API's second-resolution `from` field.
-  See [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6 for the full correction.
-- **P2** (Stage 5 query priority) and **P11** (multi-marketplace `Ad.message`) — feature work;
-  sequence against whichever direction you pick. Note P11 stops being cosmetic the moment Vinted
-  ships: every Vinted ad renders a "0 ads seen" seller summary, since both publisher FKs are null.
-- **`Ad`/`AdDelivery` split** — [`AD_DELIVERY_SPLIT_SPEC.md`](AD_DELIVERY_SPLIT_SPEC.md), the
-  executable form of [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #1. **✅ Done, 2026-08-22** — all four
-  stages landed (`0026`–`0028`); `Ad.status`/`filter_reason`/`sent_at`/`send_attempts`/`query` no
-  longer exist on `Ad`, pipeline state lives entirely on `AdDelivery`. A post-merge review found
-  and fixed a blocker plus several defects — **P26**, below, both what was fixed and what's
-  deliberately deferred.
 - **P26** (`Ad`/`AdDelivery` split — deferred review findings) — four independent follow-ups,
   none blocking another: price-change fan-out overwriting another query's in-flight delivery
   (explicitly NOT a drive-by fix, read its own note first), `_resolve_ad` never refreshing
   `view_count`/`topped`/`url`/publisher facts on rediscovery, two test-coverage gaps, and the
-  still-outstanding Stage C dry run before this is actually deployed.
+  still-outstanding Stage C dry run. **The dry run is the one with a deadline attached** — it was
+  meant to happen *before* deploying the split, and the split is deployed.
+- **P25** (`load_full_description` drops the publisher name) — ~15 min, no dependencies, but it
+  only takes effect on queries with `load_full_description=True`; read its scope note first.
+- **P10** (coverage audit) — quick wins on confidence. Cheaper now that the E2E replay harness
+  and its cassettes exist.
+- **P13** (filter-before-detail-fetch) — matters more once cadence rises, i.e. right after P21a.
+- **P16** (Discord thumbnail) — best visible payoff; P21a makes it nearly free by putting
+  `image_thumbnail` in the production payload, so it's worth doing *after* the cutover rather than
+  adding HTML-scraper parsing that the cutover obsoletes.
+- **P7** / **P8** / **P9** / **P12** — housekeeping, no dependencies.
+- **P14** (interval tuning) — ⚠️ **blocked**: `extract_date` discards the time component, so
+  `ExtractHour("publish_date")` returns 0 for every row. P21a unblocks it by supplying the API's
+  second-resolution `from` field. See [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6.
+- **P2** (Stage 5 query priority) and **P11** (multi-marketplace `Ad.message`) — feature work.
+  **P11 is no longer cosmetic**: Vinted and Sbazar are both live, and every one of their ads
+  renders a "0 ads seen" seller summary because both publisher FKs are null.
