@@ -24,6 +24,7 @@ from bazos.const import (
     BAZOS_API_BASE_URL,
     BAZOS_DETAIL_WAIT_TIME,
     BAZOS_PAGE_WAIT_TIME,
+    BAZOS_REQUEST_TIMEOUT,
     MAX_ATTEMPTS,
 )
 from bazos.exceptions import MarketplaceBlockedError
@@ -144,7 +145,12 @@ class BazosApiScraper:
         response: Response | None = None
         for _ in range(MAX_ATTEMPTS):
             try:
-                response = self.session.get(url, params=params, headers={"User-Agent": self._user_agent})
+                response = self.session.get(
+                    url,
+                    params=params,
+                    headers={"User-Agent": self._user_agent},
+                    timeout=BAZOS_REQUEST_TIMEOUT,
+                )
                 self.sent_requests_count += 1
                 break
             except requests.exceptions.RequestException:

@@ -2,10 +2,9 @@ import logging
 from contextlib import contextmanager
 
 import requests
-from django.db import transaction
+from django.db import DatabaseError
 
 from bazos.const import NEW_PRODUCT_LOAD_MAX
-from bazos.exceptions import MarketplaceBlockedError
 from bazos.models import Ad, AdDelivery, AdStatus, Marketplace, PriceChange, Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
@@ -97,25 +96,36 @@ class QueryRunner:
         on 2026-08-23. That column is fixed, but the shape recurs: every field here is
         scraped free text against a `max_length` nobody measured.
 
-        `MarketplaceBlockedError` is deliberately re-raised — it means the transport is
-        blocked, not that this ad is bad, and the runner has to see it to rotate the IP.
-        Note the generator's own `next()` runs outside this block, so a 403 raised during
-        pagination is never caught here either way.
+        Catches `DatabaseError` and **nothing wider**. That is exactly what this guard is
+        for, and a wider net silently reclassifies real failures as bad data:
+        `load_full_description` can raise `requests.ConnectionError`, which
+        `BazosScraper.run_request` does not handle (it catches only `TimeoutException`
+        and `URLError`, and `requests.ConnectionError` is neither). Swallowing that let a
+        dead detail-fetch transport finish the walk with `success=True` and zero new ads,
+        landing in the canary's "quiet market or dedup drift" bucket — a WARNING at a
+        high threshold — instead of failing loudly. `InterfaceError` is left out for the
+        same reason: a broken connection is transport, not a bad ad.
+
+        `MarketplaceBlockedError` needs no special case now — it is not a `DatabaseError`,
+        so it propagates on its own, which is what the runner needs to rotate the IP.
+
+        There is deliberately **no `transaction.atomic()`** here. The walk runs in
+        autocommit, so a failed statement is self-contained and there is nothing to roll
+        back to. Wrapping it was actively harmful: with no enclosing atomic it opened a
+        *real* transaction, not a savepoint (measured: `in_atomic_block=True`,
+        `savepoint_ids=[]`), and held it open across `load_full_description`'s
+        1–3 s sleep plus its Tor GETs — pinning the new Ad's row lock and its
+        `(marketplace, external_id)` index-insertion lock for the whole fetch, up to
+        NEW_PRODUCT_LOAD_MAX times in a backfill, and blocking autovacuum behind the
+        oldest open transaction.
+
+        If this walk is ever wrapped in `atomic()` (the job-queue proposal would), this
+        guard needs a savepoint **and** the network fetch must be hoisted out of it first.
+        Those two go together; doing only the first reintroduces the problem above.
         """
         try:
-            # The savepoint is load-bearing, not decoration. Swallowing a DB error leaves
-            # the transaction aborted, and every later query in it dies with
-            # TransactionManagementError — so the guard would convert one bad ad into a
-            # *differently* broken walk. Today the walk runs in autocommit and gets away
-            # with it; the savepoint is what makes that true by construction rather than
-            # by accident, and keeps it true if the walk is ever wrapped in atomic().
-            # Bonus: each ad becomes all-or-nothing, so a failure part-way through
-            # _handle_new_product can no longer leave an Ad row with no AdDelivery.
-            with transaction.atomic():
-                yield
-        except MarketplaceBlockedError:
-            raise
-        except Exception:
+            yield
+        except DatabaseError:
             logger.exception(
                 "Skipping unusable ad %s on query %s", product.external_id, self.query
             )
