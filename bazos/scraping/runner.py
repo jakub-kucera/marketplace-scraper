@@ -5,10 +5,10 @@ from pathlib import Path
 from random import uniform
 from time import sleep
 
-from bazos.const import BAZOS_QUERY_WAIT_TIME, MAX_BLACKLIST_RETRIES
-from bazos.exceptions import BazosBlacklistedError
+from bazos.const import MAX_BLACKLIST_RETRIES, QUERY_WAIT_TIME
+from bazos.exceptions import MarketplaceBlockedError
 from bazos.models import Query, QueryRun
-from bazos.scraping.bazos_query_runner import BazosQueryRunner
+from bazos.scraping.query_runner import QueryRunner
 from bazos.scraping.interval_multiplier import NightMultiplier
 from django.conf import settings
 
@@ -20,7 +20,7 @@ from senders.services.discord_sender import DiscordSender
 logger = logging.getLogger(__name__)
 
 
-class BazosRunner:
+class ScrapeRunner:
 
     def __init__(self):
         discord_loggers = Discord.objects.filter(for_logging=True)
@@ -71,7 +71,8 @@ class BazosRunner:
         self._check_zero_results_canary(pass_rows_seen, pass_new_ads, successful_queries)
 
     def _run_query_with_rotation(self, query: Query) -> tuple[int, int] | None:
-        """Run one query, rotating the IP and retrying when Bazos 403s the *real* request.
+        """Run one query, rotating the IP and retrying when the marketplace 403s the *real*
+        request.
 
         Returns ``(rows_seen, new_ads)``, or ``None`` if the query produced nothing usable
         this pass (blacklisted on every attempt, or any other failure).
@@ -80,7 +81,7 @@ class BazosRunner:
         full search request per query and answered the wrong question: it always hit the
         single fixed `BAZOS_BLACKLIST_CHECK_URL`, but the block is path-scoped, so it kept
         reporting "clear" moments before the query's own page returned 403. Every
-        `BazosBlacklistedError` in the QueryRun history of 2026-08-23 is a run whose probe
+        `MarketplaceBlockedError` in the QueryRun history of 2026-08-23 is a run whose probe
         had just passed. A 200 on the query's own URL is the only evidence that this IP can
         reach this path, so **the attempt is the probe** — and unlike the probe it costs
         nothing extra, because it is a request we wanted to make anyway.
@@ -98,12 +99,12 @@ class BazosRunner:
             query_run.save()
             try:
                 assert self.ip_changer.session is not None
-                query_runner = BazosQueryRunner(query, self.ip_changer.session)
+                query_runner = QueryRunner(query, self.ip_changer.session)
                 new_products_count = query_runner.run()
                 query.save()
                 query_run.new_ads_count = new_products_count
                 return query_runner.rows_seen_counter, new_products_count
-            except BazosBlacklistedError as e:
+            except MarketplaceBlockedError as e:
                 query_run.success = False
                 query_run.error = f"{type(e).__name__}: {e}"
                 logger.warning(
@@ -119,7 +120,7 @@ class BazosRunner:
                 query_run.run_end = datetime.now(timezone.utc)
                 query_run.save()
 
-            # Only the BazosBlacklistedError path falls through to here.
+            # Only the MarketplaceBlockedError path falls through to here.
             if attempt >= MAX_BLACKLIST_RETRIES:
                 break
             if not self.change_ip():
@@ -152,7 +153,7 @@ class BazosRunner:
         Sampled per attempt rather than per pass on purpose: Tor rebuilds circuits on its
         own schedule, and "did the exit change mid-pass?" is exactly the question this
         column exists to answer (IP reputation vs. a sliding-window rate limit). The
-        lookup does not touch Bazos, so it costs nothing against the budget there.
+        lookup does not touch the marketplace, so it costs nothing against the budget there.
 
         Never fatal: an unreachable IP-echo service must not take down a scraping pass.
         """
@@ -163,7 +164,7 @@ class BazosRunner:
             return ""
 
     def _sleep_between_queries(self) -> None:
-        wait = uniform(*BAZOS_QUERY_WAIT_TIME)
+        wait = uniform(*QUERY_WAIT_TIME)
         logger.debug("Sleeping %.1f s before the next query", wait)
         sleep(wait)
 
@@ -233,7 +234,7 @@ class BazosRunner:
     def change_ip(self) -> bool:
         """Rotate to a different egress IP. Returns whether the exit actually changed.
 
-        Does NOT validate the new IP against Bazos — validation is the caller's next real
+        Does NOT validate the new IP against the marketplace — validation is the caller's next real
         query attempt (see `_run_query_with_rotation`). This used to call
         `renew_ip_bazos_ok`, which validated each candidate with the same misleading
         fixed-URL probe, so it could burn every attempt rejecting usable IPs or settle on

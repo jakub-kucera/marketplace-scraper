@@ -49,7 +49,7 @@ SBAZAR_BASE_URL: Final[str] = "https://www.sbazar.cz"
 SBAZAR_PAGE_SIZE: Final[int] = 100
 # Safety stop so a mis-specified query cannot walk a 26k-item category forever.
 SBAZAR_MAX_PAGES: Final[int] = 20
-# How many consecutive already-known, non-topped ads BazosQueryRunner.run_existing_query
+# How many consecutive already-known, non-topped ads QueryRunner.run_existing_query
 # tolerates before stopping (see SbazarScraper.dedup_break_streak). Sbazar's default
 # ordering is sorting_date (~= edit time), not creation time, so an old already-known ad
 # can resurface above genuinely new listings just because it was edited — see
@@ -67,11 +67,13 @@ BAZOS_PAGE_WAIT_TIME: Final[tuple[int, int]] = (2, 5)
 # QueryRun history correlates with 403s.
 BAZOS_DETAIL_WAIT_TIME: Final[tuple[float, float]] = (1.0, 3.0)
 # Pacing between queries inside one scraper pass. There was no gap at all: the runner
-# went straight from one query's last request to the next query's first.
-BAZOS_QUERY_WAIT_TIME: Final[tuple[float, float]] = (5.0, 15.0)
+# went straight from one query's last request to the next query's first. Unprefixed
+# because ScrapeRunner applies it to every marketplace, unlike the BAZOS_*/VINTED_* waits
+# above, which each belong to one scraper.
+QUERY_WAIT_TIME: Final[tuple[float, float]] = (5.0, 15.0)
 # How many times a query is attempted before it is written off for this pass. Attempts
 # after the first are preceded by an IP rotation. The attempt itself is the blacklist
-# probe — see BazosRunner._run_query_with_rotation for why there is no separate one.
+# probe — see ScrapeRunner._run_query_with_rotation for why there is no separate one.
 MAX_BLACKLIST_RETRIES: Final[int] = 3
 
 # ---------------------------------------------------------------------------

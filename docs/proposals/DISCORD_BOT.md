@@ -273,9 +273,9 @@ class AdWatch(TimeStampedModel):
 
 ### 3.3 Per-query force-run (extends the existing global mechanism)
 Today: one sentinel file (`settings.FORCE_RUN_FLAG_PATH`), read by
-`BazosRunner._interruptible_sleep`, wakes the *entire* runner for its next full pass. A
+`ScrapeRunner._interruptible_sleep`, wakes the *entire* runner for its next full pass. A
 per-query version needs either a `Query.force_run_requested` boolean (checked at the top of
-each query's turn in `BazosRunner.run()`'s loop, independent of the interruptible-sleep
+each query's turn in `ScrapeRunner.run()`'s loop, independent of the interruptible-sleep
 mechanism) or a small dedicated queue table if this needs an audit trail (who/when requested
 it). The boolean is simpler and matches this project's general preference for minimal state.
 

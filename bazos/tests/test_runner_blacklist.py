@@ -1,11 +1,11 @@
-"""Tests for how BazosRunner reacts to a Bazos IP block.
+"""Tests for how ScrapeRunner reacts to a Bazos IP block.
 
 Context (measured from the QueryRun history of 2026-08-23): the runner used to fire a
 pre-flight `check_blacklisted()` probe per query against one fixed `search.php` URL, and
 treat a 403 raised by the *actual* query as a generic failure — logged, written off, and
 the next query attempted on the same dead IP milliseconds later. Because the block is
 path-scoped, the probe reported "clear" while the real request 403'd: every
-`BazosBlacklistedError` row in that history is a run whose probe had just passed, and the
+`MarketplaceBlockedError` row in that history is a run whose probe had just passed, and the
 failures arrived in clusters because nothing rotated between them.
 
 So the probe is gone and the query attempt is the probe: a 403 rotates the IP and retries,
@@ -16,20 +16,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from bazos.const import MAX_BLACKLIST_RETRIES
-from bazos.exceptions import BazosBlacklistedError
+from bazos.exceptions import MarketplaceBlockedError
 from bazos.models import AdDelivery, AdStatus, Query, QueryRun
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
-from bazos.scraping.bazos_query_runner import BazosQueryRunner
-from bazos.scraping.bazos_runner import BazosRunner
+from bazos.scraping.query_runner import QueryRunner
+from bazos.scraping.runner import ScrapeRunner
 
 
 class StopLoop(Exception):
-    """Sentinel used to escape BazosRunner.run()'s `while True` after one pass."""
+    """Sentinel used to escape ScrapeRunner.run()'s `while True` after one pass."""
 
 
 def make_runner(exit_ip="185.242.6.116"):
-    runner = BazosRunner.__new__(BazosRunner)
+    runner = ScrapeRunner.__new__(ScrapeRunner)
     runner.discord_loggers = []
     runner.interval_multiplier = MagicMock()
     runner.ip_changer = MagicMock()
@@ -71,10 +71,10 @@ def test_blacklisted_query_rotates_ip_and_retries_the_same_query(query):
     def fake_run(self):
         attempts["n"] += 1
         if attempts["n"] == 1:
-            raise BazosBlacklistedError()
+            raise MarketplaceBlockedError()
         return 4
 
-    with patch.object(BazosQueryRunner, "run", fake_run):
+    with patch.object(QueryRunner, "run", fake_run):
         run_one_pass(runner)
 
     runner.ip_changer.renew_ip_and_check_new.assert_called_once()
@@ -82,7 +82,7 @@ def test_blacklisted_query_rotates_ip_and_retries_the_same_query(query):
     runs = list(QueryRun.objects.filter(query=query).order_by("run_start"))
     assert len(runs) == 2
     assert runs[0].success is False
-    assert "BazosBlacklistedError" in (runs[0].error or "")
+    assert "MarketplaceBlockedError" in (runs[0].error or "")
     assert runs[1].success is True and runs[1].new_ads_count == 4
 
 
@@ -93,10 +93,10 @@ def test_durably_blacklisted_query_is_skipped_without_taking_down_the_pass(query
 
     def fake_run(self):
         if self.query.pk == query.pk:
-            raise BazosBlacklistedError()
+            raise MarketplaceBlockedError()
         return 5
 
-    with patch.object(BazosQueryRunner, "run", fake_run):
+    with patch.object(QueryRunner, "run", fake_run):
         run_one_pass(runner)
 
     blocked_runs = QueryRun.objects.filter(query=query)
@@ -128,7 +128,7 @@ def test_a_retried_new_query_still_runs_as_a_new_query(query, make_ad):
     def fake_scraper_run_query(self, q):
         attempts["n"] += 1
         if attempts["n"] == 1:
-            raise BazosBlacklistedError()
+            raise MarketplaceBlockedError()
         for external_id in range(100, 105):
             yield make_ad(q, external_id)
 
@@ -138,10 +138,10 @@ def test_a_retried_new_query_still_runs_as_a_new_query(query, make_ad):
             return original(self)
         return wrapper
 
-    with patch.object(BazosQueryRunner, "run_new_query",
-                      spy("new", BazosQueryRunner.run_new_query)), \
-         patch.object(BazosQueryRunner, "run_existing_query",
-                      spy("existing", BazosQueryRunner.run_existing_query)), \
+    with patch.object(QueryRunner, "run_new_query",
+                      spy("new", QueryRunner.run_new_query)), \
+         patch.object(QueryRunner, "run_existing_query",
+                      spy("existing", QueryRunner.run_existing_query)), \
          patch.object(BazosScraper, "run_query", fake_scraper_run_query):
         run_one_pass(runner)
 
@@ -158,7 +158,7 @@ def test_failed_rotation_abandons_the_query_instead_of_burning_attempts(query):
     runner = make_runner(exit_ip="185.242.6.116")
     runner.ip_changer.renew_ip_and_check_new.return_value = "185.242.6.116"
 
-    with patch.object(BazosQueryRunner, "run", side_effect=BazosBlacklistedError()):
+    with patch.object(QueryRunner, "run", side_effect=MarketplaceBlockedError()):
         run_one_pass(runner)
 
     assert QueryRun.objects.filter(query=query).count() == 1
@@ -170,7 +170,7 @@ def test_a_non_blacklist_failure_is_not_retried(query):
     """Rotating the IP cannot fix a parse error — only a 403 earns a retry."""
     runner = make_runner()
 
-    with patch.object(BazosQueryRunner, "run", side_effect=RuntimeError("boom")):
+    with patch.object(QueryRunner, "run", side_effect=RuntimeError("boom")):
         run_one_pass(runner)
 
     assert QueryRun.objects.filter(query=query).count() == 1
@@ -182,7 +182,7 @@ def test_runner_never_fires_a_pre_flight_blacklist_probe(query):
     """Regression guard: the probe cost a full search request per query and lied."""
     runner = make_runner()
 
-    with patch.object(BazosQueryRunner, "run", return_value=1), \
+    with patch.object(QueryRunner, "run", return_value=1), \
          patch.object(BazosScraper, "check_blacklisted") as html_check, \
          patch.object(BazosApiScraper, "check_blacklisted") as api_check:
         run_one_pass(runner)
@@ -196,7 +196,7 @@ def test_local_ip_is_checked_once_per_pass_not_once_per_query(query, category):
     make_other_query(category)
     runner = make_runner()
 
-    with patch.object(BazosQueryRunner, "run", return_value=1):
+    with patch.object(QueryRunner, "run", return_value=1):
         run_one_pass(runner)
 
     runner.ip_changer.check_ip_local.assert_called_once()
@@ -208,7 +208,7 @@ def test_local_ip_skips_the_pass_but_still_sleeps(query):
     runner = make_runner()
     runner.ip_changer.check_ip_local.return_value = True
 
-    with patch.object(BazosQueryRunner, "run") as query_runner_run:
+    with patch.object(QueryRunner, "run") as query_runner_run:
         run_one_pass(runner)
 
     query_runner_run.assert_not_called()
@@ -220,7 +220,7 @@ def test_query_run_records_the_exit_ip(query):
     """The column that settles IP-reputation vs. sliding-window rate limiting."""
     runner = make_runner(exit_ip="185.242.6.116")
 
-    with patch.object(BazosQueryRunner, "run", return_value=0):
+    with patch.object(QueryRunner, "run", return_value=0):
         run_one_pass(runner)
 
     assert QueryRun.objects.get(query=query).exit_ip == "185.242.6.116"
@@ -231,7 +231,7 @@ def test_unreachable_ip_echo_service_does_not_break_the_pass(query):
     runner = make_runner()
     runner.ip_changer.get_current_ip.side_effect = OSError("no route to host")
 
-    with patch.object(BazosQueryRunner, "run", return_value=2):
+    with patch.object(QueryRunner, "run", return_value=2):
         run_one_pass(runner)
 
     run = QueryRun.objects.get(query=query)

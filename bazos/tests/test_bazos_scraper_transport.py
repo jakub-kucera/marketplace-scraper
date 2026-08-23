@@ -35,7 +35,7 @@ from bs4 import BeautifulSoup
 
 from bazos.tests import conftest
 
-from bazos.exceptions import BazosBlacklistedError
+from bazos.exceptions import MarketplaceBlockedError
 from bazos.models import Ad, EmailPublisher, PhonePublisher, Query
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 
@@ -197,7 +197,7 @@ def test_run_query_raises_on_403(scraper, notebook_query):
     """Hand-written cassette: a ban cannot be recorded on demand."""
     cassette = MANUAL_CASSETTES / "blacklisted_403.yaml"
     with vcr.use_cassette(str(cassette), record_mode="none", match_on=["method", "path"]):
-        with pytest.raises(BazosBlacklistedError):
+        with pytest.raises(MarketplaceBlockedError):
             list(scraper.run_query(notebook_query))
 
 

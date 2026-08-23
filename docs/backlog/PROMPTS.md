@@ -47,7 +47,7 @@ Steps:
 > forever, (b) unbounded rotation loops, (c) the guards *raising* and killing the whole pass.
 >
 > - **(a) — done, differently than proposed.** `check_ip_local()` now runs **once per pass** at
->   the top of `BazosRunner.run` and skips the whole pass rather than `continue`-ing per query,
+>   the top of `ScrapeRunner.run` and skips the whole pass rather than `continue`-ing per query,
 >   so a misconfigured `LOCAL_IP_SUBNET` can no longer burn a pass one silent skip at a time.
 >   *Leftover:* it logs at WARNING, and step 5's escalating consecutive-detection counter was
 >   not built. A guard that disables all work should probably be ERROR.
@@ -63,13 +63,13 @@ Steps:
    is empty and `requests` has no default. `IPChanger.get_current_ip` does a bare
    `self.session.get('https://icanhazip.com')` over a Tor SOCKS proxy that regularly drops
    circuits — the observed hang was **~4 minutes on one socket**.
-2. **`check_ip_local()` at `bazos_runner.py:37` has no try/except.** It is the first thing
+2. **`check_ip_local()` at `runner.py:37` has no try/except.** It is the first thing
    `run()` does each pass, it calls `get_current_ip()`, and if that raises the exception escapes
    `run()` entirely — `run_scraper` catches at top level, sleeps 60s and rebuilds the runner.
    The whole pass is lost before a single query is attempted.
-3. **`change_ip()` at `bazos_runner.py:120` sits *outside* the per-attempt `try`.** In
+3. **`change_ip()` at `runner.py:120` sits *outside* the per-attempt `try`.** In
    `_run_query_with_rotation` it is called after the `finally`, on the fall-through from
-   `BazosBlacklistedError`. Both `get_current_ip()` (in `change_ip`'s own log line) and
+   `MarketplaceBlockedError`. Both `get_current_ip()` (in `change_ip`'s own log line) and
    `renew_ip_and_check_new()` can raise there, and nothing catches it — so the rotation path,
    which by definition only runs when the transport is already unhealthy, is the one path with
    no protection.
@@ -92,11 +92,11 @@ The pre-flight `blacklist_check(query.url)` call that used to be the third expos
 > being Cloudflare-fronted and therefore hostile to Tor exits by default.
 
 ```
-Harden the IP guards in ip_changer/ and bazos/scraping/bazos_runner.py against raising.
+Harden the IP guards in ip_changer/ and bazos/scraping/runner.py against raising.
 
 Context: every request in ip_changer/ is a bare session.get() with no timeout, over a Tor
 SOCKS proxy that regularly drops circuits. Two call sites are unguarded, and both of them
-cost an entire scraper pass when they raise: check_ip_local() at the top of BazosRunner.run,
+cost an entire scraper pass when they raise: check_ip_local() at the top of ScrapeRunner.run,
 and change_ip() on the blacklist-rotation fall-through in _run_query_with_rotation.
 
 Steps:
@@ -110,7 +110,7 @@ Steps:
    egress is impossible by construction (socks5h fails closed, it does not fall back to a
    direct connection) — it is currently the most Tor-hostile request in the pipeline and it
    guards a case the transport makes unreachable.
-3. Wrap check_ip_local() in BazosRunner.run so a failure skips the pass the same way a True
+3. Wrap check_ip_local() in ScrapeRunner.run so a failure skips the pass the same way a True
    result does, instead of escaping run() and forcing a 60s rebuild of the whole runner.
 4. Wrap the change_ip() call in _run_query_with_rotation so a rotation failure ends that
    query's retry loop (return None, keep the pass) rather than killing the pass. Record it on
@@ -186,7 +186,7 @@ Steps:
 >
 > **✅ Part 2 (guard collapse) landed 2026-08-23**, and more aggressively than this prompt
 > asked: rather than collapsing the two blacklist probes into one per pass, **both were
-> deleted** — the query attempt is now the probe (`BazosRunner._run_query_with_rotation`), and
+> deleted** — the query attempt is now the probe (`ScrapeRunner._run_query_with_rotation`), and
 > `check_ip_local()` moved to once per pass. That is the request-volume saving this part was
 > written to buy, already banked. **Parts 1 and 4a are still open**, and they are what actually
 > moves latency: the interval is unchanged.
@@ -247,7 +247,7 @@ Part 3 — rotating proxy transport:
    `settings.PROXY_URL`; `renew_ip` is a no-op (the provider rotates per request);
    `renew_ip_and_check_new` re-creates the session and returns the new IP.
 2. Add `PROXY_URL` to settings/.env (empty default) and an `HTTP_PROXY` branch in
-   `BazosRunner.__init__` alongside `DUMMY`/`TOR`, gated on `IP_CHANGER_TYPE`. Nothing
+   `ScrapeRunner.__init__` alongside `DUMMY`/`TOR`, gated on `IP_CHANGER_TYPE`. Nothing
    changes until it's set — do not alter the default.
 3. MEASURE BEFORE SWITCHING. Run
    `python experiments/bench_proxy.py --proxy <endpoint> --repeat 30 --query auto` against
@@ -381,7 +381,7 @@ Steps:
 ```
 `Query.generate_random_queries` and the `randomly_generated` flag are experimental/dead code.
 Confirm whether they are used anywhere in production, then either:
-  (a) Delete `generate_random_queries`, `randomly_generated`, and the `update(enabled=False)` at loop start in `BazosRunner.run`, or
+  (a) Delete `generate_random_queries`, `randomly_generated`, and the `update(enabled=False)` at loop start in `ScrapeRunner.run`, or
   (b) Document what they are for with a proper comment.
 
 Also check: the `location_center = randint(10000, 99999)` line generates a random postcode — is this intentional?
@@ -440,7 +440,7 @@ Steps:
 1. Install `pytest-cov` if not already present.
 2. Run: `pytest --cov=bazos --cov=senders --cov=ip_changer --cov-report=term-missing`
 3. Identify any file or branch below 70% coverage.
-4. Write targeted tests for the gaps (focus on `run_filter.py`, `run_sender.py`, `bazos_runner.py`, `filters.py`).
+4. Write targeted tests for the gaps (focus on `run_filter.py`, `run_sender.py`, `runner.py`, `filters.py`).
 ```
 
 ---
@@ -485,7 +485,7 @@ detail-fetching into run_filter. run_filter remains the sole authoritative owner
 Ad.status transitions; this only skips a wasted HTTP request.
 
 Steps:
-1. In `bazos/scraping/bazos_query_runner.py::_handle_new_product`, before calling
+1. In `bazos/scraping/query_runner.py::_handle_new_product`, before calling
    `self.scraper.load_full_description(product)`, run the same `rule_engine` instance from
    `bazos/filters.py` against `product` as a heuristic pre-check.
 2. If the pre-check result is REJECT, skip the `load_full_description` call (still save the
@@ -522,7 +522,7 @@ Steps:
    (or similar) to bucket ad-discovery volume by hour and weekday from data already collected.
 2. Turn that into a lookup (hour/weekday -> relative posting density) that
    `bazos/scraping/interval_multiplier.py`'s `NightMultiplier` can use internally, keeping
-   the same interface `BazosRunner.get_next_interval` already calls.
+   the same interface `ScrapeRunner.get_next_interval` already calls.
 3. Decide a reasonable minimum/maximum multiplier bound so a genuinely dead hour doesn't
    produce an absurdly long sleep.
 4. Write tests for the new density-based multiplier logic (mock/fixture `Ad` timestamps).
@@ -641,7 +641,7 @@ another.
 
 ### 1. Price-change fan-out can overwrite another query's in-flight delivery state
 
-Context: `bazos_query_runner.py::run_existing_query` does
+Context: `query_runner.py::run_existing_query` does
 `AdDelivery.objects.filter(ad=known_ad).update(status=AdStatus.PRICE_CHANGED)` — unconditional,
 unlocked, across EVERY delivery of that ad. If query A's delivery is APPROVED (decided, awaiting
 `run_sender`) and query B sees a price bump on the same listing, this flips A to PRICE_CHANGED
@@ -676,7 +676,7 @@ Steps:
 
 ### 2. `_resolve_ad` never refreshes an existing ad's scraped facts
 
-Context: `bazos_query_runner.py::run_existing_query`'s known-ad branch only ever writes
+Context: `query_runner.py::run_existing_query`'s known-ad branch only ever writes
 `price_raw` back to the `Ad` row:
 ```python
 known_ad.price_raw = product.price_raw

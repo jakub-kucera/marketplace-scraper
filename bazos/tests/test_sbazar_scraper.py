@@ -416,9 +416,9 @@ class TestCheckBlacklisted:
 
 # ---------------------------------------------------------------------------
 # dedup_break_streak — Sbazar's sort key is edit time, not creation time
-# (spec §11), so BazosQueryRunner.run_existing_query needs more than one known
+# (spec §11), so QueryRunner.run_existing_query needs more than one known
 # hit before it can safely stop. See bazos/scraping/marketplace.py and
-# bazos_query_runner.run_existing_query's docstring for how this is consumed.
+# query_runner.run_existing_query's docstring for how this is consumed.
 # ---------------------------------------------------------------------------
 
 class TestDedupBreakStreak:
