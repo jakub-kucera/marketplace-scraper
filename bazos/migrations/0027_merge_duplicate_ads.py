@@ -110,6 +110,33 @@ def merge_duplicate_ads(apps, schema_editor):
     )
 
 
+def flush_deferred_fk_triggers(apps, schema_editor):
+    """Fire the FK checks the merge above left queued, so the AddConstraint that follows can
+    take its ALTER TABLE on `bazos_ad`.
+
+    Django declares every FK on Postgres as DEFERRABLE INITIALLY DEFERRED, so deleting a
+    duplicate Ad row queues an after-trigger event *on `bazos_ad`* — the RI check for the
+    AdDelivery/PriceChange rows that pointed at it — which stays pending until COMMIT.
+    Postgres refuses `ALTER TABLE ... ADD CONSTRAINT` on a relation with pending trigger
+    events ("cannot ALTER TABLE \"bazos_ad\" because it has pending trigger events"), and a
+    migration runs inside one transaction, so the AddConstraint below hits exactly that.
+    `SET CONSTRAINTS ALL IMMEDIATE` runs the queued checks now and empties the queue; they
+    pass, because the merge repoints every child row before deleting its parent.
+
+    Only bites when the merge actually deleted something, which is why this got through CI
+    and a duplicate-free dev DB and only surfaced against production data (v1.0.4 deploy on
+    the Pi: 102 groups merged, then this ALTER TABLE aborted the whole migration).
+
+    No-op off Postgres: SQLite has neither a deferred trigger queue nor SET CONSTRAINTS, and
+    the test suite runs migrations on SQLite (root conftest.py) — which is also why
+    test_merge_duplicate_ads_migration.py, despite running this migration end to end, could
+    not have caught it.
+    """
+    if schema_editor.connection.vendor != "postgresql":
+        return
+    schema_editor.execute("SET CONSTRAINTS ALL IMMEDIATE", params=None)
+
+
 def noop_reverse(apps, schema_editor):
     """Irreversible in substance, permitted in form — see `merge_duplicate_ads`."""
 
@@ -122,6 +149,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(merge_duplicate_ads, noop_reverse),
+        migrations.RunPython(flush_deferred_fk_triggers, migrations.RunPython.noop),
         migrations.AddConstraint(
             model_name='ad',
             constraint=models.UniqueConstraint(fields=('marketplace', 'external_id'), name='unique_ad_per_marketplace'),
