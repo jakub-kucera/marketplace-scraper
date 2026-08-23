@@ -302,8 +302,13 @@ would silently break page 1 of every query in production.
 
 ### 4.10 Measured cassette footprint of the real suite
 
-Nine recorded cassettes plus one hand-written 403: **408 KB total**, 30–70 KB each, all plain
-readable YAML. That is the real cost of the approach in this repo, and it is fine.
+**1.0 MB total** across 16 cassettes — 9 for the transport tests (408 KB), 6 for the pipeline
+tests, plus one hand-written 403. Individually 30–70 KB, all plain readable YAML.
+
+The pipeline cassettes dominate because each test re-records the same pages under
+pytest-recording's per-test naming. Sharing one cassette across the module would cut it by
+roughly two thirds; per-test cassettes were kept because a failing test then points at exactly
+the traffic it replayed. Revisit if the directory becomes a nuisance in diffs.
 
 ---
 

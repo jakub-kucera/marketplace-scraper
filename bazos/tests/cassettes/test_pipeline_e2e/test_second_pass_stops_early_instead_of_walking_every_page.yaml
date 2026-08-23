@@ -1,0 +1,866 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br
+      Connection:
+      - keep-alive
+    method: GET
+    uri: https://pc.bazos.cz/notebook/0/?hledat=thinkpad+x230&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat
+  response:
+    body:
+      string: "Str\xE1nka nenalezena<!DOCTYPE html>\r\n<html lang=\"cs\">\r\n<head>\r\n<title>Notebooky
+        - Thinkpad x230 bazar - PC | Bazo\u0161.cz</title>\r\n<meta http-equiv=\"Content-Type\"
+        content=\"text/html; charset=utf-8\">\r\n<meta name=\"description\" content=\"Kategorie
+        Notebooky - Thinkpad x230 bazar. Vyb\xEDrejte z 7 inzer\xE1t\u016F. Prodej
+        snadno a rychle na Bazo\u0161i. P\u0159es p\u016Fl milion\u016F u\u017Eivatel\u016F
+        za den.\"><meta property=\"og:title\" content=\"Notebooky - Thinkpad x230
+        bazar - PC\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:site_name\"
+        content=\"Bazos.cz\">\n<meta property=\"og:description\" content=\"Kategorie
+        Notebooky - Thinkpad x230 bazar. Vyb\xEDrejte z 7 inzer\xE1t\u016F. Prodej
+        snadno a rychle na Bazo\u0161i. P\u0159es p\u016Fl milion\u016F u\u017Eivatel\u016F
+        za den.\">\n<link rel=\"canonical\" href=\"https://pc.bazos.cz/notebook/0/?hledat=thinkpad+x230&hlokalita=&humkreis=25&cenaod=&cenado=&submit=hledat\"><meta
+        property=\"fb:admins\" content=\"1055875657\">\r\n<meta name=\"ROBOTS\" content=\"NOINDEX\">\n<link
+        rel=\"stylesheet\" href=\"https://www.bazos.cz/bazos67s.css\" type=\"text/css\"><link
+        rel=\"preload\" as=\"image\" href=\"https://www.bazos.cz/obrazky/bazos.svg\">\r\n<link
+        rel=\"stylesheet\" href=\"https://www.bazos.cz/bazosprint.css\" type=\"text/css\"
+        media=\"print\">\r\n<link rel=\"icon\" href=\"https://www.bazos.cz/favicon.svg\"
+        type=\"image/svg+xml\">\r\n<link rel=\"icon\" HREF=\"https://www.bazos.cz/favicon.ico\"
+        sizes=\"32x32\">\r\n<link rel=\"apple-touch-icon\" href=\"https://www.bazos.cz/apple-touch-icon.png\">\r\n<script
+        async=\"async\" src=\"https://www.google.com/adsense/search/ads.js\"></script>\r\n<script
+        type=\"text/javascript\" charset=\"utf-8\">\r\n(function(g,o){g[o]=g[o]||function(){(g[o]['q']=g[o]['q']||[]).push(\r\n
+        \ arguments)},g[o]['t']=1*new Date})(window,'_googCsa');\r\n</script><script>\r\nvar
+        xhr = new XMLHttpRequest();\r\nvar naseptavac_value = '';\r\nfunction naseptavac(value)
+        {\r\n  if (value=='')  {\r\n  \tnaseptavac_value = '';\r\n  \tdocument.getElementById('vysledek').innerHTML='';\r\n
+        \ \t}\r\nelse {\r\n\tif (naseptavac_value == value) {\r\n\t\treturn false;\r\n\t}\r\n\tnaseptavac_value
+        = value;\r\n\tsetTimeout(function () {\r\n\t\tif (naseptavac_value != value)
+        {\r\n\t\t\treturn false;\r\n\t\t}\r\n\t\txhr.onreadystatechange = function()
+        {\r\n \t\t if (this.readyState == 4 && naseptavac_value == value){\r\n\t\t\t\tdocument.getElementById('vysledek').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n \t\t };\r\n\t\txhr.open(\"POST\", '/suggest.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('rubnas=PC&catnas=10&qnas='+encodeURIComponent(naseptavac_value));\r\n\t},
+        250);\r\n}\r\n}\r\n\r\nvar naseptavacpsc_value = '';\r\nfunction naseptavacpsc(value)
+        {\r\n  if (value=='')  {\r\n  \tnaseptavacpsc_value = '';\r\n  \tdocument.getElementById('vysledekpsc').innerHTML='<table
+        cellpadding=\\\"3\\\" cellspacing=\\\"0\\\" class=\\\"tablenaspsc\\\"><tr><td
+        class=\\\"act\\\" onclick=\\\"getLocation();\\\"><b>Inzer\xE1ty v okol\xED</b></td></tr></table>';\r\n
+        \ \t}\r\nelse {\r\n\tif (naseptavacpsc_value == value) {\r\n\t\treturn false;\r\n\t}\r\n\tnaseptavacpsc_value
+        = value;\r\n\tsetTimeout(function () {\r\n\t\tif (naseptavacpsc_value != value)
+        {\r\n\t\t\treturn false;\r\n\t\t}\r\n\t\txhr.onreadystatechange = function()
+        {\r\n \t\t if (this.readyState == 4 && naseptavacpsc_value == value){\r\n\t\t\t\tdocument.getElementById('vysledekpsc').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n \t\t };\r\n\t\txhr.open(\"POST\", '/suggestpsc.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('qnaspsc='+encodeURIComponent(naseptavacpsc_value));\r\n\t},
+        250);\r\n}\r\n}\r\n\r\nfunction getLocation() {\r\nif (navigator.geolocation)
+        {navigator.geolocation.getCurrentPosition(showPosition);}\r\nelse {document.getElementById('hlokalita').value
+        = '';}\r\n}\r\nfunction showPosition(position) {\r\n\t\txhr.onreadystatechange
+        = function() {\r\n \t\t if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('hlokalita').value
+        = this.responseText;\r\n\t\t\t\tdocument.forms['formt'].submit();\r\n\t\t\t}\r\n
+        \t\t };\r\n\t\txhr.open(\"POST\", '/zip.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('latitude='+encodeURIComponent(position.coords.latitude)+'&longitude='+encodeURIComponent(position.coords.longitude));\r\n}\r\n\r\nvar
+        agent_value = '';\r\nfunction agentclick() {\r\n  if (document.getElementById('agentmail').value=='')
+        \ {\r\n  \tdocument.getElementById(\"agentmail\").focus();\r\n    return false;\r\n
+        \ \t}\r\nelse {\r\nagent_value = document.getElementById('agentmail').value;\r\nxhr.onreadystatechange
+        = function() {\r\n  if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('overlay').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n  };\r\nxhr.open(\"POST\", '/agent.php');\r\nxhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\nxhr.send('hledat=thinkpad x230&rubrikav=PC&hlokalita=&humkreis=25&cenaod=&cenado=&cat=10&typ=&agentmail='+encodeURIComponent(agent_value));\r\n}\r\n}\r\n\r\nfunction
+        odeslatrequest(value,params) {\r\nxhr.onreadystatechange = function() {\r\n
+        \ if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('overlay').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n  };\r\nxhr.open(\"POST\", value);\r\nxhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\nxhr.send(params);\r\n}\r\nfunction
+        overlay() {\r\n\tel = document.getElementById(\"overlay\");\r\n\tel.style.display
+        = (el.style.display == \"inline\") ? \"none\" : \"inline\";\r\n}\r\nfunction
+        odeslatakci(postaction,value1,value2,value3) {\r\ndocument.getElementById('postaction').value
+        = postaction;\r\ndocument.getElementById(\"postv1\").value = value1;\r\ndocument.getElementById(\"postv2\").value
+        = value2;\r\ndocument.getElementById(\"postv3\").value = value3;\r\ndocument.formaction.submit();\r\n}\r\n</script>\r\n</head>\r\n\r\n<body>\r\n\r\n\r\n<div
+        class=\"sirka\">\r\n<div class=\"listalogor\">\r\n<div class=\"listalogol\"><a
+        href=\"https://www.bazos.cz/\" title=\"Bazos.cz - Inzerce, bazar\"><img src=\"https://www.bazos.cz/obrazky/bazos.svg\"
+        width=\"199\" height=\"34\" alt=\"Bazos.cz - Inzerce, inzer\xE1ty\"></a></div>\r\n<div
+        class=\"listalogom\"><b>... bazar pro ka\u017Ed\xE9ho</b></div>\r\n<div class=\"listalogop\"><a
+        href=\"https://www.bazos.cz/oblibene.php\"><b>Obl\xEDben\xE9 inzer\xE1ty</b></a>
+        <a href=\"https://www.bazos.cz/moje-inzeraty.php\"><b>Moje inzer\xE1ty</b></a>
+        <a href=\"/pridat-inzerat.php\"><b><span class=pridati>P\u0159idat inzer\xE1t</span></b></a></div>\r\n</div>\r\n<form
+        name=\"formt\" id=\"formt\" method=get >\r\n<div class=\"listah\">\r\n<div
+        class=\"rubriky\">\r\n<b>\r\nCo: <span class=vysokoli><span id=\"vysledek\"></span><input
+        type=\"search\" onkeyup=\"naseptavac(this.value);\" id=hledat name=hledat
+        size=\"17\" maxlength=\"256\" value=\"thinkpad x230\" autocomplete=\"off\"
+        title=\"Co? Vyhled\xE1van\xFD v\xFDraz\"></span>\r\n\r\n<select name=\"rubriky\"
+        onchange='this.form.submit();' title=\"Vyber rubriku\">\r\n<option value=\"www\">V\u0161echny
+        rubriky</option>\r\n<option value=\"auto\">Auto</option><option value=\"deti\">D\u011Bti</option><option
+        value=\"dum\">D\u016Fm a zahrada</option><option value=\"elektro\">Elektro</option><option
+        value=\"foto\">Foto</option><option value=\"hudba\">Hudba</option><option
+        value=\"knihy\">Knihy</option><option value=\"mobil\">Mobily</option><option
+        value=\"motorky\">Motorky</option><option value=\"nabytek\">N\xE1bytek</option><option
+        value=\"obleceni\">Oble\u010Den\xED</option><option value=\"pc\" selected>PC</option><option
+        value=\"prace\">Pr\xE1ce</option><option value=\"reality\">Reality</option><option
+        value=\"sluzby\">Slu\u017Eby</option><option value=\"sport\">Sport</option><option
+        value=\"stroje\">Stroje</option><option value=\"vstupenky\">Vstupenky</option><option
+        value=\"zvirata\">Zv\xED\u0159ata</option><option value=\"ostatni\">Ostatn\xED</option></select>\r\n\r\nLokalita:
+        <span class=vysokolipsc><span id=\"vysledekpsc\"></span><input type=\"search\"
+        name=\"hlokalita\" id=\"hlokalita\" onkeyup=\"naseptavacpsc(this.value);\"
+        onclick=\"naseptavacpsc(this.value);\" value=\"\" size=\"4\" maxlength=\"25\"
+        autocomplete=\"off\" title=\"Kde? PS\u010C (m\xEDsto)\" style=\"-webkit-appearance:
+        none;\"></span>\r\nOkol\xED: <input name=\"humkreis\" title=\"Okol\xED v km\"
+        value=\"25\" size=\"3\" style=\"width: 25px;\"> km\r\nCena od: <input name=cenaod
+        title=\"Cena od K\u010D\" maxlength=\"12\" size=\"5\" value=\"\"> - do: <input
+        name=cenado title=\"Cena do K\u010D\" maxlength=\"12\" size=\"5\" value=\"\">
+        K\u010D <input type=\"submit\" name=\"Submit\" value=\"Hledat\">\r\n<input
+        type=\"hidden\" name=\"order\" id=\"order\"><input type=\"hidden\" name=\"crp\"
+        id=\"crp\"><input type=\"hidden\" id=\"kitx\" name=\"kitx\" value=\"ano\"></b>\r\n</div>\r\n</div>\r\n</form>\r\n<div
+        class=\"drobky\"><a href=\"https://www.bazos.cz/\" title=\"Inzerce Bazo\u0161\">Hlavn\xED
+        str\xE1nka</a>  > <a href=\"https://pc.bazos.cz\">PC</a> > <h1 class=\"nadpiskategorie\">Notebooky</h1></div>\r\n<br>\r\n\r\n\r\n<div
+        class=\"flexmain\"><div class=\"menuleft\"><div class=\"nadpismenu\">Kategorie</div>\r\n<div
+        class=\"barvalmenu\">\r\n<div class=\"barvaleva\">\r\n<a href=\"/cd/\" >DVD,
+        Blu-ray mechaniky</a>\r\n<a href=\"https://foto.bazos.cz/\">Fotoapar\xE1ty</a>\r\n<a
+        href=\"/gps/\" >GPS navigace</a>\r\n<a href=\"/graficka/\" >Grafick\xE9 karty</a>\r\n<a
+        href=\"/hdd/\" >Hard disky, SSD</a>\r\n<a href=\"/playstation/\" >Hern\xED
+        konzole</a>\r\n<a href=\"/volanty/\" >Hern\xED za\u0159\xEDzen\xED</a>\r\n<a
+        href=\"/hry/\" >Hry</a>\r\n<a href=\"/chladic/\" >Chladi\u010De</a>\r\n<a
+        href=\"/klavesnice/\" >Kl\xE1vesnice</a>\r\n<a href=\"/kopirka/\" >Kop\xEDrovac\xED
+        stroje</a>\r\n<a href=\"/monitor/\" >LCD monitory</a>\r\n<a href=\"https://mobil.bazos.cz/\">Mobiln\xED
+        telefony</a>\r\n<a href=\"/modem/\" >Modemy</a>\r\n<a href=\"/mys/\" >My\u0161i</a>\r\n<a
+        href=\"/notebook/\"  id=zvyraznenikat>Notebooky</a>\r\n<a href=\"/pamet/\"
+        >Pam\u011Bti</a>\r\n<a href=\"/pc/\" >PC, Po\u010D\xEDta\u010De</a>\r\n<a
+        href=\"/procesor/\" >Procesory</a>\r\n<a href=\"/sit/\" >S\xED\u0165ov\xE9
+        prvky</a>\r\n<a href=\"/scaner/\" >Scanery</a>\r\n<a href=\"/case/\" >Sk\u0159\xEDn\u011B,
+        zdroje</a>\r\n<a href=\"/software/\" >Software</a>\r\n<a href=\"/spotrebni/\"
+        >Spot\u0159ebn\xED materi\xE1l</a>\r\n<a href=\"/tablet/\" >Tablety, E-\u010Dte\u010Dky</a>\r\n<a
+        href=\"/tiskarna/\" >Tisk\xE1rny</a>\r\n<a href=\"/wifi/\" >Wireless, WiFi</a>\r\n<a
+        href=\"/motherboard/\" >Z\xE1kladn\xED desky</a>\r\n<a href=\"/ups/\" >Z\xE1lo\u017En\xED
+        zdroje</a>\r\n<a href=\"/sound/\" >Zvukov\xE9 karty</a>\r\n<a href=\"/ostatni/\"
+        >Ostatn\xED</a>\r\n</div></div>\r\n\r\n<br><div class=\"mobilskryt\" style=\"text-align:
+        center;\">\r\n<a style=\"font-size: 13px;text-decoration: none;color:#000000;\"
+        href=\"https://www.jasminka.cz/kniha/pavel-vana-lecive-stromy-a-kere-ii.html\"
+        target=\"_blank\" rel=\u201Dnofollow\u201D><b>Knihkupectv\xED Jasm\xEDnka</b><br>\r\n<span
+        style=\"font-size: 13px;text-decoration: none;color:#ff6600;\">\r\n<span style=\"color:#000000;\">Pavel
+        V\xE1\u0148a:</span> L\xE9\u010Div\xE9 stromy a ke\u0159e  II.<br><img src=\"https://www.jasminka.cz/images/v/kere2v.jpg\"
+        width=\"100\" alt=\"Knihkupectv\xED Jasm\xEDnka\" title=\"Knihkupectv\xED
+        Jasm\xEDnka\" style=\"border: 1px solid Black;margin: 4px;\">\r\n<br>\r\n<img
+        src=\"https://www.bazos.cz/kosik.svg\" alt=\"Jasminka\" height=\"22\" style=\"border:
+        0px;\"> koupit</span></a></div>\r\n\r\n</div><div class=\"maincontent\">\r\n\r\n\r\n<div
+        class=\"listainzerat inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><img
+        src=\"https://www.bazos.cz/obrazky/list.gif\" width=\"18\" height=\"16\" alt=\"List
+        inzer\xE1t\u016F\" class=gallerylista> <form name=\"formgal\" id=\"formgal\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" name=\"gal\"
+        value=\"g\"><input type=\"image\" alt=\"Submit\" src=\"https://www.bazos.cz/obrazky/gallery.gif\"
+        width=\"18\" height=\"16\" class=\"gallerylist inputgal\"></form> Zobrazeno
+        1-7 inzer\xE1t\u016F z 7</div>\r\n<div class=\"inzeratycena\"><b><span onclick=\"document.getElementById('order').value=1;document.forms['formt'].submit();\"
+        class=\"paction\">Cena</span></b></div>\r\n<div class=\"inzeratylok\">Lokalita</div>\r\n<div
+        class=\"inzeratyview\"><span onclick=\"document.getElementById('order').value=3;document.forms['formt'].submit();\"
+        class=\"paction\">Zobrazeno</span></div>\r\n</div><form name=\"formaction\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" id=\"postaction\"
+        name=\"postaction\" value=\"\"><input type=\"hidden\" id=\"postv1\" name=\"postv1\"
+        value=\"\"><input type=\"hidden\" id=\"postv2\" name=\"postv2\" value=\"\"><input
+        type=\"hidden\" id=\"postv3\" name=\"postv3\" value=\"\"></form><button type=\"button\"
+        onclick=\"odeslatrequest('/agent.php','teloverit=');overlay();\">Nov\xE9 inzer\xE1ty
+        e-mailem</button>\r\n\t<div id=\"overlay\">\r\n     <div></div>\r\n</div>\r\n\r\n<div
+        id=\"container_one\"></div>\r\n\r\n<div class=\"inzeraty inzeratyflex\">\r\n<div
+        class=\"inzeratynadpis\"><a href=\"/inzerat/222611649/predam-lenovo-thinkpad-x230-ips.php\"><img
+        src=\"https://www.bazos.cz/img/1t/649/222611649.jpg\" class=\"obrazek\" alt=\"Pred\xE1m
+        Lenovo Thinkpad x230 IPS\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a
+        href=\"/inzerat/222611649/predam-lenovo-thinkpad-x230-ips.php\">Pred\xE1m
+        Lenovo Thinkpad x230 IPS</a></h2><span class=velikost10> - [16.8. 2026]</span><br>\r\n<div
+        class=popis>Dobry den. Predam legendarny Lenovo <b>thinkpad</b> <b>x230</b>.
+        Je velmi zachovali a plne funkcny. CPU i5-3320. RAM 8GB. Bez HDD. LCD HD IPS.
+        Bateria cca 2,5h. Licencia windows 7. Zdroj 65W</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">  3 000 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Slovensko<br>987 65</div>\r\n<div class=\"inzeratyview\">90
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222611649');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222611649');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','4907278','5609471','Seller4907278');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222611649');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/222270617/lenovo-thinkpad-x230-jako-novy-ciste-windows-10.php\"><img
+        src=\"https://www.bazos.cz/img/1t/617/222270617.jpg?t=1786115433\" class=\"obrazek\"
+        alt=\"Lenovo ThinkPad X230\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a
+        href=\"/inzerat/222270617/lenovo-thinkpad-x230-jako-novy-ciste-windows-10.php\">Lenovo
+        ThinkPad X230</a></h2><span class=velikost10> - [7.8. 2026]</span><br>\r\n<div
+        class=popis>Prod\xE1m spolehliv\xFD notebook Lenovo <b>thinkpad</b> <b>x230</b>
+        (TYPE 3354). Notebook je ve velmi zachoval\xE9m stavu, pln\u011B funk\u010Dn\xED
+        a bez z\xE1vad.\n\u200BNyn\xED byl kompletn\u011B vy\u010Di\u0161t\u011Bn
+        a je na n\u011Bm nov\u011B nainstalov\xE1n \u010Dist\xFD opera\u010Dn\xED
+        syst\xE9m Windows 10 \u2013 sta\u010D\xED zapnout a hned pou\u017E\xEDvat.
+        ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span translate=\"no\">
+        \ 2 500 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha 8<br>182
+        00</div>\r\n<div class=\"inzeratyview\">284 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','222270617');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','222270617');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','14619640','13241395','Seller14619640');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222270617');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/221958931/koupim-lenovo-thinkpad-x230-i7.php\"><img
+        src=\"https://www.bazos.cz/img/1t/931/221958931.jpg\" class=\"obrazek\" alt=\"KOUPIM
+        Lenovo Thinkpad x230 i7\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a
+        href=\"/inzerat/221958931/koupim-lenovo-thinkpad-x230-i7.php\">KOUPIM Lenovo
+        Thinkpad x230 i7</a></h2><span class=velikost10> - [30.7. 2026]</span><br>\r\n<div
+        class=popis>Koup\xEDm <b>thinkpad</b> <b>x230</b> i7 dosku nebo cel\xFD notebook</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">   999 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Praha - z\xE1pad<br>252 29</div>\r\n<div class=\"inzeratyview\">194
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','221958931');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','221958931');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','12284218','10710021','Seller12284218');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221958931');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/221873404/thinkpad-x230-displej.php\"><img
+        src=\"https://www.bazos.cz/img/1t/404/221873404.jpg\" class=\"obrazek\" alt=\"ThinkPad
+        X230 Displej\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"/inzerat/221873404/thinkpad-x230-displej.php\">ThinkPad
+        X230 Displej</a></h2><span class=velikost10> - [28.7. 2026]</span><br>\r\n<div
+        class=popis>Prod\xE1m origin\xE1ln\xED displej z <b>thinkpad</b>u <b>x230</b>.
+        Panel je ve v\xFDborn\xE9m stavu v podstat\u011B skoro nov\xFD ;-). Nejsou
+        \u017E\xE1dn\xE9 viditeln\xE9 \u0161kr\xE1bance, jen 3 mal\xE9 ne\u010Distoty,
+        kter\xE9 se mi nepovedly vy\u010Distit.\r\nNejl\xE9pe osobn\xED p\u0159ed\xE1n\xED,
+        p\u0159i platb\u011B p\u0159edem je mo\u017En\xE9 i zaslat.</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">   800 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Zl\xEDn<br>760 01</div>\r\n<div class=\"inzeratyview\">110
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','221873404');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','221873404');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','8799121','6812741','Seller8799121');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221873404');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/221857023/lenovo-thinkpad-x230.php\"><img
+        src=\"https://www.bazos.cz/img/1t/023/221857023.jpg\" class=\"obrazek\" alt=\"Lenovo
+        ThinkPad X230\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"/inzerat/221857023/lenovo-thinkpad-x230.php\">Lenovo
+        ThinkPad X230</a></h2><span class=velikost10> - [28.7. 2026]</span><br>\r\n<div
+        class=popis>Je zaheslovan\xFD bios, to ale b\u011B\u017En\xE9mu pou\u017E\xEDv\xE1n\xED
+        nijak nevad\xED. LCD 12,5\" - 1366x768, procesor Intel Core i5-3320 2,60GHz,
+        4GB RAM DDR3, 120GB SSD (Kingston), Intel HD Graphics 4000, WiFi, Bluetooth,
+        webkamera, nap\xE1jec\xED adapt\xE9r, baterie s v\xFDdr\u017E\xED cca 3 ho
+        ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span translate=\"no\">
+        \ 3 700 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha 9<br>197
+        00</div>\r\n<div class=\"inzeratyview\">152 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','221857023');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','221857023');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','712875','59912','Seller712875');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221857023');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/221345668/lenovo-thinkpad-x230.php\"><img
+        src=\"https://www.bazos.cz/img/1t/668/221345668.jpg\" class=\"obrazek\" alt=\"Lenovo
+        ThinkPad X230\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"/inzerat/221345668/lenovo-thinkpad-x230.php\">Lenovo
+        ThinkPad X230</a></h2><span class=velikost10> - [15.7. 2026]</span><br>\r\n<div
+        class=popis>Prod\xE1m funk\u010Dn\xED notebook Lenovo\r\n\r\nProcesor: Intel
+        Core i5-3320M\r\nPam\u011B\u0165: 4GB DDR3\r\n\xDAlo\u017Ei\u0161t\u011B:
+        320GB HDD\r\nMoment\xE1ln\u011B b\u011B\u017E\xED na Windows 7\r\nBaterie
+        je OK\r\nBez nab\xEDje\u010Dky\r\n\r\nOsobn\xED p\u0159ed\xE1n\xED v P\u0159\xEDbrami
+        nebo za\u0161lu po\u0161tou.</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  2 000 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">P\u0159\xEDbram<br>261
+        01</div>\r\n<div class=\"inzeratyview\">281 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','221345668');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','221345668');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','8535555','6930613','Seller8535555');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221345668');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/221189192/x230-16gb-max-3s-100-kapacita-baterie.php\"><img
+        src=\"https://www.bazos.cz/img/1t/192/221189192.jpg?t=1783813192\" class=\"obrazek\"
+        alt=\"X230, 16GB max, 100%+ kapacita baterie\" width=\"170\" height=\"128\"></a>\r\n<h2
+        class=nadpis><a href=\"/inzerat/221189192/x230-16gb-max-3s-100-kapacita-baterie.php\">X230,
+        16GB max, 100%+ kapacita baterie</a></h2><span class=velikost10> - [12.7.
+        2026]</span><br>\r\n<div class=popis>Dobr\xFD den,\r\nnab\xEDz\xEDm jako novou
+        Lenovo <b>thinkpad</b> <b>x230</b>.\r\nJP kl\xE1vesnice s p\u0159\xEDsvitem,
+        i5, 2x 8GB RAM, 3 \u010Dl\xE1nkov\xE1 baterie, \u010Dte\u010Dka otisku prst\u016F.\r\n\r\nNejhez\u010D\xED
+        kousek, co jsem vid\u011Bla za posledn\xEDch 8 let.\r\n\r\nV\u010Detn\u011B
+        9ti \u010Dl\xE1nkov\xE9 baterie se 100%+ designovan\xE9 kapa ...</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">  7 000 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Praha 9<br>198 00</div>\r\n<div class=\"inzeratyview\">230
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','221189192');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','221189192');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','12971110','4042390','Seller12971110');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221189192');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n<div
+        id=\"container_two\"></div><script type=\"text/javascript\" charset=\"utf-8\">\r\nvar
+        pageOptions = {\r\n  'pubId': 'pub-3645948300403337',\r\n  'query' : 'thinkpad
+        x230',\r\n  \"channel\": \"4719857758\",  'linkTarget' : '_blank',\r\n  'personalizedAds'
+        : 'false',\r\n  'ivt': false,\r\n'styleId' : '6171314811',  'hl': 'cs'\r\n};\r\n\r\nvar
+        adblock1 = {\r\n  'container': 'container_one',\r\n  'width': 'auto',\r\n
+        \ 'maxTop' : 2\r\n};\r\n\r\nvar adblock2 = {\r\n  'container': 'container_two',\r\n
+        \ 'width': 'auto',\r\n  'number' : 2\r\n};\r\n\r\n_googCsa('ads', pageOptions,
+        adblock2);</script>\r\n\r\n<br><br>\r\n\r\n\r\n</div></div><br>\r\n\r\n&copy;2026
+        Bazo\u0161 -  <b>Inzerce, Bazar Notebooky</b><br>\r\n<a href=\"https://www.bazos.cz/napoveda.php\">N\xE1pov\u011Bda</a>,
+        <a href=\"https://www.bazos.cz/dotazy.php\">Dotazy</a>, <a href=\"https://www.bazos.cz/hodnoceni.php\">Hodnocen\xED</a>,
+        <a href=\"https://www.bazos.cz/kontakt.php\">Kontakt</a>, <a href=\"https://www.bazos.cz/reklama.php\">Reklama</a>,
+        <a href=\"https://www.bazos.cz/podminky.php\">Podm\xEDnky</a>, <a href=\"https://www.bazos.cz/ochrana-udaju.php\">Ochrana
+        \xFAdaj\u016F</a>, <span onclick=\"odeslatakci('rss','&cat=10&humkreis=25&hledat=thinkpad+x230');return
+        false;\" class=\"paction\">RSS</span>, <form name=\"formvkm\" id=\"formvkm\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" name=\"vkm\"
+        value=\"m\"><input type=\"submit\" class=\"vkm\" value=\"Mobiln\xED verze\"></form><br>\r\n\r\nInzer\xE1ty
+        PC celkem: <b>43597</b>, za 24 hodin: <b>1809</b><br><br>\r\n<a href=\"https://www.bazos.cz/mapa-kategorie.php\">Mapa
+        kategori\xED</a>, <a href=\"https://pc.bazos.cz/mapa-search.php\">Nejvyhled\xE1van\u011Bj\u0161\xED
+        v\xFDrazy</a>\r\n<br>\r\nZem\u011B: <a href=\"https://pc.bazos.cz\">\u010Cesk\xE1
+        republika</a>, <a href=\"https://pc.bazos.sk\">Slovensko</a>, <a href=\"https://komputer.bazos.pl\">Polsko</a>,
+        <a href=\"https://pc.bazos.at\">Rakousko</a>\r\n<br>\r\n<br>\r\n</div>\r\n\r\n<script
+        src=\"https://www.bazos.cz/cookie-consent.js\"></script>\r\n<script>\r\ndocument.addEventListener('DOMContentLoaded',
+        function () {\r\ncookieconsent.run({\"notice_banner_type\":\"simple\",\"consent_type\":\"express\",\"palette\":\"light\",\"language\":\"cs\",\"page_load_consent_levels\":[\"strictly-necessary\"],\"notice_banner_reject_button_hide\":false,\"preferences_center_close_button_hide\":false,\"page_refresh_confirmation_buttons\":false,\"cookie_domain\":
+        \"bazos.cz\"});\r\n});\r\n</script>\r\n<a href=\"#\" id=\"open_preferences_center\">
+        </a>\r\n\r\n\r\n<!-- Google tag (gtag.js) -->\r\n<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-NZW1QTHKBB\"></script>\r\n<script>\r\n
+        \ window.dataLayer = window.dataLayer || [];\r\n  function gtag(){dataLayer.push(arguments);}\r\n
+        \ gtag('js', new Date());\r\n\r\n  gtag('config', 'G-NZW1QTHKBB');\r\n</script>\r\n\r\n</body>\r\n</html>"
+    headers:
+      Cache-Control:
+      - max-age=10
+      Connection:
+      - keep-alive
+      Content-Type:
+      - text/html; charset=UTF-8
+      Date:
+      - Sun, 23 Aug 2026 09:16:24 GMT
+      Expires:
+      - Sun, 23 Aug 2026 09:16:34 GMT
+      Last-Modified:
+      - Sun, 23 Aug 2026 09:16:24 GMT
+      Server:
+      - nginx
+      Transfer-Encoding:
+      - chunked
+      Vary:
+      - Accept-Encoding
+      X-Frame-Options:
+      - DENY
+      X-XSS-Protection:
+      - 1; mode=block
+      content-length:
+      - '24336'
+    status:
+      code: 404
+      message: Not Found
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br
+      Connection:
+      - keep-alive
+    method: GET
+    uri: https://pc.bazos.cz/notebook/20/?hledat=thinkpad+x230&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat
+  response:
+    body:
+      string: "Str\xE1nka nenalezena<!DOCTYPE html>\r\n<html lang=\"cs\">\r\n<head>\r\n<title>Notebooky
+        - Thinkpad x230 bazar - PC | Bazo\u0161.cz</title>\r\n<meta http-equiv=\"Content-Type\"
+        content=\"text/html; charset=utf-8\">\r\n<meta name=\"description\" content=\"Kategorie
+        Notebooky - Thinkpad x230 bazar. Vyb\xEDrejte z 7 inzer\xE1t\u016F. Prodej
+        snadno a rychle na Bazo\u0161i. P\u0159es p\u016Fl milion\u016F u\u017Eivatel\u016F
+        za den.\"><meta property=\"og:title\" content=\"Notebooky - Thinkpad x230
+        bazar - PC\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:site_name\"
+        content=\"Bazos.cz\">\n<meta property=\"og:description\" content=\"Kategorie
+        Notebooky - Thinkpad x230 bazar. Vyb\xEDrejte z 7 inzer\xE1t\u016F. Prodej
+        snadno a rychle na Bazo\u0161i. P\u0159es p\u016Fl milion\u016F u\u017Eivatel\u016F
+        za den.\">\n<link rel=\"canonical\" href=\"https://pc.bazos.cz/notebook/20/?hledat=thinkpad+x230&hlokalita=&humkreis=25&cenaod=&cenado=&submit=hledat\"><meta
+        property=\"fb:admins\" content=\"1055875657\">\r\n<meta name=\"ROBOTS\" content=\"NOINDEX\">\n<link
+        rel=\"stylesheet\" href=\"https://www.bazos.cz/bazos67s.css\" type=\"text/css\"><link
+        rel=\"preload\" as=\"image\" href=\"https://www.bazos.cz/obrazky/bazos.svg\">\r\n<link
+        rel=\"stylesheet\" href=\"https://www.bazos.cz/bazosprint.css\" type=\"text/css\"
+        media=\"print\">\r\n<link rel=\"icon\" href=\"https://www.bazos.cz/favicon.svg\"
+        type=\"image/svg+xml\">\r\n<link rel=\"icon\" HREF=\"https://www.bazos.cz/favicon.ico\"
+        sizes=\"32x32\">\r\n<link rel=\"apple-touch-icon\" href=\"https://www.bazos.cz/apple-touch-icon.png\">\r\n<script
+        async=\"async\" src=\"https://www.google.com/adsense/search/ads.js\"></script>\r\n<script
+        type=\"text/javascript\" charset=\"utf-8\">\r\n(function(g,o){g[o]=g[o]||function(){(g[o]['q']=g[o]['q']||[]).push(\r\n
+        \ arguments)},g[o]['t']=1*new Date})(window,'_googCsa');\r\n</script><script>\r\nvar
+        xhr = new XMLHttpRequest();\r\nvar naseptavac_value = '';\r\nfunction naseptavac(value)
+        {\r\n  if (value=='')  {\r\n  \tnaseptavac_value = '';\r\n  \tdocument.getElementById('vysledek').innerHTML='';\r\n
+        \ \t}\r\nelse {\r\n\tif (naseptavac_value == value) {\r\n\t\treturn false;\r\n\t}\r\n\tnaseptavac_value
+        = value;\r\n\tsetTimeout(function () {\r\n\t\tif (naseptavac_value != value)
+        {\r\n\t\t\treturn false;\r\n\t\t}\r\n\t\txhr.onreadystatechange = function()
+        {\r\n \t\t if (this.readyState == 4 && naseptavac_value == value){\r\n\t\t\t\tdocument.getElementById('vysledek').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n \t\t };\r\n\t\txhr.open(\"POST\", '/suggest.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('rubnas=PC&catnas=10&qnas='+encodeURIComponent(naseptavac_value));\r\n\t},
+        250);\r\n}\r\n}\r\n\r\nvar naseptavacpsc_value = '';\r\nfunction naseptavacpsc(value)
+        {\r\n  if (value=='')  {\r\n  \tnaseptavacpsc_value = '';\r\n  \tdocument.getElementById('vysledekpsc').innerHTML='<table
+        cellpadding=\\\"3\\\" cellspacing=\\\"0\\\" class=\\\"tablenaspsc\\\"><tr><td
+        class=\\\"act\\\" onclick=\\\"getLocation();\\\"><b>Inzer\xE1ty v okol\xED</b></td></tr></table>';\r\n
+        \ \t}\r\nelse {\r\n\tif (naseptavacpsc_value == value) {\r\n\t\treturn false;\r\n\t}\r\n\tnaseptavacpsc_value
+        = value;\r\n\tsetTimeout(function () {\r\n\t\tif (naseptavacpsc_value != value)
+        {\r\n\t\t\treturn false;\r\n\t\t}\r\n\t\txhr.onreadystatechange = function()
+        {\r\n \t\t if (this.readyState == 4 && naseptavacpsc_value == value){\r\n\t\t\t\tdocument.getElementById('vysledekpsc').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n \t\t };\r\n\t\txhr.open(\"POST\", '/suggestpsc.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('qnaspsc='+encodeURIComponent(naseptavacpsc_value));\r\n\t},
+        250);\r\n}\r\n}\r\n\r\nfunction getLocation() {\r\nif (navigator.geolocation)
+        {navigator.geolocation.getCurrentPosition(showPosition);}\r\nelse {document.getElementById('hlokalita').value
+        = '';}\r\n}\r\nfunction showPosition(position) {\r\n\t\txhr.onreadystatechange
+        = function() {\r\n \t\t if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('hlokalita').value
+        = this.responseText;\r\n\t\t\t\tdocument.forms['formt'].submit();\r\n\t\t\t}\r\n
+        \t\t };\r\n\t\txhr.open(\"POST\", '/zip.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('latitude='+encodeURIComponent(position.coords.latitude)+'&longitude='+encodeURIComponent(position.coords.longitude));\r\n}\r\n\r\nvar
+        agent_value = '';\r\nfunction agentclick() {\r\n  if (document.getElementById('agentmail').value=='')
+        \ {\r\n  \tdocument.getElementById(\"agentmail\").focus();\r\n    return false;\r\n
+        \ \t}\r\nelse {\r\nagent_value = document.getElementById('agentmail').value;\r\nxhr.onreadystatechange
+        = function() {\r\n  if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('overlay').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n  };\r\nxhr.open(\"POST\", '/agent.php');\r\nxhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\nxhr.send('hledat=thinkpad x230&rubrikav=PC&hlokalita=&humkreis=25&cenaod=&cenado=&cat=10&typ=&agentmail='+encodeURIComponent(agent_value));\r\n}\r\n}\r\n\r\nfunction
+        odeslatrequest(value,params) {\r\nxhr.onreadystatechange = function() {\r\n
+        \ if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('overlay').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n  };\r\nxhr.open(\"POST\", value);\r\nxhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\nxhr.send(params);\r\n}\r\nfunction
+        overlay() {\r\n\tel = document.getElementById(\"overlay\");\r\n\tel.style.display
+        = (el.style.display == \"inline\") ? \"none\" : \"inline\";\r\n}\r\nfunction
+        odeslatakci(postaction,value1,value2,value3) {\r\ndocument.getElementById('postaction').value
+        = postaction;\r\ndocument.getElementById(\"postv1\").value = value1;\r\ndocument.getElementById(\"postv2\").value
+        = value2;\r\ndocument.getElementById(\"postv3\").value = value3;\r\ndocument.formaction.submit();\r\n}\r\n</script>\r\n</head>\r\n\r\n<body>\r\n\r\n\r\n<div
+        class=\"sirka\">\r\n<div class=\"listalogor\">\r\n<div class=\"listalogol\"><a
+        href=\"https://www.bazos.cz/\" title=\"Bazos.cz - Inzerce, bazar\"><img src=\"https://www.bazos.cz/obrazky/bazos.svg\"
+        width=\"199\" height=\"34\" alt=\"Bazos.cz - Inzerce, inzer\xE1ty\"></a></div>\r\n<div
+        class=\"listalogom\"><b>... bazar pro ka\u017Ed\xE9ho</b></div>\r\n<div class=\"listalogop\"><a
+        href=\"https://www.bazos.cz/oblibene.php\"><b>Obl\xEDben\xE9 inzer\xE1ty</b></a>
+        <a href=\"https://www.bazos.cz/moje-inzeraty.php\"><b>Moje inzer\xE1ty</b></a>
+        <a href=\"/pridat-inzerat.php\"><b><span class=pridati>P\u0159idat inzer\xE1t</span></b></a></div>\r\n</div>\r\n<form
+        name=\"formt\" id=\"formt\" method=get >\r\n<div class=\"listah\">\r\n<div
+        class=\"rubriky\">\r\n<b>\r\nCo: <span class=vysokoli><span id=\"vysledek\"></span><input
+        type=\"search\" onkeyup=\"naseptavac(this.value);\" id=hledat name=hledat
+        size=\"17\" maxlength=\"256\" value=\"thinkpad x230\" autocomplete=\"off\"
+        title=\"Co? Vyhled\xE1van\xFD v\xFDraz\"></span>\r\n\r\n<select name=\"rubriky\"
+        onchange='this.form.submit();' title=\"Vyber rubriku\">\r\n<option value=\"www\">V\u0161echny
+        rubriky</option>\r\n<option value=\"auto\">Auto</option><option value=\"deti\">D\u011Bti</option><option
+        value=\"dum\">D\u016Fm a zahrada</option><option value=\"elektro\">Elektro</option><option
+        value=\"foto\">Foto</option><option value=\"hudba\">Hudba</option><option
+        value=\"knihy\">Knihy</option><option value=\"mobil\">Mobily</option><option
+        value=\"motorky\">Motorky</option><option value=\"nabytek\">N\xE1bytek</option><option
+        value=\"obleceni\">Oble\u010Den\xED</option><option value=\"pc\" selected>PC</option><option
+        value=\"prace\">Pr\xE1ce</option><option value=\"reality\">Reality</option><option
+        value=\"sluzby\">Slu\u017Eby</option><option value=\"sport\">Sport</option><option
+        value=\"stroje\">Stroje</option><option value=\"vstupenky\">Vstupenky</option><option
+        value=\"zvirata\">Zv\xED\u0159ata</option><option value=\"ostatni\">Ostatn\xED</option></select>\r\n\r\nLokalita:
+        <span class=vysokolipsc><span id=\"vysledekpsc\"></span><input type=\"search\"
+        name=\"hlokalita\" id=\"hlokalita\" onkeyup=\"naseptavacpsc(this.value);\"
+        onclick=\"naseptavacpsc(this.value);\" value=\"\" size=\"4\" maxlength=\"25\"
+        autocomplete=\"off\" title=\"Kde? PS\u010C (m\xEDsto)\" style=\"-webkit-appearance:
+        none;\"></span>\r\nOkol\xED: <input name=\"humkreis\" title=\"Okol\xED v km\"
+        value=\"25\" size=\"3\" style=\"width: 25px;\"> km\r\nCena od: <input name=cenaod
+        title=\"Cena od K\u010D\" maxlength=\"12\" size=\"5\" value=\"\"> - do: <input
+        name=cenado title=\"Cena do K\u010D\" maxlength=\"12\" size=\"5\" value=\"\">
+        K\u010D <input type=\"submit\" name=\"Submit\" value=\"Hledat\">\r\n<input
+        type=\"hidden\" name=\"order\" id=\"order\"><input type=\"hidden\" name=\"crp\"
+        id=\"crp\"><input type=\"hidden\" id=\"kitx\" name=\"kitx\" value=\"ano\"></b>\r\n</div>\r\n</div>\r\n</form>\r\n<div
+        class=\"drobky\"><a href=\"https://www.bazos.cz/\" title=\"Inzerce Bazo\u0161\">Hlavn\xED
+        str\xE1nka</a>  > <a href=\"https://pc.bazos.cz\">PC</a> > <h1 class=\"nadpiskategorie\">Notebooky</h1></div>\r\n<br>\r\n\r\n\r\n<div
+        class=\"flexmain\"><div class=\"menuleft\"><div class=\"nadpismenu\">Kategorie</div>\r\n<div
+        class=\"barvalmenu\">\r\n<div class=\"barvaleva\">\r\n<a href=\"/cd/\" >DVD,
+        Blu-ray mechaniky</a>\r\n<a href=\"https://foto.bazos.cz/\">Fotoapar\xE1ty</a>\r\n<a
+        href=\"/gps/\" >GPS navigace</a>\r\n<a href=\"/graficka/\" >Grafick\xE9 karty</a>\r\n<a
+        href=\"/hdd/\" >Hard disky, SSD</a>\r\n<a href=\"/playstation/\" >Hern\xED
+        konzole</a>\r\n<a href=\"/volanty/\" >Hern\xED za\u0159\xEDzen\xED</a>\r\n<a
+        href=\"/hry/\" >Hry</a>\r\n<a href=\"/chladic/\" >Chladi\u010De</a>\r\n<a
+        href=\"/klavesnice/\" >Kl\xE1vesnice</a>\r\n<a href=\"/kopirka/\" >Kop\xEDrovac\xED
+        stroje</a>\r\n<a href=\"/monitor/\" >LCD monitory</a>\r\n<a href=\"https://mobil.bazos.cz/\">Mobiln\xED
+        telefony</a>\r\n<a href=\"/modem/\" >Modemy</a>\r\n<a href=\"/mys/\" >My\u0161i</a>\r\n<a
+        href=\"/notebook/\"  id=zvyraznenikat>Notebooky</a>\r\n<a href=\"/pamet/\"
+        >Pam\u011Bti</a>\r\n<a href=\"/pc/\" >PC, Po\u010D\xEDta\u010De</a>\r\n<a
+        href=\"/procesor/\" >Procesory</a>\r\n<a href=\"/sit/\" >S\xED\u0165ov\xE9
+        prvky</a>\r\n<a href=\"/scaner/\" >Scanery</a>\r\n<a href=\"/case/\" >Sk\u0159\xEDn\u011B,
+        zdroje</a>\r\n<a href=\"/software/\" >Software</a>\r\n<a href=\"/spotrebni/\"
+        >Spot\u0159ebn\xED materi\xE1l</a>\r\n<a href=\"/tablet/\" >Tablety, E-\u010Dte\u010Dky</a>\r\n<a
+        href=\"/tiskarna/\" >Tisk\xE1rny</a>\r\n<a href=\"/wifi/\" >Wireless, WiFi</a>\r\n<a
+        href=\"/motherboard/\" >Z\xE1kladn\xED desky</a>\r\n<a href=\"/ups/\" >Z\xE1lo\u017En\xED
+        zdroje</a>\r\n<a href=\"/sound/\" >Zvukov\xE9 karty</a>\r\n<a href=\"/ostatni/\"
+        >Ostatn\xED</a>\r\n</div></div>\r\n\r\n<br><div class=\"mobilskryt\" style=\"text-align:
+        center;\">\r\n<a style=\"font-size: 13px;text-decoration: none;color:#000000;\"
+        href=\"https://www.jasminka.cz/kniha/jiri-janca-josef-a-zentrich-herbar-lecivych-rostlin-komplet-1-7dil.html\"
+        target=\"_blank\" rel=\u201Dnofollow\u201D><b>Knihkupectv\xED Jasm\xEDnka</b><br>\r\n<span
+        style=\"font-size: 13px;text-decoration: none;color:#ff6600;\">\r\n<span style=\"color:#000000;\">Ji\u0159\xED
+        Jan\u010Da, Josef A. Zentrich:</span> Herb\xE1\u0159 l\xE9\u010Div\xFDch rostlin
+        - komplet 1.-7.d\xEDl<br><img src=\"https://www.jasminka.cz/images/v/herbarcv.jpg\"
+        width=\"100\" alt=\"Knihkupectv\xED Jasm\xEDnka\" title=\"Knihkupectv\xED
+        Jasm\xEDnka\" style=\"border: 1px solid Black;margin: 4px;\">\r\n<br>\r\n<img
+        src=\"https://www.bazos.cz/kosik.svg\" alt=\"Jasminka\" height=\"22\" style=\"border:
+        0px;\"> koupit</span></a></div>\r\n\r\n</div><div class=\"maincontent\">\r\n\r\n\r\n<div
+        class=\"listainzerat inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><img
+        src=\"https://www.bazos.cz/obrazky/list.gif\" width=\"18\" height=\"16\" alt=\"List
+        inzer\xE1t\u016F\" class=gallerylista> <form name=\"formgal\" id=\"formgal\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" name=\"gal\"
+        value=\"g\"><input type=\"image\" alt=\"Submit\" src=\"https://www.bazos.cz/obrazky/gallery.gif\"
+        width=\"18\" height=\"16\" class=\"gallerylist inputgal\"></form> Zobrazeno
+        21-7 inzer\xE1t\u016F z 7</div>\r\n<div class=\"inzeratycena\"><b><span onclick=\"document.getElementById('order').value=1;document.forms['formt'].submit();\"
+        class=\"paction\">Cena</span></b></div>\r\n<div class=\"inzeratylok\">Lokalita</div>\r\n<div
+        class=\"inzeratyview\"><span onclick=\"document.getElementById('order').value=3;document.forms['formt'].submit();\"
+        class=\"paction\">Zobrazeno</span></div>\r\n</div><form name=\"formaction\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" id=\"postaction\"
+        name=\"postaction\" value=\"\"><input type=\"hidden\" id=\"postv1\" name=\"postv1\"
+        value=\"\"><input type=\"hidden\" id=\"postv2\" name=\"postv2\" value=\"\"><input
+        type=\"hidden\" id=\"postv3\" name=\"postv3\" value=\"\"></form><button type=\"button\"
+        onclick=\"odeslatrequest('/agent.php','teloverit=');overlay();\">Nov\xE9 inzer\xE1ty
+        e-mailem</button>\r\n\t<div id=\"overlay\">\r\n     <div></div>\r\n</div>\r\n\r\n<div
+        id=\"container_one\"></div>\r\n<div id=\"container_two\"></div><script type=\"text/javascript\"
+        charset=\"utf-8\">\r\nvar pageOptions = {\r\n  'pubId': 'pub-3645948300403337',\r\n
+        \ 'query' : 'thinkpad x230',\r\n  \"channel\": \"4719857758\",  'linkTarget'
+        : '_blank',\r\n  'personalizedAds' : 'false',\r\n  'ivt': false,\r\n'styleId'
+        : '6171314811',  'hl': 'cs'\r\n};\r\n\r\nvar adblock1 = {\r\n  'container':
+        'container_one',\r\n  'width': 'auto',\r\n  'maxTop' : 2\r\n};\r\n\r\nvar
+        adblock2 = {\r\n  'container': 'container_two',\r\n  'width': 'auto',\r\n
+        \ 'number' : 2\r\n};\r\n\r\n_googCsa('ads', pageOptions, adblock2);</script>\r\n\r\n<br><br>\r\n\r\n\r\n</div></div><br>\r\n\r\n&copy;2026
+        Bazo\u0161 -  <b>Inzerce, Bazar Notebooky</b><br>\r\n<a href=\"https://www.bazos.cz/napoveda.php\">N\xE1pov\u011Bda</a>,
+        <a href=\"https://www.bazos.cz/dotazy.php\">Dotazy</a>, <a href=\"https://www.bazos.cz/hodnoceni.php\">Hodnocen\xED</a>,
+        <a href=\"https://www.bazos.cz/kontakt.php\">Kontakt</a>, <a href=\"https://www.bazos.cz/reklama.php\">Reklama</a>,
+        <a href=\"https://www.bazos.cz/podminky.php\">Podm\xEDnky</a>, <a href=\"https://www.bazos.cz/ochrana-udaju.php\">Ochrana
+        \xFAdaj\u016F</a>, <span onclick=\"odeslatakci('rss','&cat=10&humkreis=25&hledat=thinkpad+x230');return
+        false;\" class=\"paction\">RSS</span>, <form name=\"formvkm\" id=\"formvkm\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" name=\"vkm\"
+        value=\"m\"><input type=\"submit\" class=\"vkm\" value=\"Mobiln\xED verze\"></form><br>\r\n\r\nInzer\xE1ty
+        PC celkem: <b>43597</b>, za 24 hodin: <b>1809</b><br><br>\r\n<a href=\"https://www.bazos.cz/mapa-kategorie.php\">Mapa
+        kategori\xED</a>, <a href=\"https://pc.bazos.cz/mapa-search.php\">Nejvyhled\xE1van\u011Bj\u0161\xED
+        v\xFDrazy</a>\r\n<br>\r\nZem\u011B: <a href=\"https://pc.bazos.cz\">\u010Cesk\xE1
+        republika</a>, <a href=\"https://pc.bazos.sk\">Slovensko</a>, <a href=\"https://komputer.bazos.pl\">Polsko</a>,
+        <a href=\"https://pc.bazos.at\">Rakousko</a>\r\n<br>\r\n<br>\r\n</div>\r\n\r\n<script
+        src=\"https://www.bazos.cz/cookie-consent.js\"></script>\r\n<script>\r\ndocument.addEventListener('DOMContentLoaded',
+        function () {\r\ncookieconsent.run({\"notice_banner_type\":\"simple\",\"consent_type\":\"express\",\"palette\":\"light\",\"language\":\"cs\",\"page_load_consent_levels\":[\"strictly-necessary\"],\"notice_banner_reject_button_hide\":false,\"preferences_center_close_button_hide\":false,\"page_refresh_confirmation_buttons\":false,\"cookie_domain\":
+        \"bazos.cz\"});\r\n});\r\n</script>\r\n<a href=\"#\" id=\"open_preferences_center\">
+        </a>\r\n\r\n\r\n<!-- Google tag (gtag.js) -->\r\n<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-NZW1QTHKBB\"></script>\r\n<script>\r\n
+        \ window.dataLayer = window.dataLayer || [];\r\n  function gtag(){dataLayer.push(arguments);}\r\n
+        \ gtag('js', new Date());\r\n\r\n  gtag('config', 'G-NZW1QTHKBB');\r\n</script>\r\n\r\n</body>\r\n</html>"
+    headers:
+      Cache-Control:
+      - max-age=10
+      Connection:
+      - keep-alive
+      Content-Type:
+      - text/html; charset=UTF-8
+      Date:
+      - Sun, 23 Aug 2026 09:16:24 GMT
+      Expires:
+      - Sun, 23 Aug 2026 09:16:34 GMT
+      Last-Modified:
+      - Sun, 23 Aug 2026 09:16:24 GMT
+      Server:
+      - nginx
+      Transfer-Encoding:
+      - chunked
+      Vary:
+      - Accept-Encoding
+      X-Frame-Options:
+      - DENY
+      X-XSS-Protection:
+      - 1; mode=block
+      content-length:
+      - '14583'
+    status:
+      code: 404
+      message: Not Found
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate, br
+      Connection:
+      - keep-alive
+    method: GET
+    uri: https://pc.bazos.cz/notebook/0/?hledat=thinkpad+x230&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat
+  response:
+    body:
+      string: "Str\xE1nka nenalezena<!DOCTYPE html>\r\n<html lang=\"cs\">\r\n<head>\r\n<title>Notebooky
+        - Thinkpad x230 bazar - PC | Bazo\u0161.cz</title>\r\n<meta http-equiv=\"Content-Type\"
+        content=\"text/html; charset=utf-8\">\r\n<meta name=\"description\" content=\"Kategorie
+        Notebooky - Thinkpad x230 bazar. Vyb\xEDrejte z 7 inzer\xE1t\u016F. Prodej
+        snadno a rychle na Bazo\u0161i. P\u0159es p\u016Fl milion\u016F u\u017Eivatel\u016F
+        za den.\"><meta property=\"og:title\" content=\"Notebooky - Thinkpad x230
+        bazar - PC\">\n<meta property=\"og:type\" content=\"website\">\n<meta property=\"og:site_name\"
+        content=\"Bazos.cz\">\n<meta property=\"og:description\" content=\"Kategorie
+        Notebooky - Thinkpad x230 bazar. Vyb\xEDrejte z 7 inzer\xE1t\u016F. Prodej
+        snadno a rychle na Bazo\u0161i. P\u0159es p\u016Fl milion\u016F u\u017Eivatel\u016F
+        za den.\">\n<link rel=\"canonical\" href=\"https://pc.bazos.cz/notebook/0/?hledat=thinkpad+x230&hlokalita=&humkreis=25&cenaod=&cenado=&submit=hledat\"><meta
+        property=\"fb:admins\" content=\"1055875657\">\r\n<meta name=\"ROBOTS\" content=\"NOINDEX\">\n<link
+        rel=\"stylesheet\" href=\"https://www.bazos.cz/bazos67s.css\" type=\"text/css\"><link
+        rel=\"preload\" as=\"image\" href=\"https://www.bazos.cz/obrazky/bazos.svg\">\r\n<link
+        rel=\"stylesheet\" href=\"https://www.bazos.cz/bazosprint.css\" type=\"text/css\"
+        media=\"print\">\r\n<link rel=\"icon\" href=\"https://www.bazos.cz/favicon.svg\"
+        type=\"image/svg+xml\">\r\n<link rel=\"icon\" HREF=\"https://www.bazos.cz/favicon.ico\"
+        sizes=\"32x32\">\r\n<link rel=\"apple-touch-icon\" href=\"https://www.bazos.cz/apple-touch-icon.png\">\r\n<script
+        async=\"async\" src=\"https://www.google.com/adsense/search/ads.js\"></script>\r\n<script
+        type=\"text/javascript\" charset=\"utf-8\">\r\n(function(g,o){g[o]=g[o]||function(){(g[o]['q']=g[o]['q']||[]).push(\r\n
+        \ arguments)},g[o]['t']=1*new Date})(window,'_googCsa');\r\n</script><script>\r\nvar
+        xhr = new XMLHttpRequest();\r\nvar naseptavac_value = '';\r\nfunction naseptavac(value)
+        {\r\n  if (value=='')  {\r\n  \tnaseptavac_value = '';\r\n  \tdocument.getElementById('vysledek').innerHTML='';\r\n
+        \ \t}\r\nelse {\r\n\tif (naseptavac_value == value) {\r\n\t\treturn false;\r\n\t}\r\n\tnaseptavac_value
+        = value;\r\n\tsetTimeout(function () {\r\n\t\tif (naseptavac_value != value)
+        {\r\n\t\t\treturn false;\r\n\t\t}\r\n\t\txhr.onreadystatechange = function()
+        {\r\n \t\t if (this.readyState == 4 && naseptavac_value == value){\r\n\t\t\t\tdocument.getElementById('vysledek').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n \t\t };\r\n\t\txhr.open(\"POST\", '/suggest.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('rubnas=PC&catnas=10&qnas='+encodeURIComponent(naseptavac_value));\r\n\t},
+        250);\r\n}\r\n}\r\n\r\nvar naseptavacpsc_value = '';\r\nfunction naseptavacpsc(value)
+        {\r\n  if (value=='')  {\r\n  \tnaseptavacpsc_value = '';\r\n  \tdocument.getElementById('vysledekpsc').innerHTML='<table
+        cellpadding=\\\"3\\\" cellspacing=\\\"0\\\" class=\\\"tablenaspsc\\\"><tr><td
+        class=\\\"act\\\" onclick=\\\"getLocation();\\\"><b>Inzer\xE1ty v okol\xED</b></td></tr></table>';\r\n
+        \ \t}\r\nelse {\r\n\tif (naseptavacpsc_value == value) {\r\n\t\treturn false;\r\n\t}\r\n\tnaseptavacpsc_value
+        = value;\r\n\tsetTimeout(function () {\r\n\t\tif (naseptavacpsc_value != value)
+        {\r\n\t\t\treturn false;\r\n\t\t}\r\n\t\txhr.onreadystatechange = function()
+        {\r\n \t\t if (this.readyState == 4 && naseptavacpsc_value == value){\r\n\t\t\t\tdocument.getElementById('vysledekpsc').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n \t\t };\r\n\t\txhr.open(\"POST\", '/suggestpsc.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('qnaspsc='+encodeURIComponent(naseptavacpsc_value));\r\n\t},
+        250);\r\n}\r\n}\r\n\r\nfunction getLocation() {\r\nif (navigator.geolocation)
+        {navigator.geolocation.getCurrentPosition(showPosition);}\r\nelse {document.getElementById('hlokalita').value
+        = '';}\r\n}\r\nfunction showPosition(position) {\r\n\t\txhr.onreadystatechange
+        = function() {\r\n \t\t if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('hlokalita').value
+        = this.responseText;\r\n\t\t\t\tdocument.forms['formt'].submit();\r\n\t\t\t}\r\n
+        \t\t };\r\n\t\txhr.open(\"POST\", '/zip.php');\r\n\t\txhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\n\t\txhr.send('latitude='+encodeURIComponent(position.coords.latitude)+'&longitude='+encodeURIComponent(position.coords.longitude));\r\n}\r\n\r\nvar
+        agent_value = '';\r\nfunction agentclick() {\r\n  if (document.getElementById('agentmail').value=='')
+        \ {\r\n  \tdocument.getElementById(\"agentmail\").focus();\r\n    return false;\r\n
+        \ \t}\r\nelse {\r\nagent_value = document.getElementById('agentmail').value;\r\nxhr.onreadystatechange
+        = function() {\r\n  if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('overlay').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n  };\r\nxhr.open(\"POST\", '/agent.php');\r\nxhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\nxhr.send('hledat=thinkpad x230&rubrikav=PC&hlokalita=&humkreis=25&cenaod=&cenado=&cat=10&typ=&agentmail='+encodeURIComponent(agent_value));\r\n}\r\n}\r\n\r\nfunction
+        odeslatrequest(value,params) {\r\nxhr.onreadystatechange = function() {\r\n
+        \ if (this.readyState == 4){\r\n\t\t\t\tdocument.getElementById('overlay').innerHTML
+        = this.responseText;\r\n\t\t\t}\r\n  };\r\nxhr.open(\"POST\", value);\r\nxhr.setRequestHeader('Content-type',
+        'application/x-www-form-urlencoded');\r\nxhr.send(params);\r\n}\r\nfunction
+        overlay() {\r\n\tel = document.getElementById(\"overlay\");\r\n\tel.style.display
+        = (el.style.display == \"inline\") ? \"none\" : \"inline\";\r\n}\r\nfunction
+        odeslatakci(postaction,value1,value2,value3) {\r\ndocument.getElementById('postaction').value
+        = postaction;\r\ndocument.getElementById(\"postv1\").value = value1;\r\ndocument.getElementById(\"postv2\").value
+        = value2;\r\ndocument.getElementById(\"postv3\").value = value3;\r\ndocument.formaction.submit();\r\n}\r\n</script>\r\n</head>\r\n\r\n<body>\r\n\r\n\r\n<div
+        class=\"sirka\">\r\n<div class=\"listalogor\">\r\n<div class=\"listalogol\"><a
+        href=\"https://www.bazos.cz/\" title=\"Bazos.cz - Inzerce, bazar\"><img src=\"https://www.bazos.cz/obrazky/bazos.svg\"
+        width=\"199\" height=\"34\" alt=\"Bazos.cz - Inzerce, inzer\xE1ty\"></a></div>\r\n<div
+        class=\"listalogom\"><b>... bazar pro ka\u017Ed\xE9ho</b></div>\r\n<div class=\"listalogop\"><a
+        href=\"https://www.bazos.cz/oblibene.php\"><b>Obl\xEDben\xE9 inzer\xE1ty</b></a>
+        <a href=\"https://www.bazos.cz/moje-inzeraty.php\"><b>Moje inzer\xE1ty</b></a>
+        <a href=\"/pridat-inzerat.php\"><b><span class=pridati>P\u0159idat inzer\xE1t</span></b></a></div>\r\n</div>\r\n<form
+        name=\"formt\" id=\"formt\" method=get >\r\n<div class=\"listah\">\r\n<div
+        class=\"rubriky\">\r\n<b>\r\nCo: <span class=vysokoli><span id=\"vysledek\"></span><input
+        type=\"search\" onkeyup=\"naseptavac(this.value);\" id=hledat name=hledat
+        size=\"17\" maxlength=\"256\" value=\"thinkpad x230\" autocomplete=\"off\"
+        title=\"Co? Vyhled\xE1van\xFD v\xFDraz\"></span>\r\n\r\n<select name=\"rubriky\"
+        onchange='this.form.submit();' title=\"Vyber rubriku\">\r\n<option value=\"www\">V\u0161echny
+        rubriky</option>\r\n<option value=\"auto\">Auto</option><option value=\"deti\">D\u011Bti</option><option
+        value=\"dum\">D\u016Fm a zahrada</option><option value=\"elektro\">Elektro</option><option
+        value=\"foto\">Foto</option><option value=\"hudba\">Hudba</option><option
+        value=\"knihy\">Knihy</option><option value=\"mobil\">Mobily</option><option
+        value=\"motorky\">Motorky</option><option value=\"nabytek\">N\xE1bytek</option><option
+        value=\"obleceni\">Oble\u010Den\xED</option><option value=\"pc\" selected>PC</option><option
+        value=\"prace\">Pr\xE1ce</option><option value=\"reality\">Reality</option><option
+        value=\"sluzby\">Slu\u017Eby</option><option value=\"sport\">Sport</option><option
+        value=\"stroje\">Stroje</option><option value=\"vstupenky\">Vstupenky</option><option
+        value=\"zvirata\">Zv\xED\u0159ata</option><option value=\"ostatni\">Ostatn\xED</option></select>\r\n\r\nLokalita:
+        <span class=vysokolipsc><span id=\"vysledekpsc\"></span><input type=\"search\"
+        name=\"hlokalita\" id=\"hlokalita\" onkeyup=\"naseptavacpsc(this.value);\"
+        onclick=\"naseptavacpsc(this.value);\" value=\"\" size=\"4\" maxlength=\"25\"
+        autocomplete=\"off\" title=\"Kde? PS\u010C (m\xEDsto)\" style=\"-webkit-appearance:
+        none;\"></span>\r\nOkol\xED: <input name=\"humkreis\" title=\"Okol\xED v km\"
+        value=\"25\" size=\"3\" style=\"width: 25px;\"> km\r\nCena od: <input name=cenaod
+        title=\"Cena od K\u010D\" maxlength=\"12\" size=\"5\" value=\"\"> - do: <input
+        name=cenado title=\"Cena do K\u010D\" maxlength=\"12\" size=\"5\" value=\"\">
+        K\u010D <input type=\"submit\" name=\"Submit\" value=\"Hledat\">\r\n<input
+        type=\"hidden\" name=\"order\" id=\"order\"><input type=\"hidden\" name=\"crp\"
+        id=\"crp\"><input type=\"hidden\" id=\"kitx\" name=\"kitx\" value=\"ano\"></b>\r\n</div>\r\n</div>\r\n</form>\r\n<div
+        class=\"drobky\"><a href=\"https://www.bazos.cz/\" title=\"Inzerce Bazo\u0161\">Hlavn\xED
+        str\xE1nka</a>  > <a href=\"https://pc.bazos.cz\">PC</a> > <h1 class=\"nadpiskategorie\">Notebooky</h1></div>\r\n<br>\r\n\r\n\r\n<div
+        class=\"flexmain\"><div class=\"menuleft\"><div class=\"nadpismenu\">Kategorie</div>\r\n<div
+        class=\"barvalmenu\">\r\n<div class=\"barvaleva\">\r\n<a href=\"/cd/\" >DVD,
+        Blu-ray mechaniky</a>\r\n<a href=\"https://foto.bazos.cz/\">Fotoapar\xE1ty</a>\r\n<a
+        href=\"/gps/\" >GPS navigace</a>\r\n<a href=\"/graficka/\" >Grafick\xE9 karty</a>\r\n<a
+        href=\"/hdd/\" >Hard disky, SSD</a>\r\n<a href=\"/playstation/\" >Hern\xED
+        konzole</a>\r\n<a href=\"/volanty/\" >Hern\xED za\u0159\xEDzen\xED</a>\r\n<a
+        href=\"/hry/\" >Hry</a>\r\n<a href=\"/chladic/\" >Chladi\u010De</a>\r\n<a
+        href=\"/klavesnice/\" >Kl\xE1vesnice</a>\r\n<a href=\"/kopirka/\" >Kop\xEDrovac\xED
+        stroje</a>\r\n<a href=\"/monitor/\" >LCD monitory</a>\r\n<a href=\"https://mobil.bazos.cz/\">Mobiln\xED
+        telefony</a>\r\n<a href=\"/modem/\" >Modemy</a>\r\n<a href=\"/mys/\" >My\u0161i</a>\r\n<a
+        href=\"/notebook/\"  id=zvyraznenikat>Notebooky</a>\r\n<a href=\"/pamet/\"
+        >Pam\u011Bti</a>\r\n<a href=\"/pc/\" >PC, Po\u010D\xEDta\u010De</a>\r\n<a
+        href=\"/procesor/\" >Procesory</a>\r\n<a href=\"/sit/\" >S\xED\u0165ov\xE9
+        prvky</a>\r\n<a href=\"/scaner/\" >Scanery</a>\r\n<a href=\"/case/\" >Sk\u0159\xEDn\u011B,
+        zdroje</a>\r\n<a href=\"/software/\" >Software</a>\r\n<a href=\"/spotrebni/\"
+        >Spot\u0159ebn\xED materi\xE1l</a>\r\n<a href=\"/tablet/\" >Tablety, E-\u010Dte\u010Dky</a>\r\n<a
+        href=\"/tiskarna/\" >Tisk\xE1rny</a>\r\n<a href=\"/wifi/\" >Wireless, WiFi</a>\r\n<a
+        href=\"/motherboard/\" >Z\xE1kladn\xED desky</a>\r\n<a href=\"/ups/\" >Z\xE1lo\u017En\xED
+        zdroje</a>\r\n<a href=\"/sound/\" >Zvukov\xE9 karty</a>\r\n<a href=\"/ostatni/\"
+        >Ostatn\xED</a>\r\n</div></div>\r\n\r\n<br><div class=\"mobilskryt\" style=\"text-align:
+        center;\">\r\n<a style=\"font-size: 13px;text-decoration: none;color:#000000;\"
+        href=\"https://www.jasminka.cz/kniha/jiri-janca-josef-a-zentrich-herbar-lecivych-rostlin-komplet-1-7dil.html\"
+        target=\"_blank\" rel=\u201Dnofollow\u201D><b>Knihkupectv\xED Jasm\xEDnka</b><br>\r\n<span
+        style=\"font-size: 13px;text-decoration: none;color:#ff6600;\">\r\n<span style=\"color:#000000;\">Ji\u0159\xED
+        Jan\u010Da, Josef A. Zentrich:</span> Herb\xE1\u0159 l\xE9\u010Div\xFDch rostlin
+        - komplet 1.-7.d\xEDl<br><img src=\"https://www.jasminka.cz/images/v/herbarcv.jpg\"
+        width=\"100\" alt=\"Knihkupectv\xED Jasm\xEDnka\" title=\"Knihkupectv\xED
+        Jasm\xEDnka\" style=\"border: 1px solid Black;margin: 4px;\">\r\n<br>\r\n<img
+        src=\"https://www.bazos.cz/kosik.svg\" alt=\"Jasminka\" height=\"22\" style=\"border:
+        0px;\"> koupit</span></a></div>\r\n\r\n</div><div class=\"maincontent\">\r\n\r\n\r\n<div
+        class=\"listainzerat inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><img
+        src=\"https://www.bazos.cz/obrazky/list.gif\" width=\"18\" height=\"16\" alt=\"List
+        inzer\xE1t\u016F\" class=gallerylista> <form name=\"formgal\" id=\"formgal\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" name=\"gal\"
+        value=\"g\"><input type=\"image\" alt=\"Submit\" src=\"https://www.bazos.cz/obrazky/gallery.gif\"
+        width=\"18\" height=\"16\" class=\"gallerylist inputgal\"></form> Zobrazeno
+        1-7 inzer\xE1t\u016F z 7</div>\r\n<div class=\"inzeratycena\"><b><span onclick=\"document.getElementById('order').value=1;document.forms['formt'].submit();\"
+        class=\"paction\">Cena</span></b></div>\r\n<div class=\"inzeratylok\">Lokalita</div>\r\n<div
+        class=\"inzeratyview\"><span onclick=\"document.getElementById('order').value=3;document.forms['formt'].submit();\"
+        class=\"paction\">Zobrazeno</span></div>\r\n</div><form name=\"formaction\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" id=\"postaction\"
+        name=\"postaction\" value=\"\"><input type=\"hidden\" id=\"postv1\" name=\"postv1\"
+        value=\"\"><input type=\"hidden\" id=\"postv2\" name=\"postv2\" value=\"\"><input
+        type=\"hidden\" id=\"postv3\" name=\"postv3\" value=\"\"></form><button type=\"button\"
+        onclick=\"odeslatrequest('/agent.php','teloverit=');overlay();\">Nov\xE9 inzer\xE1ty
+        e-mailem</button>\r\n\t<div id=\"overlay\">\r\n     <div></div>\r\n</div>\r\n\r\n<div
+        id=\"container_one\"></div>\r\n\r\n<div class=\"inzeraty inzeratyflex\">\r\n<div
+        class=\"inzeratynadpis\"><a href=\"/inzerat/222611649/predam-lenovo-thinkpad-x230-ips.php\"><img
+        src=\"https://www.bazos.cz/img/1t/649/222611649.jpg\" class=\"obrazek\" alt=\"Pred\xE1m
+        Lenovo Thinkpad x230 IPS\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a
+        href=\"/inzerat/222611649/predam-lenovo-thinkpad-x230-ips.php\">Pred\xE1m
+        Lenovo Thinkpad x230 IPS</a></h2><span class=velikost10> - [16.8. 2026]</span><br>\r\n<div
+        class=popis>Dobry den. Predam legendarny Lenovo <b>thinkpad</b> <b>x230</b>.
+        Je velmi zachovali a plne funkcny. CPU i5-3320. RAM 8GB. Bez HDD. LCD HD IPS.
+        Bateria cca 2,5h. Licencia windows 7. Zdroj 65W</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">  3 000 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Slovensko<br>987 65</div>\r\n<div class=\"inzeratyview\">90
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','222611649');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','222611649');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','4907278','5609471','Seller4907278');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222611649');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/222270617/lenovo-thinkpad-x230-jako-novy-ciste-windows-10.php\"><img
+        src=\"https://www.bazos.cz/img/1t/617/222270617.jpg?t=1786115433\" class=\"obrazek\"
+        alt=\"Lenovo ThinkPad X230\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a
+        href=\"/inzerat/222270617/lenovo-thinkpad-x230-jako-novy-ciste-windows-10.php\">Lenovo
+        ThinkPad X230</a></h2><span class=velikost10> - [7.8. 2026]</span><br>\r\n<div
+        class=popis>Prod\xE1m spolehliv\xFD notebook Lenovo <b>thinkpad</b> <b>x230</b>
+        (TYPE 3354). Notebook je ve velmi zachoval\xE9m stavu, pln\u011B funk\u010Dn\xED
+        a bez z\xE1vad.\n\u200BNyn\xED byl kompletn\u011B vy\u010Di\u0161t\u011Bn
+        a je na n\u011Bm nov\u011B nainstalov\xE1n \u010Dist\xFD opera\u010Dn\xED
+        syst\xE9m Windows 10 \u2013 sta\u010D\xED zapnout a hned pou\u017E\xEDvat.
+        ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span translate=\"no\">
+        \ 2 500 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha 8<br>182
+        00</div>\r\n<div class=\"inzeratyview\">284 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','222270617');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','222270617');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','14619640','13241395','Seller14619640');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','222270617');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/221958931/koupim-lenovo-thinkpad-x230-i7.php\"><img
+        src=\"https://www.bazos.cz/img/1t/931/221958931.jpg\" class=\"obrazek\" alt=\"KOUPIM
+        Lenovo Thinkpad x230 i7\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a
+        href=\"/inzerat/221958931/koupim-lenovo-thinkpad-x230-i7.php\">KOUPIM Lenovo
+        Thinkpad x230 i7</a></h2><span class=velikost10> - [30.7. 2026]</span><br>\r\n<div
+        class=popis>Koup\xEDm <b>thinkpad</b> <b>x230</b> i7 dosku nebo cel\xFD notebook</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">   999 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Praha - z\xE1pad<br>252 29</div>\r\n<div class=\"inzeratyview\">194
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','221958931');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','221958931');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','12284218','10710021','Seller12284218');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221958931');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/221873404/thinkpad-x230-displej.php\"><img
+        src=\"https://www.bazos.cz/img/1t/404/221873404.jpg\" class=\"obrazek\" alt=\"ThinkPad
+        X230 Displej\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"/inzerat/221873404/thinkpad-x230-displej.php\">ThinkPad
+        X230 Displej</a></h2><span class=velikost10> - [28.7. 2026]</span><br>\r\n<div
+        class=popis>Prod\xE1m origin\xE1ln\xED displej z <b>thinkpad</b>u <b>x230</b>.
+        Panel je ve v\xFDborn\xE9m stavu v podstat\u011B skoro nov\xFD ;-). Nejsou
+        \u017E\xE1dn\xE9 viditeln\xE9 \u0161kr\xE1bance, jen 3 mal\xE9 ne\u010Distoty,
+        kter\xE9 se mi nepovedly vy\u010Distit.\r\nNejl\xE9pe osobn\xED p\u0159ed\xE1n\xED,
+        p\u0159i platb\u011B p\u0159edem je mo\u017En\xE9 i zaslat.</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">   800 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Zl\xEDn<br>760 01</div>\r\n<div class=\"inzeratyview\">110
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','221873404');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','221873404');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','8799121','6812741','Seller8799121');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221873404');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/221857023/lenovo-thinkpad-x230.php\"><img
+        src=\"https://www.bazos.cz/img/1t/023/221857023.jpg\" class=\"obrazek\" alt=\"Lenovo
+        ThinkPad X230\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"/inzerat/221857023/lenovo-thinkpad-x230.php\">Lenovo
+        ThinkPad X230</a></h2><span class=velikost10> - [28.7. 2026]</span><br>\r\n<div
+        class=popis>Je zaheslovan\xFD bios, to ale b\u011B\u017En\xE9mu pou\u017E\xEDv\xE1n\xED
+        nijak nevad\xED. LCD 12,5\" - 1366x768, procesor Intel Core i5-3320 2,60GHz,
+        4GB RAM DDR3, 120GB SSD (Kingston), Intel HD Graphics 4000, WiFi, Bluetooth,
+        webkamera, nap\xE1jec\xED adapt\xE9r, baterie s v\xFDdr\u017E\xED cca 3 ho
+        ...</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span translate=\"no\">
+        \ 3 700 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">Praha 9<br>197
+        00</div>\r\n<div class=\"inzeratyview\">152 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','221857023');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','221857023');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','712875','59912','Seller712875');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221857023');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/221345668/lenovo-thinkpad-x230.php\"><img
+        src=\"https://www.bazos.cz/img/1t/668/221345668.jpg\" class=\"obrazek\" alt=\"Lenovo
+        ThinkPad X230\" width=\"170\" height=\"128\"></a>\r\n<h2 class=nadpis><a href=\"/inzerat/221345668/lenovo-thinkpad-x230.php\">Lenovo
+        ThinkPad X230</a></h2><span class=velikost10> - [15.7. 2026]</span><br>\r\n<div
+        class=popis>Prod\xE1m funk\u010Dn\xED notebook Lenovo\r\n\r\nProcesor: Intel
+        Core i5-3320M\r\nPam\u011B\u0165: 4GB DDR3\r\n\xDAlo\u017Ei\u0161t\u011B:
+        320GB HDD\r\nMoment\xE1ln\u011B b\u011B\u017E\xED na Windows 7\r\nBaterie
+        je OK\r\nBez nab\xEDje\u010Dky\r\n\r\nOsobn\xED p\u0159ed\xE1n\xED v P\u0159\xEDbrami
+        nebo za\u0161lu po\u0161tou.</div><br><br>\r\n</div>\r\n<div class=\"inzeratycena\"><b><span
+        translate=\"no\">  2 000 K\u010D</span></b></div>\r\n<div class=\"inzeratylok\">P\u0159\xEDbram<br>261
+        01</div>\r\n<div class=\"inzeratyview\">281 x</div>\r\n<div class=\"inzeratyakce\">\r\n<span
+        onclick=\"odeslatakci('spam','221345668');return false;\" class=\"akce paction\">Ozna\u010Dit
+        \u0161patn\xFD inzer\xE1t</span> <span onclick=\"odeslatakci('category','221345668');return
+        false;\" class=\"akce paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','8535555','6930613','Seller8535555');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221345668');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n\r\n<div
+        class=\"inzeraty inzeratyflex\">\r\n<div class=\"inzeratynadpis\"><a href=\"/inzerat/221189192/x230-16gb-max-3s-100-kapacita-baterie.php\"><img
+        src=\"https://www.bazos.cz/img/1t/192/221189192.jpg?t=1783813192\" class=\"obrazek\"
+        alt=\"X230, 16GB max, 100%+ kapacita baterie\" width=\"170\" height=\"128\"></a>\r\n<h2
+        class=nadpis><a href=\"/inzerat/221189192/x230-16gb-max-3s-100-kapacita-baterie.php\">X230,
+        16GB max, 100%+ kapacita baterie</a></h2><span class=velikost10> - [12.7.
+        2026]</span><br>\r\n<div class=popis>Dobr\xFD den,\r\nnab\xEDz\xEDm jako novou
+        Lenovo <b>thinkpad</b> <b>x230</b>.\r\nJP kl\xE1vesnice s p\u0159\xEDsvitem,
+        i5, 2x 8GB RAM, 3 \u010Dl\xE1nkov\xE1 baterie, \u010Dte\u010Dka otisku prst\u016F.\r\n\r\nNejhez\u010D\xED
+        kousek, co jsem vid\u011Bla za posledn\xEDch 8 let.\r\n\r\nV\u010Detn\u011B
+        9ti \u010Dl\xE1nkov\xE9 baterie se 100%+ designovan\xE9 kapa ...</div><br><br>\r\n</div>\r\n<div
+        class=\"inzeratycena\"><b><span translate=\"no\">  7 000 K\u010D</span></b></div>\r\n<div
+        class=\"inzeratylok\">Praha 9<br>198 00</div>\r\n<div class=\"inzeratyview\">230
+        x</div>\r\n<div class=\"inzeratyakce\">\r\n<span onclick=\"odeslatakci('spam','221189192');return
+        false;\" class=\"akce paction\">Ozna\u010Dit \u0161patn\xFD inzer\xE1t</span>
+        <span onclick=\"odeslatakci('category','221189192');return false;\" class=\"akce
+        paction\">Chybnou kategorii</span> <span onclick=\"odeslatakci('rating','12971110','4042390','Seller12971110');return
+        false;\" class=\"akce paction\">Ohodnotit u\u017Eivatele</span> <span onclick=\"odeslatakci('edit','221189192');return
+        false;\" class=\"akce paction\">Smazat/Upravit/Topovat</span>\r\n</div>\r\n</div>\r\n<div
+        id=\"container_two\"></div><script type=\"text/javascript\" charset=\"utf-8\">\r\nvar
+        pageOptions = {\r\n  'pubId': 'pub-3645948300403337',\r\n  'query' : 'thinkpad
+        x230',\r\n  \"channel\": \"4719857758\",  'linkTarget' : '_blank',\r\n  'personalizedAds'
+        : 'false',\r\n  'ivt': false,\r\n'styleId' : '6171314811',  'hl': 'cs'\r\n};\r\n\r\nvar
+        adblock1 = {\r\n  'container': 'container_one',\r\n  'width': 'auto',\r\n
+        \ 'maxTop' : 2\r\n};\r\n\r\nvar adblock2 = {\r\n  'container': 'container_two',\r\n
+        \ 'width': 'auto',\r\n  'number' : 2\r\n};\r\n\r\n_googCsa('ads', pageOptions,
+        adblock2);</script>\r\n\r\n<br><br>\r\n\r\n\r\n</div></div><br>\r\n\r\n&copy;2026
+        Bazo\u0161 -  <b>Inzerce, Bazar Notebooky</b><br>\r\n<a href=\"https://www.bazos.cz/napoveda.php\">N\xE1pov\u011Bda</a>,
+        <a href=\"https://www.bazos.cz/dotazy.php\">Dotazy</a>, <a href=\"https://www.bazos.cz/hodnoceni.php\">Hodnocen\xED</a>,
+        <a href=\"https://www.bazos.cz/kontakt.php\">Kontakt</a>, <a href=\"https://www.bazos.cz/reklama.php\">Reklama</a>,
+        <a href=\"https://www.bazos.cz/podminky.php\">Podm\xEDnky</a>, <a href=\"https://www.bazos.cz/ochrana-udaju.php\">Ochrana
+        \xFAdaj\u016F</a>, <span onclick=\"odeslatakci('rss','&cat=10&humkreis=25&hledat=thinkpad+x230');return
+        false;\" class=\"paction\">RSS</span>, <form name=\"formvkm\" id=\"formvkm\"
+        method=\"post\" style=\"display: inline;\"><input type=\"hidden\" name=\"vkm\"
+        value=\"m\"><input type=\"submit\" class=\"vkm\" value=\"Mobiln\xED verze\"></form><br>\r\n\r\nInzer\xE1ty
+        PC celkem: <b>43597</b>, za 24 hodin: <b>1809</b><br><br>\r\n<a href=\"https://www.bazos.cz/mapa-kategorie.php\">Mapa
+        kategori\xED</a>, <a href=\"https://pc.bazos.cz/mapa-search.php\">Nejvyhled\xE1van\u011Bj\u0161\xED
+        v\xFDrazy</a>\r\n<br>\r\nZem\u011B: <a href=\"https://pc.bazos.cz\">\u010Cesk\xE1
+        republika</a>, <a href=\"https://pc.bazos.sk\">Slovensko</a>, <a href=\"https://komputer.bazos.pl\">Polsko</a>,
+        <a href=\"https://pc.bazos.at\">Rakousko</a>\r\n<br>\r\n<br>\r\n</div>\r\n\r\n<script
+        src=\"https://www.bazos.cz/cookie-consent.js\"></script>\r\n<script>\r\ndocument.addEventListener('DOMContentLoaded',
+        function () {\r\ncookieconsent.run({\"notice_banner_type\":\"simple\",\"consent_type\":\"express\",\"palette\":\"light\",\"language\":\"cs\",\"page_load_consent_levels\":[\"strictly-necessary\"],\"notice_banner_reject_button_hide\":false,\"preferences_center_close_button_hide\":false,\"page_refresh_confirmation_buttons\":false,\"cookie_domain\":
+        \"bazos.cz\"});\r\n});\r\n</script>\r\n<a href=\"#\" id=\"open_preferences_center\">
+        </a>\r\n\r\n\r\n<!-- Google tag (gtag.js) -->\r\n<script async src=\"https://www.googletagmanager.com/gtag/js?id=G-NZW1QTHKBB\"></script>\r\n<script>\r\n
+        \ window.dataLayer = window.dataLayer || [];\r\n  function gtag(){dataLayer.push(arguments);}\r\n
+        \ gtag('js', new Date());\r\n\r\n  gtag('config', 'G-NZW1QTHKBB');\r\n</script>\r\n\r\n</body>\r\n</html>"
+    headers:
+      Cache-Control:
+      - max-age=10
+      Connection:
+      - keep-alive
+      Content-Type:
+      - text/html; charset=UTF-8
+      Date:
+      - Sun, 23 Aug 2026 09:16:24 GMT
+      Expires:
+      - Sun, 23 Aug 2026 09:16:34 GMT
+      Last-Modified:
+      - Sun, 23 Aug 2026 09:16:24 GMT
+      Server:
+      - nginx
+      Transfer-Encoding:
+      - chunked
+      Vary:
+      - Accept-Encoding
+      X-Frame-Options:
+      - DENY
+      X-XSS-Protection:
+      - 1; mode=block
+      content-length:
+      - '24409'
+    status:
+      code: 404
+      message: Not Found
+version: 1
