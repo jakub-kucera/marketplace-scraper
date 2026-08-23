@@ -237,9 +237,10 @@ def test_ad_count_counts_this_querys_ads(query_admin, query, make_ad, make_deliv
 
 @pytest.mark.django_db
 def test_ad_count_is_not_inflated_by_query_runs(query_admin, query, make_ad, make_delivery, rf):
-    """`ad_count` aggregates over `deliveries` while `last_run` aggregates over `runs` in
-    the same queryset — the two joins multiply rows, so a non-distinct Count would report
-    6 here.
+    """`ad_count` counts `deliveries` while `last_run` aggregates over `runs`. Done as one
+    joined queryset those two relations multiply, and a non-distinct Count reports 6 here.
+    They are separate correlated subqueries now, so the counts can't interfere at all —
+    this stays as the guard against anyone folding them back into one join.
     """
     from django.utils import timezone
 
@@ -263,6 +264,42 @@ def test_ad_count_is_zero_for_a_query_with_no_ads(query_admin, query, rf):
     row = query_admin.get_queryset(rf.get("/")).get(pk=query.pk)
 
     assert query_admin.ad_count(row) == 0
+
+
+@pytest.mark.django_db
+def test_changelist_queryset_does_not_join_deliveries_or_runs(query_admin, rf):
+    """Performance guard, not a style preference.
+
+    `annotate(Count('deliveries'), Max('runs__...'))` joins both reverse relations into
+    one query, so Postgres materialises a deliveries x runs product per Query row — tens
+    of millions of intermediate rows once history accumulates, which is what made this
+    changelist slow. Correlated subqueries read one table each through its FK index.
+    """
+    sql = str(query_admin.get_queryset(rf.get("/")).query)
+
+    # get_queryset() runs before the changelist applies `list_select_related`, so a JOIN
+    # here can only come from an annotation. If someone adds a select_related *inside*
+    # get_queryset, relax this to assert on the two table names specifically.
+    assert "JOIN" not in sql
+    assert "DISTINCT" not in sql
+    # Both tables are still read — as subqueries, not joins.
+    assert "bazos_addelivery" in sql
+    assert "bazos_queryrun" in sql
+
+
+@pytest.mark.django_db
+def test_last_run_prefers_run_end_but_falls_back_to_run_start(query_admin, query, rf):
+    """An in-flight run has no run_end yet; the column must not go blank because of it."""
+    from django.utils import timezone
+
+    from bazos.models import QueryRun
+
+    started = timezone.now()
+    QueryRun.objects.create(query=query, run_start=started, run_end=None)
+
+    row = query_admin.get_queryset(rf.get("/")).get(pk=query.pk)
+
+    assert row.last_run == started
 
 
 @pytest.mark.django_db

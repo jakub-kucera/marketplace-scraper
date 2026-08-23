@@ -22,6 +22,7 @@ from requests import Response
 from bazos.const import (
     API_PAGE_SIZE,
     BAZOS_API_BASE_URL,
+    BAZOS_DETAIL_WAIT_TIME,
     BAZOS_PAGE_WAIT_TIME,
     MAX_ATTEMPTS,
 )
@@ -174,7 +175,11 @@ class BazosApiScraper:
         return response.status_code in (403, 429)
 
     def load_full_description(self, product: Ad) -> Ad:
+        """Paced for the same reason as BazosScraper.load_full_description: one call per
+        new ad, no delay of its own in the caller.
+        """
         logger.debug("Loading full description for ad %s", product.external_id)
+        sleep(uniform(*BAZOS_DETAIL_WAIT_TIME))
         response = self.run_request(f"{BAZOS_API_BASE_URL}/ad-detail-2.php", params={"ad_id": product.external_id})
         if response is None:
             logger.warning(

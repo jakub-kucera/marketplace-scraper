@@ -10,7 +10,6 @@ import pytest
 from django.test import override_settings
 
 from bazos.models import QueryRun
-from bazos.scraping.bazos.bazos_scraper import BazosScraper
 from bazos.scraping.bazos_query_runner import BazosQueryRunner
 from bazos.scraping.bazos_runner import BazosRunner
 
@@ -44,7 +43,8 @@ def run_n_passes(runner, n):
         if state["passes"] >= n:
             raise StopLoop
 
-    with patch.object(runner, "_interruptible_sleep", side_effect=fake_sleep):
+    with patch.object(runner, "_interruptible_sleep", side_effect=fake_sleep), \
+         patch.object(runner, "_sleep_between_queries"):
         with pytest.raises(StopLoop):
             runner.run()
 
@@ -107,10 +107,9 @@ def test_rows_seen_counter_counts_the_row_that_breaks_dedup(query, make_ad, make
 def test_alerts_after_threshold_consecutive_zero_row_passes(query):
     runner = make_runner()
 
-    with patch.object(BazosScraper, "check_blacklisted", return_value=False):
-        with patched_query_runner(rows_seen=0, new_ads=0):
-            with patch.object(runner, "log") as log_mock:
-                run_n_passes(runner, 2)
+    with patched_query_runner(rows_seen=0, new_ads=0):
+        with patch.object(runner, "log") as log_mock:
+            run_n_passes(runner, 2)
 
     assert len(alerts_at(log_mock, logging.ERROR)) == 1
 
@@ -120,10 +119,9 @@ def test_alerts_after_threshold_consecutive_zero_row_passes(query):
 def test_zero_row_counter_resets_after_alerting(query):
     runner = make_runner()
 
-    with patch.object(BazosScraper, "check_blacklisted", return_value=False):
-        with patched_query_runner(rows_seen=0, new_ads=0):
-            with patch.object(runner, "log") as log_mock:
-                run_n_passes(runner, 4)
+    with patched_query_runner(rows_seen=0, new_ads=0):
+        with patch.object(runner, "log") as log_mock:
+            run_n_passes(runner, 4)
 
     assert len(alerts_at(log_mock, logging.ERROR)) == 2
 
@@ -133,14 +131,13 @@ def test_zero_row_counter_resets_after_alerting(query):
 def test_a_pass_with_rows_resets_the_zero_row_counter(query):
     runner = make_runner()
 
-    with patch.object(BazosScraper, "check_blacklisted", return_value=False):
-        with patch.object(runner, "log") as log_mock:
-            with patched_query_runner(rows_seen=0, new_ads=0):
-                run_n_passes(runner, 1)
-            with patched_query_runner(rows_seen=5, new_ads=1):
-                run_n_passes(runner, 1)
-            with patched_query_runner(rows_seen=0, new_ads=0):
-                run_n_passes(runner, 1)
+    with patch.object(runner, "log") as log_mock:
+        with patched_query_runner(rows_seen=0, new_ads=0):
+            run_n_passes(runner, 1)
+        with patched_query_runner(rows_seen=5, new_ads=1):
+            run_n_passes(runner, 1)
+        with patched_query_runner(rows_seen=0, new_ads=0):
+            run_n_passes(runner, 1)
 
     assert len(alerts_at(log_mock, logging.ERROR)) == 0
 
@@ -150,10 +147,9 @@ def test_a_pass_with_rows_resets_the_zero_row_counter(query):
 def test_zero_new_ads_alerts_at_its_own_threshold_and_level(query):
     runner = make_runner()
 
-    with patch.object(BazosScraper, "check_blacklisted", return_value=False):
-        with patched_query_runner(rows_seen=10, new_ads=0):
-            with patch.object(runner, "log") as log_mock:
-                run_n_passes(runner, 3)
+    with patched_query_runner(rows_seen=10, new_ads=0):
+        with patch.object(runner, "log") as log_mock:
+            run_n_passes(runner, 3)
 
     assert len(alerts_at(log_mock, logging.WARNING)) == 1
     assert len(alerts_at(log_mock, logging.ERROR)) == 0
@@ -164,11 +160,10 @@ def test_zero_new_ads_alerts_at_its_own_threshold_and_level(query):
 def test_new_ads_found_resets_the_zero_new_ads_counter(query):
     runner = make_runner()
 
-    with patch.object(BazosScraper, "check_blacklisted", return_value=False):
-        with patch.object(runner, "log") as log_mock:
-            for rows_seen, new_ads in [(10, 0), (10, 0), (10, 4), (10, 0), (10, 0)]:
-                with patched_query_runner(rows_seen=rows_seen, new_ads=new_ads):
-                    run_n_passes(runner, 1)
+    with patch.object(runner, "log") as log_mock:
+        for rows_seen, new_ads in [(10, 0), (10, 0), (10, 4), (10, 0), (10, 0)]:
+            with patched_query_runner(rows_seen=rows_seen, new_ads=new_ads):
+                run_n_passes(runner, 1)
 
     assert len(alerts_at(log_mock, logging.WARNING)) == 0
 
@@ -182,18 +177,17 @@ def test_a_zero_row_pass_resets_the_zero_new_ads_counter(query):
     """
     runner = make_runner()
 
-    with patch.object(BazosScraper, "check_blacklisted", return_value=False):
-        with patch.object(runner, "log") as log_mock:
-            with patched_query_runner(rows_seen=10, new_ads=0):
-                run_n_passes(runner, 5)
-            assert runner.zero_new_ads_passes == 5
+    with patch.object(runner, "log") as log_mock:
+        with patched_query_runner(rows_seen=10, new_ads=0):
+            run_n_passes(runner, 5)
+        assert runner.zero_new_ads_passes == 5
 
-            with patched_query_runner(rows_seen=0, new_ads=0):
-                run_n_passes(runner, 1)
-            assert runner.zero_new_ads_passes == 0
+        with patched_query_runner(rows_seen=0, new_ads=0):
+            run_n_passes(runner, 1)
+        assert runner.zero_new_ads_passes == 0
 
-            with patched_query_runner(rows_seen=10, new_ads=0):
-                run_n_passes(runner, 1)
+        with patched_query_runner(rows_seen=10, new_ads=0):
+            run_n_passes(runner, 1)
 
     assert len(alerts_at(log_mock, logging.WARNING)) == 0
 
@@ -203,10 +197,9 @@ def test_a_zero_row_pass_resets_the_zero_new_ads_counter(query):
 def test_pass_where_every_query_failed_does_not_count_as_zero_rows(query):
     runner = make_runner()
 
-    with patch.object(BazosScraper, "check_blacklisted", return_value=False):
-        with patch.object(BazosQueryRunner, "run", side_effect=RuntimeError("boom")):
-            with patch.object(runner, "log") as log_mock:
-                run_n_passes(runner, 3)
+    with patch.object(BazosQueryRunner, "run", side_effect=RuntimeError("boom")):
+        with patch.object(runner, "log") as log_mock:
+            run_n_passes(runner, 3)
 
     assert len(alerts_at(log_mock, logging.ERROR)) == 0
     assert len(alerts_at(log_mock, logging.WARNING)) == 0
@@ -217,8 +210,7 @@ def test_pass_where_every_query_failed_does_not_count_as_zero_rows(query):
 def test_canary_never_aborts_the_pass(query):
     runner = make_runner()
 
-    with patch.object(BazosScraper, "check_blacklisted", return_value=False):
-        with patched_query_runner(rows_seen=0, new_ads=0):
-            run_n_passes(runner, 2)
+    with patched_query_runner(rows_seen=0, new_ads=0):
+        run_n_passes(runner, 2)
 
     assert QueryRun.objects.filter(query=query).count() == 2

@@ -1,12 +1,14 @@
 import logging
 from datetime import datetime, timezone
+from ipaddress import ip_address
 from pathlib import Path
 from random import uniform
 from time import sleep
 
+from bazos.const import BAZOS_QUERY_WAIT_TIME, MAX_BLACKLIST_RETRIES
 from bazos.exceptions import BazosBlacklistedError
 from bazos.models import Query, QueryRun
-from bazos.scraping.bazos_query_runner import BazosQueryRunner, get_scraper
+from bazos.scraping.bazos_query_runner import BazosQueryRunner
 from bazos.scraping.interval_multiplier import NightMultiplier
 from django.conf import settings
 
@@ -32,59 +34,138 @@ class BazosRunner:
     def run(self):
         while True:
             self.log(f"Waking up at {datetime.utcnow()} UTC")
-            Query.objects.filter(randomly_generated=True).update(enabled=False)
-            queries = Query.objects.filter(enabled=True).order_by('?')
-
-            start = datetime.now(timezone.utc)
-            pass_rows_seen = 0
-            pass_new_ads = 0
-            successful_queries = 0
-            for query in queries:
-                self.log(f"running query {query}")
-
-                blacklist_check = self._blacklist_checker(query)
-                if blacklist_check(query.url):
-                    self.log("IP got BLACKLISTED, attempting to change", level=logging.WARNING)
-                    try:
-                        self.change_ip(query, blacklist_check)
-                    except BazosBlacklistedError:
-                        logger.exception("Query %s still blacklisted after IP rotation attempts, skipping", query)
-                        continue
-
-                if self.ip_changer.check_ip_local():
-                    self.log("WARNING: IP IS LOCAL", level=logging.WARNING)
-                    continue
-
-                query_run = QueryRun(
-                    query=query,
-                    run_start=datetime.now(timezone.utc),
-                )
-                query_run.save()
-                try:
-                    assert self.ip_changer.session is not None
-                    query_runner = BazosQueryRunner(query, self.ip_changer.session)
-                    new_products_count = query_runner.run()
-                    query.save()
-                    query_run.new_ads_count = new_products_count
-                    pass_rows_seen += query_runner.rows_seen_counter
-                    pass_new_ads += new_products_count
-                    successful_queries += 1
-                except Exception as e:
-                    query_run.success = False
-                    query_run.error = f"{type(e).__name__}: {e}"
-                    logger.exception("Query %s failed", query)
-                    continue
-                finally:
-                    query_run.run_end = datetime.now(timezone.utc)
-                    query_run.save()
-                logger.info("Found %d new products for query %s", new_products_count, query)
-
-            end = datetime.now(timezone.utc)
-            self.log(f"Finished running {len(queries)} queries in {end - start}. End time: {end}")
-            self._check_zero_results_canary(pass_rows_seen, pass_new_ads, successful_queries)
+            if self.ip_changer.check_ip_local():
+                # Once per pass, not once per query: it is a property of the transport,
+                # not of the query, and each check costs an icanhazip round-trip.
+                self.log("WARNING: IP IS LOCAL, skipping this pass", level=logging.WARNING)
+            else:
+                self._run_pass()
             sleep_interval = self.get_next_interval()
             self.log(f"sleeping for {sleep_interval}")
             self._interruptible_sleep(sleep_interval)
+
+    def _run_pass(self) -> None:
+        Query.objects.filter(randomly_generated=True).update(enabled=False)
+        queries = Query.objects.filter(enabled=True).order_by('?')
+
+        start = datetime.now(timezone.utc)
+        pass_rows_seen = 0
+        pass_new_ads = 0
+        successful_queries = 0
+        for index, query in enumerate(queries):
+            if index:
+                self._sleep_between_queries()
+            self.log(f"running query {query}")
+
+            result = self._run_query_with_rotation(query)
+            if result is None:
+                continue
+            rows_seen, new_ads = result
+            pass_rows_seen += rows_seen
+            pass_new_ads += new_ads
+            successful_queries += 1
+            logger.info("Found %d new products for query %s", new_ads, query)
+
+        end = datetime.now(timezone.utc)
+        self.log(f"Finished running {len(queries)} queries in {end - start}. End time: {end}")
+        self._check_zero_results_canary(pass_rows_seen, pass_new_ads, successful_queries)
+
+    def _run_query_with_rotation(self, query: Query) -> tuple[int, int] | None:
+        """Run one query, rotating the IP and retrying when Bazos 403s the *real* request.
+
+        Returns ``(rows_seen, new_ads)``, or ``None`` if the query produced nothing usable
+        this pass (blacklisted on every attempt, or any other failure).
+
+        There is deliberately **no pre-flight ``check_blacklisted()`` probe**. It cost one
+        full search request per query and answered the wrong question: it always hit the
+        single fixed `BAZOS_BLACKLIST_CHECK_URL`, but the block is path-scoped, so it kept
+        reporting "clear" moments before the query's own page returned 403. Every
+        `BazosBlacklistedError` in the QueryRun history of 2026-08-23 is a run whose probe
+        had just passed. A 200 on the query's own URL is the only evidence that this IP can
+        reach this path, so **the attempt is the probe** — and unlike the probe it costs
+        nothing extra, because it is a request we wanted to make anyway.
+
+        Previously a 403 here fell into the generic `except Exception` below, was written
+        off, and the loop moved to the next query on the *same* dead IP milliseconds later
+        — which is why the failures arrive in clusters rather than singly.
+        """
+        for attempt in range(1, MAX_BLACKLIST_RETRIES + 1):
+            query_run = QueryRun(
+                query=query,
+                run_start=datetime.now(timezone.utc),
+                exit_ip=self._current_exit_ip(),
+            )
+            query_run.save()
+            try:
+                assert self.ip_changer.session is not None
+                query_runner = BazosQueryRunner(query, self.ip_changer.session)
+                new_products_count = query_runner.run()
+                query.save()
+                query_run.new_ads_count = new_products_count
+                return query_runner.rows_seen_counter, new_products_count
+            except BazosBlacklistedError as e:
+                query_run.success = False
+                query_run.error = f"{type(e).__name__}: {e}"
+                logger.warning(
+                    "Query %s blacklisted on exit IP %s (attempt %d/%d)",
+                    query, query_run.exit_ip or "unknown", attempt, MAX_BLACKLIST_RETRIES,
+                )
+            except Exception as e:
+                query_run.success = False
+                query_run.error = f"{type(e).__name__}: {e}"
+                logger.exception("Query %s failed", query)
+                return None
+            finally:
+                query_run.run_end = datetime.now(timezone.utc)
+                query_run.save()
+
+            # Only the BazosBlacklistedError path falls through to here.
+            if attempt >= MAX_BLACKLIST_RETRIES:
+                break
+            if not self.change_ip():
+                self.log(
+                    f"Could not rotate away from {query_run.exit_ip or 'the current IP'}, "
+                    f"abandoning {query} this pass",
+                    level=logging.WARNING,
+                )
+                return None
+            # `run_new_query` flips `query.new_query` in memory before it can raise, and
+            # the failed attempt never reached `query.save()`. Without re-reading, the
+            # retry sees new_query=False and silently takes the run_existing_query
+            # branch: the backfill loses both `ignore_first_run` (deliveries created
+            # PENDING, so the whole backlog goes to Discord) and the
+            # NEW_PRODUCT_LOAD_MAX cap (that branch has no counter, and general-search
+            # pagination is unbounded). A later successful attempt then persists
+            # new_query=False, destroying the state for good.
+            query.refresh_from_db()
+
+        self.log(
+            f"Query {query} still blacklisted after {MAX_BLACKLIST_RETRIES} attempts, "
+            f"skipping it this pass",
+            level=logging.WARNING,
+        )
+        return None
+
+    def _current_exit_ip(self) -> str:
+        """Best-effort egress IP, recorded on QueryRun for failure attribution.
+
+        Sampled per attempt rather than per pass on purpose: Tor rebuilds circuits on its
+        own schedule, and "did the exit change mid-pass?" is exactly the question this
+        column exists to answer (IP reputation vs. a sliding-window rate limit). The
+        lookup does not touch Bazos, so it costs nothing against the budget there.
+
+        Never fatal: an unreachable IP-echo service must not take down a scraping pass.
+        """
+        try:
+            return str(ip_address(self.ip_changer.get_current_ip()))
+        except Exception:
+            logger.warning("Could not determine the current exit IP", exc_info=True)
+            return ""
+
+    def _sleep_between_queries(self) -> None:
+        wait = uniform(*BAZOS_QUERY_WAIT_TIME)
+        logger.debug("Sleeping %.1f s before the next query", wait)
+        sleep(wait)
 
     def get_next_interval(self):
         multiplier = self.interval_multiplier.get_current_multiplier()
@@ -149,14 +230,33 @@ class BazosRunner:
         for discord_logger in self.discord_loggers:
             discord_logger.send_plain(message)
 
-    def change_ip(self, query: Query, is_blacklisted=None):
-        self.log(f"Changing IP, current={self.ip_changer.get_current_ip()}")
-        new_ip = self.ip_changer.renew_ip_bazos_ok(query.url, is_blacklisted=is_blacklisted)
-        self.log(f"NEW IP={new_ip}")
+    def change_ip(self) -> bool:
+        """Rotate to a different egress IP. Returns whether the exit actually changed.
 
-    def _blacklist_checker(self, query: Query):
-        def check(url: str) -> bool:
-            assert self.ip_changer.session is not None
-            return get_scraper(query.marketplace, self.ip_changer.session).check_blacklisted()
-        return check
+        Does NOT validate the new IP against Bazos — validation is the caller's next real
+        query attempt (see `_run_query_with_rotation`). This used to call
+        `renew_ip_bazos_ok`, which validated each candidate with the same misleading
+        fixed-URL probe, so it could burn every attempt rejecting usable IPs or settle on
+        one the probe liked and the query did not.
+
+        The return value matters because `renew_ip_and_check_new` gives up after a bounded
+        number of NEWNYM attempts and hands back the *old* IP. Retrying a query against the
+        exit that just 403'd it cannot succeed, so the caller stops instead.
+
+        Only the outcome goes to Discord (`self.log`); the "current=" line is local. During
+        the clustered-403 runs this whole change targets, `change_ip` fires up to twice per
+        query across every query in the pass, and a webhook that rate-limits around 30
+        posts/min is easy to swamp.
+        """
+        old_ip = self._current_exit_ip()
+        logger.info("Changing IP, current=%s", old_ip or "unknown")
+        new_ip = self.ip_changer.renew_ip_and_check_new()
+        # An unknown old IP is treated as a successful rotation: the caller should spend
+        # its remaining attempts rather than give up on a guess.
+        rotated = new_ip != old_ip
+        if rotated:
+            self.log(f"NEW IP={new_ip}")
+        else:
+            self.log(f"IP rotation FAILED, still on {new_ip}", level=logging.WARNING)
+        return rotated
 

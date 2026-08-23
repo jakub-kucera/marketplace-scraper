@@ -16,6 +16,13 @@ PROXIES = {
     'https': f'socks5h://{settings.TOR_PROXY_IP}:9050'
 }
 
+#: Tor rate-limits NEWNYM to roughly one per 10 s and silently ignores signals sent
+#: inside that window, so a shorter wait makes a re-signal a no-op rather than a retry.
+NEWNYM_WAIT_SECONDS = 10
+#: Bound on the rotate-and-check loop. Without one a Tor that will not hand over a new
+#: exit hangs the whole scraper pass indefinitely.
+MAX_RENEW_ATTEMPTS = 5
+
 
 class TorIPChanger(IPChanger):
     def __init__(self, skip_1st_renew=False):
@@ -40,13 +47,21 @@ class TorIPChanger(IPChanger):
             logger.debug("Skipping 1st renew")
             return old_ip
 
-        self.renew_ip()
-        sleep(5)  # give Tor time to establish the new circuit before polling
-        while True:
+        for attempt in range(1, MAX_RENEW_ATTEMPTS + 1):
+            # Re-signal on every round rather than signalling once and then polling: if
+            # Tor drops the first NEWNYM (it rate-limits them), polling the same circuit
+            # can never make it change, so the old loop spun forever on that IP.
+            self.renew_ip()
+            sleep(NEWNYM_WAIT_SECONDS)  # let the new circuit come up, and clear the rate limit
             self.renew_session()
             new_ip = self.get_current_ip()
             if old_ip != new_ip:
                 logger.info("New IP: %s", new_ip)
                 return new_ip
-            logger.debug("DID NOT CHANGE IP: %s", new_ip)
-            sleep(5)
+            logger.warning(
+                "NEWNYM %d/%d did not change the exit IP (%s)", attempt, MAX_RENEW_ATTEMPTS, new_ip
+            )
+        logger.error(
+            "Exit IP still %s after %d NEWNYM attempts, giving up on rotation", old_ip, MAX_RENEW_ATTEMPTS
+        )
+        return old_ip

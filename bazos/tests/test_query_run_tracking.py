@@ -26,7 +26,6 @@ def make_runner():
     runner.discord_loggers = []
     runner.interval_multiplier = MagicMock()
     runner.ip_changer = MagicMock()
-    runner.ip_changer.check_bazos_blacklisted.return_value = False
     runner.ip_changer.check_ip_local.return_value = False
     runner.ip_changer.session = MagicMock()
     runner.zero_rows_passes = 0
@@ -36,7 +35,8 @@ def make_runner():
 
 def run_one_pass(runner):
     """Run BazosRunner.run() for exactly one pass, then escape the infinite loop."""
-    with patch.object(runner, "_interruptible_sleep", side_effect=StopLoop):
+    with patch.object(runner, "_interruptible_sleep", side_effect=StopLoop), \
+         patch.object(runner, "_sleep_between_queries"):
         with pytest.raises(StopLoop):
             runner.run()
 
@@ -51,19 +51,24 @@ def test_failing_query_still_produces_queryrun_row_with_error(query, exc):
     """`str(e)` is empty for `BazosBlacklistedError()` raised with no args — the exact
     shape of the exception that actually fires in production (bazos_scraper.py,
     bazos_api_scraper.py). error must stay non-empty and name the exception type either way.
+
+    A blacklisted query is retried (see test_bazos_runner_blacklist.py), so it leaves one
+    row per attempt; every one of them must carry the error.
     """
     runner = make_runner()
 
     with patch.object(BazosQueryRunner, "run", side_effect=exc):
         run_one_pass(runner)
 
-    run = QueryRun.objects.get(query=query)
-    assert run.success is False
-    assert run.error
-    assert type(exc).__name__ in run.error
-    if str(exc):
-        assert str(exc) in run.error
-    assert run.run_end is not None
+    runs = list(QueryRun.objects.filter(query=query))
+    assert runs
+    for run in runs:
+        assert run.success is False
+        assert run.error
+        assert type(exc).__name__ in run.error
+        if str(exc):
+            assert str(exc) in run.error
+        assert run.run_end is not None
 
 
 @pytest.mark.django_db
