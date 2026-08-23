@@ -1,3 +1,11 @@
+---
+title: E2E / record-and-replay testing for the scraper — research
+status: shipped
+updated: 2026-08-23
+verified: 2026-08-23
+shipped_in: 60a7873
+---
+
 # E2E / record-and-replay testing for the scraper — research
 
 **Status:** research written 2026-08-23. **All four steps in §8 have since been built** — see the

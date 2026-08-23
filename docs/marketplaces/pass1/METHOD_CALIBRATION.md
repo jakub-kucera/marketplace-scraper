@@ -1,3 +1,10 @@
+---
+title: Scale-method calibration against Bazos — measured 2026-08-22
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Scale-method calibration against Bazos — measured 2026-08-22
 
 > Why this file exists: RESEARCH_BRIEF §2b prescribes a new/day method but has never been run.

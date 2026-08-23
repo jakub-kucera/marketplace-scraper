@@ -1,3 +1,10 @@
+---
+title: Vertical marketplaces + Remix — Pass 1 triage
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Vertical marketplaces + Remix — Pass 1 triage
 
 > Probed **2026-08-22, 14:48–14:52 UTC** (server `date` header on the first probe:

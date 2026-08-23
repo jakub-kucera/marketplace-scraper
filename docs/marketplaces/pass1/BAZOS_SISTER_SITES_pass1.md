@@ -1,3 +1,10 @@
+---
+title: bazos.sk / bazos.at / bazos.pl — Pass 1 triage
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # bazos.sk / bazos.at / bazos.pl — Pass 1 triage
 
 > Probed 2026-08-22 ~14:45–14:55 UTC. Egress: VPN datacenter IP **185.242.6.116, M247 Europe

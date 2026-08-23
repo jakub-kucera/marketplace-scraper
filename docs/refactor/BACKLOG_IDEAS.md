@@ -1,3 +1,10 @@
+---
+title: Backlog Ideas — Not Yet in Any Stage
+status: active
+updated: 2026-08-23
+verified: 2026-08-23
+---
+
 # Backlog Ideas — Not Yet in Any Stage
 
 > Sourced from a full sweep of the GitHub issue tracker (57 issues, `jakub-kucera/marketplace-scrapper`),

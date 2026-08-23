@@ -1,3 +1,10 @@
+---
+title: Minor Czech classifieds — Pass 1 triage
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Minor Czech classifieds — Pass 1 triage
 
 > Probed **2026-08-22, 16:48–16:58 CEST** (14:48–14:58 UTC).

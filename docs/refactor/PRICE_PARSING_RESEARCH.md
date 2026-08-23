@@ -1,3 +1,11 @@
+---
+title: Price parsing — measured research for P22
+status: reference
+updated: 2026-08-23
+verified: 2026-08-23
+shipped_in: 0032, 0033 (P22 was built from this)
+---
+
 # Price parsing — measured research for P22
 
 > Written 2026-08-23. Grounds [`PROMPTS.md`](PROMPTS.md) **P22** (`price_raw` → real integer +

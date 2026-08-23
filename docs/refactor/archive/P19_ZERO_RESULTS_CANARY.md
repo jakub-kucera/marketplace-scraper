@@ -1,3 +1,11 @@
+---
+title: "P19 — Zero-results canary: implementation spec"
+status: shipped
+updated: 2026-08-21
+verified: 2026-08-21
+shipped_in: 739815c
+---
+
 # P19 — Zero-results canary: implementation spec
 
 > **Archived — implemented 2026-08-21.** `BazosRunner._check_zero_results_canary` +

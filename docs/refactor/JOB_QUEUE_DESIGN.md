@@ -1,6 +1,13 @@
+---
+title: Generic Job Queue — Exploration & Proposal
+status: proposal
+updated: 2026-07-26
+verified: 2026-07-26
+---
+
 # Generic Job Queue — Exploration & Proposal
 
-> Status: **proposal, not scheduled**. Not wired into `PIPELINE_REFACTOR.md`'s stage list or
+> **Nothing here has been built, and it is not scheduled.** Not wired into `PIPELINE_REFACTOR.md`'s stage list or
 > `PROMPTS.md`. Nothing here has been built.
 >
 > **See also**: [`BACKLOG_IDEAS.md`](./BACKLOG_IDEAS.md) #8 (full-listing rescan flag) and

@@ -1,3 +1,10 @@
+---
+title: Heureka.cz / Zboží.cz — Track B assessment
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Heureka.cz / Zboží.cz — Track B assessment
 
 > Assessed 2026-08-22. Requests used **15/15**. Verdict: **REJECT**.

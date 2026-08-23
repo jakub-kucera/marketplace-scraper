@@ -1,8 +1,19 @@
+---
+title: Stage 8 Design Notes — VintedScraper & Multi-Marketplace Queries
+status: shipped
+updated: 2026-08-22
+verified: 2026-08-21
+shipped_in: 0029
+---
+
 # Stage 8 Design Notes — VintedScraper & Multi-Marketplace Queries
 
-> **Status**: Design / pre-implementation
-> **Referenced from**: [PIPELINE_REFACTOR.md](./PIPELINE_REFACTOR.md) — Stage 8
-> **Implementation spec**: [STAGE8_VINTED_SPEC.md](./STAGE8_VINTED_SPEC.md)
+> **✅ Built 2026-08-22** (migration `0029`) — this is the design that preceded it, kept for the
+> decision log. The executable version is [STAGE8_VINTED_SPEC.md](./STAGE8_VINTED_SPEC.md);
+> the stage entry is [PIPELINE_REFACTOR.md](./PIPELINE_REFACTOR.md) Stage 8.
+>
+> **§1a is the durable part** — the measured `VintedItem` field list. Check a change to
+> `bazos/scraping/vinted/vinted_scraper.py` against it.
 
 > **⚠️ §1 and §2 rewritten from a live probe, 2026-08-21.** Everything in those two sections
 > was previously *asserted from the package README, never run*. It has now been measured

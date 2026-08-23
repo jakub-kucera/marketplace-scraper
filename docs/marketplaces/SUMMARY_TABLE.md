@@ -1,3 +1,10 @@
+---
+title: All assessed marketplaces — summary table
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # All assessed marketplaces — summary table
 
 > Study completed 2026-08-22. Index to the 13 detail files in this directory.

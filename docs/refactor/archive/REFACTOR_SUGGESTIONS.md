@@ -1,3 +1,11 @@
+---
+title: Refactor Suggestions
+status: shipped
+updated: 2026-07-19
+verified: 2026-07-19
+shipped_in: all nine items; completed changelog
+---
+
 # Refactor Suggestions
 
 > **Archived — completed changelog.** All 9 items below are done (including #7,

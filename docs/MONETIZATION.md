@@ -1,10 +1,17 @@
+---
+title: Monetization Options — Analysis & Plan
+status: active
+updated: 2026-08-23
+verified: 2026-08-23
+---
+
 # Monetization Options — Analysis & Plan
 
 > **Question:** how can this repository be turned into money? Options across selling
 > scraped data, buying/reselling on the back of it, subscription products, and anything
 > else. Plus: does it already exist, what are the financials, what are the legal issues.
 >
-> **Status of claims:** repo/data facts are read from the code and
+> **Provenance of claims:** repo/data facts are read from the code and
 > `data_export_23_3_2024/` on 2026-07-29. Bazos scale numbers are **live-measured**
 > today via `api/v1/ads.php` `x-total-count`. Bazos ToS and `robots.txt` are quoted
 > verbatim from the live site. Competitor and pricing figures are from public 2026

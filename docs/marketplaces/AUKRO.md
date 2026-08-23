@@ -1,6 +1,13 @@
+---
+title: Aukro.cz — feasibility assessment
+status: reference
+updated: 2026-08-22
+verified: 2026-08-22
+---
+
 # Aukro.cz — feasibility assessment
 
-> Status: assessed 2026-08-22. Verdict: **VIABLE**.
+> **Verdict: VIABLE** — assessed 2026-08-22.
 > All claims measured unless marked ⚠️ ASSUMED.
 > Egress: residential Czech ISP (T-Mobile CZ, AS13036). **Everything below was unobtainable from a
 > datacenter VPN IP** — see §4.1. Pass 1 concluded the opposite of this document on that basis;

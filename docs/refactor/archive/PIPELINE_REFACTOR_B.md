@@ -1,3 +1,10 @@
+---
+title: Pipeline Refactor — Version B
+status: superseded
+updated: 2026-07-19
+superseded_by: docs/refactor/PIPELINE_REFACTOR.md
+---
+
 # Pipeline Refactor — Version B
 
 > **Archived — fully merged into [`PIPELINE_REFACTOR.md`](../PIPELINE_REFACTOR.md).**

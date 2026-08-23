@@ -1,10 +1,18 @@
+---
+title: Database Backups — Options & Recommendation
+status: shipped
+updated: 2026-08-16
+verified: 2026-08-23
+shipped_in: 1cb0178 (backup/, systemd timer, pre-migration dump in deploy.yml)
+---
+
 # Database Backups — Options & Recommendation
 
 > **Question:** the Postgres archive is the only asset in this project that can't be
 > rebuilt ([`MONETIZATION.md`](MONETIZATION.md) §7.3). What are the options for dumping it,
 > where should the dumps go, and what does it cost?
 >
-> **Status of claims:** repo facts (compose config, deploy path, `.gitignore`, absence of any
+> **Provenance of claims:** repo facts (compose config, deploy path, `.gitignore`, absence of any
 > backup mechanism) are read from the code on 2026-08-08. Sizes marked *measured* come from
 > `postgres_data/` and `data_export_23_3_2024/` on the dev machine; growth projections are
 > **estimates** derived from those measurements and are labelled as such. No `pg_dump` was run

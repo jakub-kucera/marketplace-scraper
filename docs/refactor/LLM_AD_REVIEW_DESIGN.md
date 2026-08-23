@@ -1,6 +1,13 @@
+---
+title: LLM Ad Review & Seller Outreach — Exploration & Proposal
+status: proposal
+updated: 2026-08-07
+verified: 2026-08-07
+---
+
 # LLM Ad Review & Seller Outreach — Exploration & Proposal
 
-> Status: **proposal, not scheduled**. Not wired into `PIPELINE_REFACTOR.md`'s stage list or
+> **Nothing here has been built, and it is not scheduled.** Not wired into `PIPELINE_REFACTOR.md`'s stage list or
 > `PROMPTS.md` — this needs an explicit decision (especially on outreach, §4) before either
 > happens. Nothing here has been built.
 >
