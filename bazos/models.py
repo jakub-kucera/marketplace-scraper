@@ -182,7 +182,7 @@ class SellerAdCounts:
     **These count ads in *this* database, i.e. ones our own queries happened to scrape —
     not the seller's true Bazos total.** A dealer with 500 live listings can show 2 here.
     The real figure is `user_ads_count` on the API's detail endpoint (see
-    docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md §5.2), which is why the wording below says
+    docs/research/bazos-api/HIDDEN_API.md §5.2), which is why the wording below says
     "seen" rather than "has".
     """
 
@@ -258,7 +258,7 @@ class SellerAdCounts:
 
 
 class PriceType(models.TextChoices):
-    """Price-placeholder vocabulary — see docs/refactor/PRICE_PARSING_RESEARCH.md.
+    """Price-placeholder vocabulary — see docs/research/PRICE_PARSING.md.
 
     Two carry a real `Ad.price`: EXACT (a real number) and FREE (a known zero — "Zdarma"
     is NOT the same as "unknown", see §3.3). The other four — NEGOTIABLE/IN_TEXT/

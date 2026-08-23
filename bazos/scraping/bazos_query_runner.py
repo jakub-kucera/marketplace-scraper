@@ -116,7 +116,7 @@ class BazosQueryRunner:
         that and don't override the attribute. Sbazar does not satisfy it: its default
         order is `sorting_date` (~= edit time), so an old, already-known ad can resurface
         above genuinely new listings just because it was edited recently — see
-        docs/marketplaces/SBAZAR.md §5b.4 and docs/refactor/STAGE9_SBAZAR_SPEC.md §11.
+        docs/research/marketplaces/SBAZAR.md §5b.4 and docs/archive/shipped/SBAZAR_SCRAPER.md §11.
         SbazarScraper sets a higher streak so the walk tolerates that interleaving
         instead of giving up on the first stale-looking hit. Whatever the streak, the
         walk is still bounded by the scraper's own max-pages safety net.
@@ -149,7 +149,7 @@ class BazosQueryRunner:
                 known_ad.save(update_fields=["price_raw", "price", "price_type"])
                 # A price change is a fact about the AD — every query watching it re-enters
                 # the filter. Unconditional, matching pre-split behaviour (including
-                # un-suppressing a SUPPRESSED delivery — see AD_DELIVERY_SPLIT_SPEC.md §3.2).
+                # un-suppressing a SUPPRESSED delivery — see AD_DELIVERY_SPLIT.md §3.2).
                 AdDelivery.objects.filter(ad=known_ad).update(status=AdStatus.PRICE_CHANGED)
             logger.debug("Product already exists %s", known_ad)
             if product.topped:

@@ -51,7 +51,7 @@ class BazosScraper:
         entirely. The scraper then parsed a page with zero `inzeraty` elements and
         broke out of the page loop, so a section-less, category-less Query scraped
         nothing at all, silently and on every pass. Measured 2026-08-23; see
-        docs/refactor/E2E_REPLAY_TESTING_RESEARCH.md §1a.
+        docs/archive/shipped/E2E_REPLAY_TESTING.md §1a.
 
         Fixed here rather than in `Query.url` because that property is also read by
         `create_url_category` (correct today), by the runner's IP-guard calls, and
