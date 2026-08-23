@@ -275,6 +275,36 @@ This cuts both ways: it's precisely the property that catches "my refactor now f
 page twice", and it's a source of churn when a legitimate change alters request counts. **Keep
 the default** — the strictness is the point.
 
+### 4.8 `vcr_config`'s `record_mode` silently overrides `--record-mode` ⚠️
+
+Found while building the tests, not during the survey. Setting `"record_mode": "none"` in the
+`vcr_config` fixture — the obvious way to express "never touch the network" — makes
+`pytest --record-mode=once` a **no-op**: every request fails with
+`CannotOverwriteExistingCassetteException` and no cassette is ever written, with nothing in the
+output pointing at the fixture as the cause.
+
+pytest-recording already defaults to `none` when no CLI flag is given, so the fix is to **leave
+`record_mode` out of `vcr_config` entirely** and let the plugin own it. The default is what you
+wanted anyway.
+
+### 4.9 Bazos serves page 1 of a category search with a **404** status
+
+Measured: `https://pc.bazos.cz/notebook/0/?hledat=...` returns **`404`** with a complete, correct
+listing body — the same ads, in the same order, as the `200` you get from
+`https://pc.bazos.cz/notebook/?hledat=...`. Page 2 (`/notebook/20/?...`) returns `200` normally.
+
+`create_url_category` starts its `itertools.count` at 0, so **every category query's first page is
+a 404** today. It works only because `run_request` ignores status codes apart from 403. Adding a
+`raise_for_status()` or a `status_code == 200` guard — an obviously-correct-looking hardening —
+would silently break page 1 of every query in production.
+
+`test_first_page_404_is_still_parsed` exists to make that change fail loudly.
+
+### 4.10 Measured cassette footprint of the real suite
+
+Nine recorded cassettes plus one hand-written 403: **408 KB total**, 30–70 KB each, all plain
+readable YAML. That is the real cost of the approach in this repo, and it is fine.
+
 ---
 
 ## 5. The blocker: neither poller can run a single batch
