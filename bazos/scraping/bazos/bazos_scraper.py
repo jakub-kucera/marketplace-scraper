@@ -17,6 +17,7 @@ from bazos.const import (
     BAZOS_BLACKLIST_CHECK_URL,
     BAZOS_DETAIL_WAIT_TIME,
     BAZOS_PAGE_WAIT_TIME,
+    BAZOS_REQUEST_TIMEOUT,
     BAZOS_URL,
     MAX_ATTEMPTS,
     PAGE_SIZE,
@@ -219,15 +220,19 @@ class BazosScraper:
             yield product
 
     def run_request(self, url: str, extra_args: dict | None = None) -> Response | None:
-        extra_args = extra_args or {}
+        extra_args = {"timeout": BAZOS_REQUEST_TIMEOUT, **(extra_args or {})}
         response: Response | None = None
-        for _ in range(1, MAX_ATTEMPTS + 1):
+        for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
                 response = self.session.get(url, **extra_args)
                 self.sent_requests_count += 1
                 break
-            except (TimeoutException, URLError):  # todo correct exception
-                pass
+            # requests.RequestException belongs here: it is NOT a URLError (verified), so
+            # before this a ConnectTimeout/ConnectionError skipped the retry loop entirely
+            # and escaped into the caller. Adding the timeout above without this would
+            # have made that strictly more common.
+            except (TimeoutException, URLError, requests.RequestException) as e:
+                logger.warning("Request to %s failed (attempt %d/%d): %s", url, attempt, MAX_ATTEMPTS, e)
         return response
 
     def check_blacklisted(self) -> bool:

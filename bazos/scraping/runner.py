@@ -42,7 +42,7 @@ class ScrapeRunner:
                     self.log("WARNING: IP IS LOCAL, skipping this pass", level=logging.WARNING)
                 else:
                     self._run_pass()
-            except Exception:
+            except Exception as e:
                 # The daemon has to outlive a broken transport. `run_scraper` does restart
                 # it, but that rebuilds ScrapeRunner from scratch and so resets
                 # zero_rows_passes / zero_new_ads_passes — meaning a genuine parser-drift
@@ -55,6 +55,11 @@ class ScrapeRunner:
                 if self.unsafe:
                     raise
                 logger.exception("Pass failed, skipping to the next one")
+                # Also to Discord, matching the local-IP skip fifteen lines up. Without
+                # it a permanently broken transport loops here forever: no crash, no
+                # restart, and nothing visible outside the log table.
+                self.log(f"Pass FAILED ({type(e).__name__}: {e}), skipping to the next one",
+                         level=logging.ERROR)
             sleep_interval = self.get_next_interval()
             self.log(f"sleeping for {sleep_interval}")
             self._interruptible_sleep(sleep_interval)
