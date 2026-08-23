@@ -2,7 +2,7 @@
 title: Pipeline Refactor — Version B
 status: superseded
 updated: 2026-07-19
-superseded_by: PIPELINE_REFACTOR.md
+superseded_by: docs/archive/shipped/PIPELINE_REFACTOR.md
 ---
 
 # Pipeline Refactor — Version B
