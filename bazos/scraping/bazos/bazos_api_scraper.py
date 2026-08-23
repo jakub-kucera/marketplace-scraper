@@ -1,7 +1,7 @@
 """BazosApiScraper — search via Bazos's hidden mobile JSON API.
 
 Alternate implementation of the `MarketplaceScraper` protocol, sitting next to
-`BazosScraper` for validation (see docs/bazos-api/BAZOS_HIDDEN_API_RESEARCH.md).
+`BazosScraper` for validation (see docs/research/bazos-api/HIDDEN_API.md).
 Registered in `BazosQueryRunner._build_scrapers()` under the `bazos_api` key —
 no existing `Query` row uses that marketplace value, so this is inert for the
 production `run_scraper` loop until a `Query` is deliberately switched over.
@@ -22,6 +22,7 @@ from requests import Response
 from bazos.const import (
     API_PAGE_SIZE,
     BAZOS_API_BASE_URL,
+    BAZOS_DETAIL_WAIT_TIME,
     BAZOS_PAGE_WAIT_TIME,
     MAX_ATTEMPTS,
 )
@@ -35,7 +36,7 @@ from ip_changer.tor import PROXIES
 logger = logging.getLogger(__name__)
 
 #: `ad-detail-2.php`'s own `price_type` vocabulary, measured live 2026-08-23 (see
-#: docs/refactor/PRICE_PARSING_RESEARCH.md §4) — differs from PriceType's names
+#: docs/research/PRICE_PARSING.md §4) — differs from PriceType's names
 #: (NEGOTIATED/OFFERED here vs NEGOTIABLE/MAKE_OFFER there), so the mapping is explicit
 #: rather than assumed. "Zdarma"/"Nerozhoduje" were NOT observed in the live sample, so
 #: their API price_type strings are unknown and deliberately absent here — an
@@ -174,7 +175,11 @@ class BazosApiScraper:
         return response.status_code in (403, 429)
 
     def load_full_description(self, product: Ad) -> Ad:
+        """Paced for the same reason as BazosScraper.load_full_description: one call per
+        new ad, no delay of its own in the caller.
+        """
         logger.debug("Loading full description for ad %s", product.external_id)
+        sleep(uniform(*BAZOS_DETAIL_WAIT_TIME))
         response = self.run_request(f"{BAZOS_API_BASE_URL}/ad-detail-2.php", params={"ad_id": product.external_id})
         if response is None:
             logger.warning(

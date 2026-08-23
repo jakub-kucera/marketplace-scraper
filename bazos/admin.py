@@ -4,7 +4,7 @@ from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
 from django.db import models
-from django.db.models import Count, Max
+from django.db.models import Count, IntegerField, Max, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpResponseRedirect
 from django.urls import path, reverse
@@ -124,7 +124,7 @@ class QueryAdminForm(forms.ModelForm):
 class QueryAdmin(admin.ModelAdmin):
     form = QueryAdminForm
     list_display = (
-        "pk",
+        "query_name",
         "text",
         "category",
         "section",
@@ -136,19 +136,58 @@ class QueryAdmin(admin.ModelAdmin):
         "last_run",
     )
     list_filter = ("enabled", "randomly_generated", "marketplace", "section", "category")
+    # str(Query) reads text/category/section, so without this the changelist does a
+    # section+category lookup per row.
+    list_select_related = ("category", "section", "sender")
     actions = ["enable_queries", "disable_queries"]
     autocomplete_fields = ["category", "section", "sender"]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        # annotate last_run as the latest run_end if present, otherwise run_start
-        # ad_count needs distinct=True: it aggregates over `deliveries` while last_run
-        # aggregates over `runs`, and the two joins multiply rows. (Max is unaffected by
-        # that duplication; a plain Count would over-count.)
-        return qs.annotate(
-            last_run=Coalesce(Max('runs__run_end'), Max('runs__run_start')),
-            ad_count=Count('deliveries', distinct=True),
+        # Correlated subqueries, deliberately NOT annotate(Max('runs__...'),
+        # Count('deliveries')). Two aggregates over two different reverse FKs make Django
+        # join BOTH tables into one query, so Postgres materialises a deliveries x runs
+        # product per Query row — a query with 5k deliveries and 2k runs is 10M
+        # intermediate rows, and the `distinct=True` that was needed to un-inflate the
+        # count then has to de-duplicate all of them. That is what made this changelist
+        # slow, and it degrades as history accumulates (QueryRun especially: a
+        # blacklisted query now writes one row per retry attempt).
+        #
+        # Each subquery below reads exactly one table through its own query_id FK index,
+        # so the cost is per-table and independent of the other relation's size.
+        last_run_subquery = (
+            QueryRun.objects
+            .filter(query=OuterRef('pk'))
+            .order_by()  # clear any default ordering, or it leaks into the GROUP BY
+            .values('query')
+            .annotate(last=Coalesce(Max('run_end'), Max('run_start')))
+            .values('last')[:1]
         )
+        ad_count_subquery = (
+            AdDelivery.objects
+            .filter(query=OuterRef('pk'))
+            .order_by()
+            .values('query')
+            .annotate(n=Count('pk'))
+            .values('n')[:1]
+        )
+        return qs.annotate(
+            last_run=Subquery(last_run_subquery),
+            # An aggregate subquery over zero rows yields no row at all, i.e. NULL — so a
+            # query that has never found an ad needs the Coalesce to read as 0, not blank.
+            ad_count=Coalesce(Subquery(ad_count_subquery), 0, output_field=IntegerField()),
+        )
+
+    @admin.display(description="Query", ordering="pk")
+    def query_name(self, obj):
+        """First column, so it is the clickable link into the change form — the pk it
+        replaced identified nothing you could read.
+
+        Ordered by pk because str(Query) has no single backing field (it falls back
+        text -> category -> section); sorting by pk at least keeps the column sortable,
+        in the creation order the pk column used to give.
+        """
+        return str(obj)
 
     def last_run(self, obj):
         return getattr(obj, 'last_run', None)
@@ -205,10 +244,18 @@ class QueryRunAdmin(admin.ModelAdmin):
         "run_start",
         "run_end",
         "new_ads_count",
+        "exit_ip",
         "success",
         "error",
     )
-    list_filter = ("query", "success")
+    # query__marketplace as its own filter even though str(Query) now carries the
+    # marketplace: reading it off every row is not the same as slicing the list by it.
+    list_filter = ("query", "query__marketplace", "success")
+    list_select_related = ("query", "query__category", "query__section")
+    # exit_ip only. `error` is an unindexed TextField holding stack traces, and admin
+    # search is an unanchored icontains — on a table that now grows by one row per retry
+    # attempt that is a seq scan over every trace on every keystroke-submitted search.
+    search_fields = ("exit_ip",)
 
 
 class PriceChangeInline(admin.TabularInline):
@@ -240,7 +287,7 @@ class AdAdmin(admin.ModelAdmin):
         "created",
     )
     # Plain "-publish_date" would put every Vinted ad (publish_date is always null —
-    # see STAGE8_VINTED_SPEC.md §2.2) above the newest Bazos ads: Postgres's DESC
+    # see VINTED_SCRAPER.md §2.2) above the newest Bazos ads: Postgres's DESC
     # defaults to NULLS FIRST. nulls_last keeps "newest first" meaning what it says.
     ordering = (models.F("publish_date").desc(nulls_last=True),)  # type: ignore[assignment]  # django-stubs types ordering as Sequence[str]; F().desc() is valid at runtime
     list_filter = ("marketplace", "deliveries__query", HasFullDescriptionFilter)
@@ -333,7 +380,7 @@ class PublisherAdminBase(admin.ModelAdmin):
     The partner list is the point: a seller's identity on Bazos is a *pair* of ids, and the
     same person routinely posts under several. One email pairing with four phones over four
     months is a real, observed pattern (a recruiter posting job ads), and it's invisible
-    until you look at the pairing. See docs/refactor/BACKLOG_IDEAS.md — this is the cheap
+    until you look at the pairing. See docs/backlog/BACKLOG_IDEAS.md — this is the cheap
     precursor to reseller detection.
     """
 

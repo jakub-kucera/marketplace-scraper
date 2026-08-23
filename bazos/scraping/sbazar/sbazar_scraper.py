@@ -2,8 +2,8 @@
 
 Implements the `MarketplaceScraper` protocol (bazos/scraping/marketplace.py) for
 Sbazar.cz. Every field name and limit below was measured live 2026-08-22 and is
-documented in docs/marketplaces/SBAZAR.md §5a. This module follows
-docs/refactor/STAGE9_SBAZAR_SPEC.md exactly — deviating without updating that spec
+documented in docs/research/marketplaces/SBAZAR.md §5a. This module follows
+docs/archive/shipped/SBAZAR_SCRAPER.md exactly — deviating without updating that spec
 will re-open bugs it already found (price-by-agreement rejecting every negotiable ad,
 short_description overflowing its column, leaking the seller's real name).
 """
@@ -150,7 +150,7 @@ class SbazarScraper:
 
     @staticmethod
     def _price_and_type(row: dict[str, Any]) -> tuple[int | None, PriceType]:
-        """§6 of docs/refactor/PRICE_PARSING_RESEARCH.md, measured on 4,000 live rows:
+        """§6 of docs/research/PRICE_PARSING.md, measured on 4,000 live rows:
         `price_by_agreement` always implies `price == 0` (0 counter-examples), but the
         converse fails 33 times — 0.8% are genuine free giveaways, not negotiables. MUST
         branch on the boolean first, never on `price == 0` alone (same trap `_format_price`
