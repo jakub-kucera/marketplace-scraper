@@ -1,0 +1,50 @@
+# Hand-written, not recorded: a Bazos IP ban cannot be provoked on demand, and
+# provoking one deliberately would be both rude and self-defeating.
+#
+# Shape is taken from the live-verified behaviour of the block (403 on the
+# request path, no Retry-After, no 429 stage). Served for both the listing path
+# and the /search.php blacklist probe, so one cassette covers
+# `run_query` raising BazosBlacklistedError and `check_blacklisted()` returning
+# True. Matched on method+path only — the query string is irrelevant to a ban.
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+    method: GET
+    uri: https://pc.bazos.cz/notebook/0/?hledat=thinkpad+x230&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat
+  response:
+    body:
+      string: "<html><head><title>403 Forbidden</title></head><body><h1>Forbidden</h1></body></html>"
+    headers:
+      Content-Type:
+      - text/html
+    status:
+      code: 403
+      message: Forbidden
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+    method: GET
+    uri: https://www.bazos.cz/search.php?hledat=iphone&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat&kitx=ano
+  response:
+    body:
+      string: "<html><head><title>403 Forbidden</title></head><body><h1>Forbidden</h1></body></html>"
+    headers:
+      Content-Type:
+      - text/html
+    status:
+      code: 403
+      message: Forbidden
+version: 1
