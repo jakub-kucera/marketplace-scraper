@@ -1,8 +1,8 @@
 ---
 title: Monetization Options — Analysis & Plan
 status: active
-updated: 2026-08-23
-verified: 2026-08-23
+updated: 2026-08-24
+verified: 2026-08-24
 ---
 
 # Monetization Options — Analysis & Plan
@@ -36,6 +36,14 @@ verified: 2026-08-23
   prices** — plus the fact that accumulation itself hasn't started: the corpus is still the
   16,987 ads of Jun 2023 – Mar 2024. If you want the data option ever, **start accumulating
   now**; it is the only item here that gets strictly more expensive to delay.
+- **The anomaly-scoring edge is real, and now measured on one category** *(new 2026-08-24)*.
+  MacBook asking prices predict at **R² 0.87 / 6.2% median error** from listing text alone
+  ([`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md)), which substantiates §7.7's claim
+  that price-vs-comparables is the one thing Bazos's own free agent can't do. Two caveats land
+  with it: **70% of a naive underpricing alert is damage, parse failures and price-floor
+  artifacts**, and **67% of residual variance is between sellers rather than between listings**
+  — so the signal needs gating and a per-seller baseline before it means anything. And it still
+  **can't be calibrated**, because §7.2(c) turns out to be total: the DB holds no outcomes at all.
 - **The flipping option still doesn't work at the current cadence.** A 15–45 min interval
   means a **~15 minute median detection latency**, while competing services poll every 60
   seconds and good deals are gone in minutes. §4.2's economics only exist after this is fixed.
@@ -195,7 +203,9 @@ option* on a future product, not as inventory for sale.
 **This is the best risk-adjusted option and the only one with essentially no third-party
 legal exposure**, because the data never leaves your hands. It is also the only option
 that *validates the technology*: deal-velocity (how fast a flagged deal disappears) is
-the precision metric your own discovery doc §3.4 proposes.
+the precision metric your own discovery doc §3.4 proposes — and as of 2026-08-24 it is
+confirmed that **the database records none of it** (§7.2c), so flipping is currently the
+*only* way to generate that feedback at all.
 
 **Deal-flow model.** Using the live counts and the ≥ active/60 floor:
 
@@ -209,6 +219,36 @@ the precision metric your own discovery doc §3.4 proposes.
 At a **2% "meaningfully underpriced" rate** (≥25% below comparable) → ~7–8 candidates/day.
 Realistically ~10% are actionable (in range, not a scam, not already gone, seller
 responds) → **~5 contactable/week → 1–2 closes/week.**
+
+> **✅ The 2% assumption is now measured — for one category (2026-08-24).** 2,038 Bazos MacBook
+> ads from query 8 were modelled end to end:
+> [`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md). Asking price is predictable at
+> **R² 0.87 / 6.2% median error** from listing text alone, so the "price vs comparables" edge in
+> §7.7 is real. Four corrections to the model above, in order of how much they move the number:
+>
+> 1. **The rate is right; the composition is not.** 4.9% of listings sit ≥25% below prediction,
+>    but **the raw tail is 14% visibly damaged (3.3× base rate), 48% failed spec extraction, and
+>    11% priced at exactly the query's price floor (9.2× base rate)**. Gating on parsed-specs +
+>    no-damage + above-floor removes **70%** of hits and leaves **1.5%** — close to the assumed
+>    2%, but the assumption was doing the work of a filter that has to be built.
+> 2. **Two thirds of apparent underpricing is not a deal.** 67% of residual variance is
+>    *between sellers*, not between listings — persistent shop-level pricing. A raw-residual
+>    alert is a feed of a few shops' catalogues. Use the **within-seller** residual
+>    (§5 of the research doc) or the flipping thesis is measuring the wrong thing.
+> 3. **This category is mostly professional.** 63% of ads come from sellers with ≥10 listings,
+>    56% from ten publishers, only 21% from one-off sellers. There is less naive private
+>    mispricing to arbitrage in notebooks than the "crowded hobby scene" framing assumes.
+>    ⚠️ **Do not generalise** — `naradi` and `iphone` were not measured and may be nothing like this.
+> 4. **Dealers charge no premium**, which was expected to cut the other way. Spec-matched across
+>    32 configurations the dealer premium is **−2.1%** (within-config regression: +1.5%). So the
+>    resale side of the P&L below is not inflated by a dealer-heavy comparable set — but you
+>    resell into a market where dealers ask the same price *with* a warranty and an invoice, and
+>    that friction is real even though it isn't a price friction.
+>
+> **Net effect on this section:** the funnel survives, the per-flip economics below are
+> untouched, and the candidate flow for MacBooks alone is **~2.2 gated candidates/week** at a
+> −25% threshold (~21 new MacBook ads/day). The thesis is intact; what changed is that the
+> filtering it assumes is now specified rather than hoped for.
 
 **Per-flip P&L (mid-ticket, 3–10k CZK):**
 
@@ -355,6 +395,16 @@ a much weaker target under the database right than republished listings, and the
 no personal data at all. Monetization is indirect — a free "what is my X worth?" tool as
 a funnel, with affiliate revenue (vehicle-history checks, insurance) rather than direct
 sales.
+
+> **The method is demonstrated, on one category (2026-08-24).** A depreciation curve and a
+> price ladder were computed from the existing corpus with no new data collection:
+> **8.3% of value lost per year of model age**, configuration held constant, plus median asking
+> price for 15 family+chip segments ([`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md)
+> §7). Note the trap it exposed: **raw median-by-year is badly confounded** — it jumps 93% from
+> 2020 to 2021 not because old machines appreciated but because the M1 Pro launched. Any public
+> index must control for configuration or it will publish nonsense. Cost to extend to another
+> category is a query and an afternoon; the blocker for a *product* remains §7.2(c), since
+> asking-price curves without time-to-sell are half the story.
 
 **Caveat:** for cars, the biggest and most obvious category, **Cebia already owns this**.
 Pick a category they don't cover — agricultural machinery, tools, bikes, musical
@@ -737,6 +787,19 @@ answers "have I ever seen this ad", and statistics are no longer silently double
 overlap. **The precondition for analytics is met.**
 
 **(c) You have asking prices, never realized prices — ❌ still open, and still the biggest gap.** This is the single biggest gap.
+
+> **Confirmed from the data, 2026-08-24.** It is worse than "no realized prices": there is no
+> outcome signal of *any* kind. `Ad.modified` never advances past `Ad.created` — measured across
+> 2,038 ads, max delta 1.3×10⁻⁸ hours. Ads are written once and never re-checked, so there is no
+> time-to-disappear, no last-seen price, and no sold flag. `view_count` does not substitute: it
+> correlates **0.06** with age in corpus because it is captured once at discovery, making it a
+> staleness proxy rather than a demand signal.
+>
+> The practical consequence, measured in [`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md)
+> §6: a price-anomaly model can be **built and shipped** today at R² 0.87, but its precision
+> **cannot be measured at all** — only the composition of what it flags. That makes **P24 a
+> prerequisite for P23 being worth calibrating**, which is how `backlog/PROMPTS.md` already
+> sequences them; this is the measured justification for that order.
 Every valuation or deal-scoring product needs to know what things actually *sold* for.
 The closest available proxy is **time-to-delisting plus last-seen price**, obtainable
 cheaply via the bulk `ad_id[]=` refresh and the HTTP 410 signal — both already documented
@@ -819,6 +882,15 @@ answer is that your edge is only in three places: **latency** (sub-minute vs. ba
 **cross-category breadth** (whole-category sweeps the agent can't express), and
 **anomaly scoring** (price-vs-comparables, which nothing native does). Everything else you
 build is re-implementing a free feature.
+
+**Anomaly scoring is now measured rather than asserted** *(2026-08-24)* — R² 0.87 from listing
+text alone, no external price source needed
+([`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md)). The edge is genuine, and smaller
+than it sounds: the naive version is 70% junk, and **accuracy depends almost entirely on whether
+the regexes parsed the specs** (4.7% median error when year+chip+RAM+SSD all extract, 12.3% when
+any is missing). That makes text extraction — not modelling — the thing worth investing in, and
+it is why `load_full_description` being off for the notebook query is a live cost: turning it on
+adds 10–15 points of coverage on every spec field.
 
 ---
 
