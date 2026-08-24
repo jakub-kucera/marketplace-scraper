@@ -26,6 +26,8 @@ MD_LINK = re.compile(r"\]\((?!https?:|mailto:|#)([^)\s]+?)(?:#[^)\s]*)?\)")
 INDEX_ROW = re.compile(r"^\| \[`[^`]+`\]\(([^)]+)\)", re.M)
 #: docs/... paths named from source, e.g. `# see docs/research/PRICE_PARSING.md §6`
 CODE_DOC_REF = re.compile(r"docs/[A-Za-z0-9_/.-]+\.md")
+#: stripped before CODE_DOC_REF runs — a docs path inside a URL belongs to that host, not us
+URL_REF = re.compile(r"\b\w+://\S+")
 
 SOURCE_GLOBS = ("*.py", "*.toml", "*.yml", "*.yaml")
 SOURCE_SKIP = {".git", ".venv", "node_modules", "__pycache__",
@@ -173,6 +175,7 @@ def test_doc_paths_named_from_source_exist():
             text = src.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        text = URL_REF.sub(" ", text)
         for ref in CODE_DOC_REF.findall(text):
             if not (REPO / ref).exists():
                 missing.append(f"{rel(src)} -> {ref}")
