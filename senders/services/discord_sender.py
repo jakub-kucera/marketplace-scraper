@@ -36,6 +36,9 @@ class DiscordSender(Sender):
         message = "@here \n" if self.notify else ""
         message += self.wrap_multi_line(sendable.message)
         message += self._format_link(sendable.link)
+        admin_url = getattr(sendable, "admin_url", None)
+        if admin_url:
+            message += f"\nadmin: <{admin_url}>"
         return message
 
     def _send(self, message: str):  # TODO make thread safe

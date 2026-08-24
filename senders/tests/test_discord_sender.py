@@ -1,4 +1,4 @@
-"""Tests for DiscordSender._send retry/backoff behaviour (no DB needed)."""
+"""Tests for DiscordSender — `_send` retry/backoff and `_format_product_message`."""
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
 
@@ -103,3 +103,54 @@ def test_send_recovers_after_transient_connection_error(sender):
 def test_max_connection_retries_is_positive_int():
     assert isinstance(MAX_CONNECTION_RETRIES, int)
     assert MAX_CONNECTION_RETRIES > 0
+
+
+# ---------------------------------------------------------------------------
+# _format_product_message — the marketplace link plus the optional admin link
+# ---------------------------------------------------------------------------
+
+class _Sendable:
+    """Minimal Sendable. `admin_url` is set per-test to model both shapes."""
+
+    def __init__(self, message="Ad 1\n1000 Kc", link="https://pc.bazos.cz/inzerat/1/x.php"):
+        self.message = message
+        self.link = link
+
+
+def test_format_product_message_appends_the_admin_link(sender):
+    s = _Sendable()
+    s.admin_url = "http://raspberrypi5.local:8000/admin/bazos/ad/14084/change/"
+
+    message = sender._format_product_message(s)
+
+    assert s.link in message
+    assert message.endswith("\nadmin: <http://raspberrypi5.local:8000/admin/bazos/ad/14084/change/>")
+
+
+def test_format_product_message_omits_the_admin_link_when_absent(sender):
+    """`admin_url` is not a Sendable protocol member — a sendable without one must format."""
+    message = sender._format_product_message(_Sendable())
+
+    assert "admin:" not in message
+    assert message.endswith("<https://pc.bazos.cz/inzerat/1/x.php>")
+
+
+def test_admin_link_stays_suppressed_when_preview_link_is_on(sender):
+    """`preview_link` unwraps the *marketplace* link; the admin host is unreachable by
+    Discord's crawler, so its link is wrapped either way."""
+    sender.preview_link = True
+    s = _Sendable()
+    s.admin_url = "http://raspberrypi5.local:8000/admin/bazos/ad/14084/change/"
+
+    message = sender._format_product_message(s)
+
+    assert f"\nadmin: <{s.admin_url}>" in message
+    assert f"<{s.link}>" not in message  # marketplace link unwrapped, admin link not
+
+
+def test_format_product_message_notify_prefix_still_leads(sender):
+    sender.notify = True
+    s = _Sendable()
+    s.admin_url = "http://localhost:8000/admin/bazos/ad/1/change/"
+
+    assert sender._format_product_message(s).startswith("@here \n")

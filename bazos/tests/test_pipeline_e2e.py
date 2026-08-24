@@ -20,6 +20,7 @@ snapshots depend on.
 """
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -77,13 +78,18 @@ def blocklist_query(category, discord):
 
 
 @pytest.fixture
-def sent_messages(monkeypatch):
+def sent_messages(monkeypatch, settings):
     """Capture fully rendered Discord messages instead of posting them.
 
     Patching `_send` rather than `from_model` means the snapshot covers the real
     formatting path — wrap_multi_line, the link wrapper, and Ad.message with its
     seller-ad-counts summary — and incidentally skips its uniform(0.5, 2) sleep.
+
+    `SITE_BASE_URL` is pinned because the rendered message now carries the admin link:
+    unpinned it comes from whichever `.env` the run happens to read, so the snapshot
+    would encode the developer's own hostname and fail in CI.
     """
+    settings.SITE_BASE_URL = "http://localhost:8000"
     captured: list[str] = []
     monkeypatch.setattr(DiscordSender, "_send", lambda self, message: captured.append(message))
     return captured
@@ -102,6 +108,12 @@ def run_pipeline(queries, sent_messages):
 # ---------------------------------------------------------------------------
 # Snapshot machinery
 # ---------------------------------------------------------------------------
+
+#: The admin link carries the Ad's primary key, which varies between runs for exactly the
+#: reason the snapshot drops every other pk. Normalised rather than stripped — the link's
+#: presence and shape are part of what this snapshot is here to pin.
+ADMIN_LINK_PK = re.compile(r"(/admin/bazos/ad/)\d+(/change/)")
+
 
 def snapshot_state(query_labels: dict[int, str], sent_messages: list[str]) -> dict:
     """Serialise the pipeline's result, excluding everything non-deterministic.
@@ -145,7 +157,7 @@ def snapshot_state(query_labels: dict[int, str], sent_messages: list[str]) -> di
     return {
         "ads": ads,
         "deliveries": deliveries,
-        "discord_messages": sorted(sent_messages),
+        "discord_messages": sorted(ADMIN_LINK_PK.sub(r"\1<pk>\2", m) for m in sent_messages),
     }
 
 

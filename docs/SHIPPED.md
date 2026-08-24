@@ -2,7 +2,7 @@
 title: Shipped
 status: active
 updated: 2026-08-24
-verified: 2026-08-23
+verified: 2026-08-24
 ---
 
 # Shipped
@@ -16,6 +16,7 @@ Verified against migrations, code and `git log` on **2026-08-23**. Newest first.
 
 | Shipped | What landed | Migration / commit | Designed in |
 |---|---|---|---|
+| 2026-08-24 | **Admin self-link in notifications.** `Ad.admin_url` (absolute, built with `reverse`, keyed on `pk`) + a `SITE_BASE_URL` setting; `DiscordSender` appends it under the marketplace link, always wrapped in `<>` since the host is not crawler-reachable. Read via `getattr`, **not** added to the `Sendable` protocol. `SITE_BASE_URL` is configuration because `run_sender` serves no request and has no `Host` to infer from — and an `.local` name is dead off-LAN. No migration. | *(no migration)* | [`PUBLIC_AD_PAGES.md`](proposals/PUBLIC_AD_PAGES.md) §2 — the rest of that proposal is **not** built |
 | 2026-08-24 | **Query config edit log.** `QueryChange` — an append-only field-level diff of every `Query` save that altered its configuration, so a `QueryRun` can be read against the config that was live at the time. Old values are snapshotted in `Query.from_db` (no extra SELECT on the per-pass `query.save()`), diffed on `save()` against `TRACKED_CONFIG_FIELDS`, and written inside one transaction only when the diff is non-empty. `new_query`/`randomly_generated` are excluded as pipeline-managed, and a queryset `.update()` is a documented blind spot. `on_delete=SET_NULL` plus a `query_label` snapshot keeps history readable after the query is deleted. Admin: a capped inline on the Query form, a read-only cross-query changelist with `date_hierarchy`, and `load_full_description` added to the Query changelist. | `0036` | — (designed in-thread) |
 | 2026-08-24 | **End-of-pass scrape digest.** `ScrapeRunner` posts one summary per pass to the channels flagged `Discord.for_summary` — per-query new-ad counts grouped by marketplace, failures first, quiet queries collapsed to a tail count, trimmed to Discord's 2000-char limit. Formatting lives in `bazos/scraping/pass_summary.py` (pure, no DB/network); `_run_query_with_rotation` now returns a `QueryResult` instead of `None`, so failures reach the digest instead of vanishing. Counts are **discovered, not notified** — the filter runs in a separate process and has not seen them yet. | `senders/0003` | — (built from the review in this repo's history, no design doc) |
 | 2026-08-23 | **Blacklist handling reworked — most of P20 and P21a Part 2.** The pre-flight `check_blacklisted()` probe is **deleted** on both scrapers: it hit one fixed `search.php` URL while Bazos's block is path-scoped, so it reported "clear" moments before the query's own page 403'd. The query attempt is now the probe — `ScrapeRunner._run_query_with_rotation` catches `MarketplaceBlockedError` from the real request, rotates, and retries up to `MAX_BLACKLIST_RETRIES=3`. `QueryRun.exit_ip` records the egress per attempt so IP reputation can be told apart from a rate limit. `check_ip_local()` moved to once per pass. `tor.py`'s second unbounded `while True` is bounded by `MAX_RENEW_ATTEMPTS=5` and re-signals NEWNYM each round. Request pacing added throughout (`BAZOS_PAGE_WAIT_TIME`, `BAZOS_DETAIL_WAIT_TIME`, `QUERY_WAIT_TIME`). | `0034` | [`PROMPTS.md`](backlog/PROMPTS.md) P20 cases (a)/(b) and P21a Part 2 |

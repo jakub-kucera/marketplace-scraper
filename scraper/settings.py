@@ -38,6 +38,10 @@ DEBUG = True
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
+#: Absolute base for links that point back *into this deployment* — currently the admin
+#: link `DiscordSender` appends to every notification.
+SITE_BASE_URL: Final[str] = env("SITE_BASE_URL", default="http://localhost:8000")
+
 
 # Application definition
 

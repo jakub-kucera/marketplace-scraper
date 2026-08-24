@@ -5,7 +5,9 @@ from typing import List
 from urllib.parse import urljoin, urlparse
 
 from django_extensions.db.models import TimeStampedModel
+from django.conf import settings
 from django.db import models, transaction
+from django.urls import reverse
 
 from bazos.const import BAZOS_BASE_URL, SBAZAR_BASE_URL, VINTED_BASE_URL
 
@@ -541,6 +543,10 @@ class Ad(TimeStampedModel):
     @property
     def link(self):
         return self.url
+
+    @property
+    def admin_url(self) -> str:
+        return settings.SITE_BASE_URL.rstrip("/") + reverse("admin:bazos_ad_change", args=[self.pk])
 
 
 class AdDelivery(TimeStampedModel):

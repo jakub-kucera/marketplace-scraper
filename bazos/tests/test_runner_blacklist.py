@@ -239,3 +239,41 @@ def test_unreachable_ip_echo_service_does_not_break_the_pass(query):
     run = QueryRun.objects.get(query=query)
     assert run.exit_ip == ""
     assert run.success is True
+
+
+# ---------------------------------------------------------------------------
+# What a rotation reports, and where
+# ---------------------------------------------------------------------------
+
+def test_successful_rotation_is_logged_locally_but_not_to_discord():
+    """A rotation that worked carries nothing actionable — the *next* query attempt is
+    what decides whether the new exit is any good — and `change_ip` fires up to twice per
+    query across every query in a pass. That is enough to swamp a webhook that
+    rate-limits around 30 posts/min, taking the alerts that do matter down with it.
+    """
+    runner = make_runner(exit_ip="1.1.1.1")
+    discord = MagicMock()
+    runner.discord_loggers = [discord]
+    runner.ip_changer.renew_ip_and_check_new.return_value = "2.2.2.2"
+
+    # Asserting on the module logger rather than `caplog`: settings.py configures the
+    # `bazos` logger with propagate=False, so records never reach caplog's root handler.
+    with patch("bazos.scraping.runner.logger") as mock_logger:
+        assert runner.change_ip() is True
+
+    discord.send_plain.assert_not_called()
+    mock_logger.info.assert_any_call("NEW IP=%s", "2.2.2.2")
+
+
+def test_failed_rotation_still_posts_to_discord():
+    """The failure is the actionable half: it means the caller is about to give up on
+    this query for the pass."""
+    runner = make_runner(exit_ip="1.1.1.1")
+    discord = MagicMock()
+    runner.discord_loggers = [discord]
+    runner.ip_changer.renew_ip_and_check_new.return_value = "1.1.1.1"
+
+    assert runner.change_ip() is False
+
+    discord.send_plain.assert_called_once()
+    assert "rotation FAILED" in discord.send_plain.call_args.args[0]

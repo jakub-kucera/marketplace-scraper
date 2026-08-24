@@ -313,10 +313,11 @@ class ScrapeRunner:
         number of NEWNYM attempts and hands back the *old* IP. Retrying a query against the
         exit that just 403'd it cannot succeed, so the caller stops instead.
 
-        Only the outcome goes to Discord (`self.log`); the "current=" line is local. During
-        the clustered-403 runs this whole change targets, `change_ip` fires up to twice per
-        query across every query in the pass, and a webhook that rate-limits around 30
-        posts/min is easy to swamp.
+        Only a *failed* rotation goes to Discord (`self.log`). The successful "NEW IP="
+        line and the "current=" line are local only (console + DB via django-db-logger).
+        During the clustered-403 runs this whole change targets, `change_ip` fires up to
+        twice per query across every query in the pass, and a webhook that rate-limits
+        around 30 posts/min is easy to swamp
         """
         old_ip = self._current_exit_ip()
         logger.info("Changing IP, current=%s", old_ip or "unknown")
@@ -325,7 +326,8 @@ class ScrapeRunner:
         # its remaining attempts rather than give up on a guess.
         rotated = new_ip != old_ip
         if rotated:
-            self.log(f"NEW IP={new_ip}")
+            # Local only — deliberately not `self.log`. See the docstring.
+            logger.info("NEW IP=%s", new_ip)
         else:
             self.log(f"IP rotation FAILED, still on {new_ip}", level=logging.WARNING)
         return rotated
