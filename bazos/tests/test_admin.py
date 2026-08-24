@@ -26,6 +26,11 @@ def valid_query_data(query):
     actual HTML submission:
     - `Query.sender` has no `blank=True` despite `null=True`, so the form
       requires a value even though the DB allows NULL — give it a real one.
+    - `QueryAdmin` has a `QueryChangeInline`, so the POST needs that formset's
+      management form. A browser submission carries it in the rendered HTML; a
+      hand-built dict has to add it, or the formset is invalid and the change
+      view re-renders as 200 with an *empty* `form.errors` (the error is on the
+      formset, not the form) — which looks exactly like a silent no-op.
     - The default `JSONField` form widget round-trips through a JSON *string*;
       `model_to_dict` gives the raw Python value instead, and an empty list
       lands in `to_python`'s `empty_values` and gets coerced to `None`
@@ -37,6 +42,12 @@ def valid_query_data(query):
     data["sender"] = sender.pk
     data["filter_blocklist"] = json.dumps(data["filter_blocklist"])
     data["filter_required"] = json.dumps(data["filter_required"])
+    data.update({
+        "config_history-TOTAL_FORMS": "0",
+        "config_history-INITIAL_FORMS": "0",
+        "config_history-MIN_NUM_FORMS": "0",
+        "config_history-MAX_NUM_FORMS": "0",
+    })
     # model_to_dict gives None for empty FKs; a real <select> submits "" instead,
     # and the test client's multipart encoder rejects None outright.
     return {key: ("" if value is None else value) for key, value in data.items()}

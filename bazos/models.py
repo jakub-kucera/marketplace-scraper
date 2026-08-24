@@ -1,10 +1,11 @@
+from copy import deepcopy
 from random import randint
 from dataclasses import dataclass
 from typing import List
 from urllib.parse import urljoin, urlparse
 
 from django_extensions.db.models import TimeStampedModel
-from django.db import models
+from django.db import models, transaction
 
 from bazos.const import BAZOS_BASE_URL, SBAZAR_BASE_URL, VINTED_BASE_URL
 
@@ -44,6 +45,27 @@ class Marketplace(models.TextChoices):
     BAZOS_API = "bazos_api", "Bazos (API)"
     VINTED    = "vinted",    "Vinted"
     SBAZAR    = "sbazar",    "Sbazar"
+
+
+#: `Query` fields whose changes are worth an audit row in :class:`QueryChange`.
+TRACKED_CONFIG_FIELDS = (
+    "text",
+    "section_id",
+    "category_id",
+    "price_lower",
+    "price_upper",
+    "location_center",
+    "location_radius",
+    "enabled",
+    "ignore_first_run",
+    "load_full_description",
+    "marketplace",
+    "filter_blocklist",
+    "filter_required",
+    "filter_rule_names",
+    "extra_params",
+    "sender_id",
+)
 
 
 class Query(TimeStampedModel):
@@ -124,6 +146,93 @@ class Query(TimeStampedModel):
             return self.category.full_url
         return BAZOS_BASE_URL
 
+    # ------------------------------------------------------------------
+    # Config change tracking -> QueryChange
+    #
+    # The old values are snapshotted when the row is loaded, not re-SELECTed at save
+    # time, because `ScrapeRunner._run_query_with_rotation` calls `query.save()` after
+    # every successful run: a read-back would add a query per query per pass to persist
+    # a flag this log does not even track. Snapshot-on-load costs nothing extra.
+    #
+    # Blind spot, on purpose: `Query.objects.filter(...).update(...)` never calls
+    # `save()`, so a queryset update is invisible here. The one in production
+    # (`ScrapeRunner`'s `randomly_generated` force-clear) touches no tracked field.
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        # `field_names` is the list of attnames actually loaded, so a `.only()`/`.defer()`
+        # queryset snapshots the subset it fetched instead of triggering a refetch here.
+        instance._config_snapshot = instance._config_state(field_names)
+        return instance
+
+    def refresh_from_db(self, using=None, fields=None):
+        super().refresh_from_db(using=using, fields=fields)
+        # Re-baseline, or the snapshot still describes the pre-refresh row. Live case:
+        # `_run_query_with_rotation` refreshes a query between blacklist retries.
+        self._snapshot_config()
+
+    def _config_state(self, loaded):
+        """Deep copy of the tracked fields present in `loaded` (an iterable of attnames).
+
+        Deep, because `filter_blocklist` and friends are mutable JSON: a caller that does
+        `query.filter_blocklist.append(...)` would otherwise mutate the snapshot too and
+        the diff would come out empty.
+        """
+        loaded = set(loaded)
+        return {
+            name: deepcopy(getattr(self, name))
+            for name in TRACKED_CONFIG_FIELDS
+            if name in loaded
+        }
+
+    def _snapshot_config(self):
+        deferred = self.get_deferred_fields()
+        self._config_snapshot = self._config_state(
+            name for name in TRACKED_CONFIG_FIELDS if name not in deferred
+        )
+
+    def _pending_config_changes(self, update_fields=None):
+        """`{field: {"old": ..., "new": ...}}` for tracked fields this save will change."""
+        snapshot = getattr(self, "_config_snapshot", None)
+        if snapshot is None:
+            # No snapshot means the instance was built in memory rather than loaded
+            # (`Query(pk=7, ...)`), so there is no "old" to diff against. Recording the
+            # current values as a change from nothing would be a fabricated history, so
+            # this save goes unlogged instead.
+            return {}
+        names = set(snapshot)
+        if update_fields is not None:
+            # Fields outside `update_fields` are not written by this save; logging them
+            # would claim a change that never reached the database.
+            names &= {str(field) for field in update_fields}
+        changes = {}
+        for name in TRACKED_CONFIG_FIELDS:  # fixed order, so the stored dict is stable
+            if name not in names:
+                continue
+            old, new = snapshot[name], getattr(self, name)
+            if old != new:
+                changes[name] = {"old": old, "new": new}
+        return changes
+
+    def save(self, *args, **kwargs):
+        changes = self._pending_config_changes(kwargs.get("update_fields"))
+        if changes:
+            # Atomic only when there is something to log. The no-change path is the hot
+            # one (once per query per pass, mid-scrape) and opening a real transaction
+            # there would hold row locks across the rest of the pass for nothing.
+            with transaction.atomic():
+                super().save(*args, **kwargs)
+                QueryChange.objects.create(
+                    query=self,
+                    query_label=str(self)[: QueryChange.LABEL_MAX_LENGTH],
+                    changes=changes,
+                )
+        else:
+            super().save(*args, **kwargs)
+        self._snapshot_config()
+
     @staticmethod
     def generate_random_queries(count: int = 1) -> list["Query"]:
         queries: list[Query] = []
@@ -150,6 +259,75 @@ class Query(TimeStampedModel):
     # def is_found_product(self, product: ProductDB):
     # #     idk what I wanted to do here
     #     return
+
+
+class QueryChange(TimeStampedModel):
+    """One `Query` save that altered its configuration, as a field-level diff.
+
+    A separate append-only table rather than a JSON blob on `Query` itself, for the same
+    reasons `PriceChange` is one: `Query` is re-read on every pass and rendered on an
+    admin changelist that already had to be tuned for cost (see `QueryAdmin.get_queryset`),
+    so growing that row without bound is the one thing to avoid. It also keeps the history
+    queryable — `changes__has_key="filter_required"` finds every query whose required-list
+    was touched — and lets a change outlive the query it describes.
+
+    Diffs, not snapshots: the question this answers is "what did I change on the 14th",
+    and past state is reconstructable by replaying diffs backwards from the live row.
+
+    `created` is the timestamp of the change; there is no second `changed_at` column
+    because it would always hold the same value. Rows are never edited, so `modified`
+    (inherited, unused) stays equal to it.
+    """
+
+    #: Kept in sync with the `query_label` column below; `Query.save` truncates to it.
+    LABEL_MAX_LENGTH = 200
+
+    query = models.ForeignKey(
+        Query,
+        # SET_NULL, not CASCADE: "when did this query stop being scraped, and what did it
+        # look like" is a question you ask *after* deleting it. `query_label` is what keeps
+        # an orphaned row readable.
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="config_history",
+    )
+    query_label = models.CharField(
+        max_length=LABEL_MAX_LENGTH,
+        blank=True,
+        default="",
+        help_text="str(Query) as of this change — survives the query being deleted.",
+    )
+    changes = models.JSONField(
+        default=dict,
+        help_text='{"field": {"old": ..., "new": ...}} for the fields this save altered.',
+    )
+
+    class Meta:
+        ordering = ("-created",)
+        verbose_name = "Query change"
+        verbose_name_plural = "Query changes"
+        indexes = [
+            # Every read is "this query's history, newest first" — the inline on the
+            # Query change form, and the changelist filtered to one query.
+            models.Index(fields=["query", "-created"], name="querychange_query_created"),
+        ]
+
+    def __str__(self):
+        return f"{self.query_label or self.query} | {', '.join(self.changed_fields)}"
+
+    @property
+    def changed_fields(self) -> List[str]:
+        """Tracked field names this row touched, in `TRACKED_CONFIG_FIELDS` order."""
+        return [name for name in TRACKED_CONFIG_FIELDS if name in self.changes]
+
+    @property
+    def summary(self) -> str:
+        """One-line `field: old -> new` rendering. Pure — the admin formats it as HTML."""
+        return "; ".join(
+            f"{name}: {self.changes[name].get('old')!r} -> {self.changes[name].get('new')!r}"
+            for name in self.changed_fields
+        )
 
 
 class QueryRun(models.Model):
