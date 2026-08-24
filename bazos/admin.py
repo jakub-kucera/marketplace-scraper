@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from django import forms
@@ -8,11 +9,11 @@ from django.db.models import Count, IntegerField, Max, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpResponseRedirect
 from django.urls import path, reverse
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.http import urlencode
 
 from bazos.filters import RULE_REGISTRY
-from bazos.models import Query, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
+from bazos.models import Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
 class CategoryInline(admin.TabularInline):
@@ -95,6 +96,94 @@ def ads_browse_link(ad_fk_name: str, obj):
     )
 
 
+#: Longest rendering of a single old/new value before it is elided. `extra_params` and
+#: the keyword lists are the ones that get long, and a changelist row has to stay one line.
+CHANGE_VALUE_MAX_CHARS = 80
+
+
+def format_change_value(value) -> str:
+    """One config value as compact JSON — `null`, `["dell", "hp"]`, `"macbook"`.
+
+    JSON rather than `repr` so an empty list reads as `[]` instead of `[]`-vs-`()`
+    ambiguity, and so Czech characters in a blocklist survive as themselves.
+    """
+    try:
+        rendered = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError:  # pragma: no cover - JSONField cannot hold non-serialisable values
+        rendered = repr(value)
+    if len(rendered) > CHANGE_VALUE_MAX_CHARS:
+        return rendered[: CHANGE_VALUE_MAX_CHARS - 1] + "\u2026"
+    return rendered
+
+
+def render_change_diff(obj):
+    """A `QueryChange` as `field: old -> new` lines.
+
+    Styled with Django's own admin CSS variables rather than literal colours, so it stays
+    legible in the dark theme — the struck-through old value and bold new one carry the
+    meaning, and neither depends on hue.
+    """
+    if not obj.changes:
+        return "\u2014"
+    return format_html(
+        '<ul style="margin:0;padding:0;list-style:none">{}</ul>',
+        format_html_join(
+            "",
+            '<li><code>{}</code>: '
+            '<span style="color:var(--body-quiet-color)"><s>{}</s></span> '
+            '&rarr; <strong>{}</strong></li>',
+            (
+                (
+                    name,
+                    format_change_value(obj.changes[name].get("old")),
+                    format_change_value(obj.changes[name].get("new")),
+                )
+                for name in obj.changed_fields
+            ),
+        ),
+    )
+
+
+class QueryChangeInline(admin.TabularInline):
+    """Recent config edits, on the Query change form."""
+
+    model = QueryChange
+    fk_name = "query"
+    extra = 0
+    can_delete = False
+    fields = ("created", "diff")
+    readonly_fields = ("created", "diff")
+    ordering = ("-created",)
+    verbose_name_plural = "Recent config changes"
+
+    #: A change form renders every inline row — there is no pagination — so the history is
+    #: capped here and the full list lives one click away on the changelist. See the
+    #: `ad_changelist_url` docstring for the same trade-off made the other way.
+    MAX_ROWS = 15
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        recent = qs.order_by("-created").values_list("pk", flat=True)[: self.MAX_ROWS]
+        return qs.filter(pk__in=list(recent))
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Change")
+    def diff(self, obj):
+        return render_change_diff(obj)
+
+
+def query_change_changelist_url(query_pk) -> str:
+    return (
+        f"{reverse('admin:bazos_querychange_changelist')}"
+        f"?{urlencode({'query__id__exact': query_pk})}"
+    )
+
+
 class QueryAdminForm(forms.ModelForm):
     filter_rule_names = forms.MultipleChoiceField(
         choices=[(name, name.replace("_", " ").title()) for name in RULE_REGISTRY],
@@ -130,17 +219,27 @@ class QueryAdmin(admin.ModelAdmin):
         "section",
         "marketplace",
         "enabled",
+        "load_full_description",
         "randomly_generated",
         "sender",
         "ad_count",
         "last_run",
     )
-    list_filter = ("enabled", "randomly_generated", "marketplace", "section", "category")
+    list_filter = (
+        "enabled",
+        "load_full_description",
+        "randomly_generated",
+        "marketplace",
+        "section",
+        "category",
+    )
     # str(Query) reads text/category/section, so without this the changelist does a
     # section+category lookup per row.
     list_select_related = ("category", "section", "sender")
     actions = ["enable_queries", "disable_queries"]
     autocomplete_fields = ["category", "section", "sender"]
+    inlines = (QueryChangeInline,)
+    readonly_fields = ("config_history",)
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -199,6 +298,21 @@ class QueryAdmin(admin.ModelAdmin):
     def ad_count(self, obj):
         return obj.ad_count
 
+    @admin.display(description="Config history")
+    def config_history(self, obj):
+        """Link to this query's full edit history — the inline below is capped."""
+        if obj.pk is None:
+            return "\u2014 (saved queries only)"
+        count = obj.config_history.count()
+        if not count:
+            return "\u2014 (no changes recorded yet)"
+        return format_html(
+            '<a href="{}">Browse {} change{}</a> \u2014 newest first',
+            query_change_changelist_url(obj.pk),
+            count,
+            "" if count == 1 else "s",
+        )
+
     @admin.action(description="Enable selected queries")
     def enable_queries(self, request, queryset):
         updated = queryset.update(enabled=True)
@@ -256,6 +370,47 @@ class QueryRunAdmin(admin.ModelAdmin):
     # search is an unanchored icontains — on a table that now grows by one row per retry
     # attempt that is a seq scan over every trace on every keystroke-submitted search.
     search_fields = ("exit_ip",)
+
+
+@admin.register(QueryChange)
+class QueryChangeAdmin(admin.ModelAdmin):
+    """Config edit log, across every query. Read-only — the rows are an audit trail."""
+
+    list_display = ("created", "query_display", "fields_changed", "diff")
+    list_filter = ("query", "query__marketplace")
+    list_select_related = ("query", "query__category", "query__section")
+    # str(Query) is not a column, so the label snapshot is the only searchable text —
+    # and it is also the only thing left once the query itself is deleted.
+    search_fields = ("query_label",)
+    date_hierarchy = "created"
+    ordering = ("-created",)
+    readonly_fields = ("created", "query", "query_label", "changes", "diff")
+    fields = ("created", "query", "query_label", "diff", "changes")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Query", ordering="query")
+    def query_display(self, obj):
+        """The live query, linked; the label snapshot once the query is gone."""
+        if obj.query is None:
+            return format_html("{} <em>(deleted)</em>", obj.query_label or "\u2014")
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:bazos_query_change", args=[obj.query_id]),
+            str(obj.query),
+        )
+
+    @admin.display(description="Fields")
+    def fields_changed(self, obj):
+        return ", ".join(obj.changed_fields) or "\u2014"
+
+    @admin.display(description="Change")
+    def diff(self, obj):
+        return render_change_diff(obj)
 
 
 class PriceChangeInline(admin.TabularInline):
