@@ -8,6 +8,7 @@ from time import sleep
 from bazos.const import MAX_BLACKLIST_RETRIES, QUERY_WAIT_TIME
 from bazos.exceptions import MarketplaceBlockedError
 from bazos.models import Query, QueryRun
+from bazos.scraping.pass_summary import PassSummary, QueryResult
 from bazos.scraping.query_runner import QueryRunner
 from bazos.scraping.interval_multiplier import NightMultiplier
 from django.conf import settings
@@ -27,6 +28,10 @@ class ScrapeRunner:
         discord_loggers = Discord.objects.filter(for_logging=True)
         self.interval_multiplier = NightMultiplier()
         self.discord_loggers = [DiscordSender.from_model(s) for s in discord_loggers]
+        self.summary_senders = [
+            DiscordSender(s.url, notify=False)
+            for s in Discord.objects.filter(for_summary=True)
+        ]
         ip_changer_class = DummyIPChanger if settings.IP_CHANGER_TYPE == "DUMMY" else TorIPChanger
         self.ip_changer = ip_changer_class(skip_1st_renew=False)
         self.zero_rows_passes = 0
@@ -69,33 +74,35 @@ class ScrapeRunner:
         queries = Query.objects.filter(enabled=True).order_by('?')
 
         start = datetime.now(timezone.utc)
-        pass_rows_seen = 0
-        pass_new_ads = 0
-        successful_queries = 0
+        results: list[QueryResult] = []
         for index, query in enumerate(queries):
             if index:
                 self._sleep_between_queries()
             self.log(f"running query {query}")
 
             result = self._run_query_with_rotation(query)
-            if result is None:
-                continue
-            rows_seen, new_ads = result
-            pass_rows_seen += rows_seen
-            pass_new_ads += new_ads
-            successful_queries += 1
-            logger.info("Found %d new products for query %s", new_ads, query)
+            results.append(result)
+            if not result.failed:
+                logger.info("Found %d new products for query %s", result.new_ads, query)
 
         end = datetime.now(timezone.utc)
         self.log(f"Finished running {len(queries)} queries in {end - start}. End time: {end}")
-        self._check_zero_results_canary(pass_rows_seen, pass_new_ads, successful_queries)
+        self._send_pass_summary(PassSummary(started=start, finished=end, results=results))
+        succeeded = [r for r in results if not r.failed]
+        self._check_zero_results_canary(
+            sum(r.rows_seen for r in succeeded),
+            sum(r.new_ads for r in succeeded),
+            len(succeeded),
+        )
 
-    def _run_query_with_rotation(self, query: Query) -> tuple[int, int] | None:
+    def _run_query_with_rotation(self, query: Query) -> QueryResult:
         """Run one query, rotating the IP and retrying when the marketplace 403s the *real*
         request.
 
-        Returns ``(rows_seen, new_ads)``, or ``None`` if the query produced nothing usable
-        this pass (blacklisted on every attempt, or any other failure).
+        Always returns a `QueryResult` — a failure is a result too, carrying the reason and
+        the exit IP it died on. It used to return `None` for every failure mode, which was
+        enough for the canary (it counts only successes) but meant the end-of-pass summary
+        could not tell "blacklisted on three IPs" from "quiet market".
 
         There is deliberately **no pre-flight ``check_blacklisted()`` probe**. It cost one
         full search request per query and answered the wrong question: it always hit the
@@ -123,7 +130,9 @@ class ScrapeRunner:
                 new_products_count = query_runner.run()
                 query.save()
                 query_run.new_ads_count = new_products_count
-                return query_runner.rows_seen_counter, new_products_count
+                return QueryResult.success(
+                    query, query_runner.rows_seen_counter, new_products_count
+                )
             except MarketplaceBlockedError as e:
                 query_run.success = False
                 query_run.error = f"{type(e).__name__}: {e}"
@@ -135,7 +144,9 @@ class ScrapeRunner:
                 query_run.success = False
                 query_run.error = f"{type(e).__name__}: {e}"
                 logger.exception("Query %s failed", query)
-                return None
+                return QueryResult.failure(
+                    query, f"{type(e).__name__}: {e}", query_run.exit_ip
+                )
             finally:
                 query_run.run_end = datetime.now(timezone.utc)
                 query_run.save()
@@ -156,7 +167,9 @@ class ScrapeRunner:
                     f"abandoning {query} this pass",
                     level=logging.WARNING,
                 )
-                return None
+                return QueryResult.failure(
+                    query, "blacklisted, IP rotation failed", query_run.exit_ip
+                )
             # `run_new_query` flips `query.new_query` in memory before it can raise, and
             # the failed attempt never reached `query.save()`. Without re-reading, the
             # retry sees new_query=False and silently takes the run_existing_query
@@ -172,7 +185,9 @@ class ScrapeRunner:
             f"skipping it this pass",
             level=logging.WARNING,
         )
-        return None
+        return QueryResult.failure(
+            query, f"blacklisted after {MAX_BLACKLIST_RETRIES} attempts", query_run.exit_ip
+        )
 
     def _current_exit_ip(self) -> str:
         """Best-effort egress IP, recorded on QueryRun for failure attribution.
@@ -252,6 +267,33 @@ class ScrapeRunner:
                 self.zero_new_ads_passes = 0
         else:
             self.zero_new_ads_passes = 0
+
+    def _send_pass_summary(self, summary: PassSummary) -> None:
+        """Post the end-of-pass digest to the channels pinned with `Discord.for_summary`.
+
+        Guarded on its own rather than left to the pass-level handler in `run`: a
+        `RateLimitError` out of the webhook would otherwise be reported as "Pass FAILED",
+        which is a lie about a pass that scraped fine. The digest is the least important
+        thing that happens in a pass and must never be the reason one looks broken.
+
+        Deliberately not routed through `self.log`: that fans out to every `for_logging`
+        channel and mirrors to the app log, and this is neither a log line nor something
+        the logger channels asked for.
+        """
+        if not self.summary_senders:
+            return
+        try:
+            text = summary.format()
+        except Exception:
+            logger.exception("Could not format the pass summary")
+            return
+        for sender in self.summary_senders:
+            try:
+                # `wrap_multi_line` is what makes the right-aligned counts line up —
+                # Discord renders proportionally outside a code fence.
+                sender.send_plain(sender.wrap_multi_line(text))
+            except Exception:
+                logger.exception("Could not post the pass summary to Discord")
 
     def log(self, message: str, level: int = logging.INFO):
         logger.log(level, message)
