@@ -131,3 +131,53 @@ def test_delivery_sent_at_is_optional(make_ad, make_delivery, query):
     ad.save()
     delivery = make_delivery(ad, query)
     assert delivery.sent_at is None
+
+
+# ---------------------------------------------------------------------------
+# Ad.admin_url — the self-link appended to every Discord notification
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_admin_url_is_absolute_and_points_at_the_change_page(make_ad, query, settings):
+    settings.SITE_BASE_URL = "http://raspberrypi5.local:8000"
+    ad = make_ad(query, bazos_id=14084)
+    ad.save()
+
+    assert ad.admin_url == f"http://raspberrypi5.local:8000/admin/bazos/ad/{ad.pk}/change/"
+
+
+@pytest.mark.django_db
+def test_admin_url_tracks_the_configured_base(make_ad, query, settings):
+    """The host is configuration — the same row renders a different link per deployment."""
+    ad = make_ad(query, bazos_id=14085)
+    ad.save()
+
+    settings.SITE_BASE_URL = "http://localhost:8000"
+    local = ad.admin_url
+    settings.SITE_BASE_URL = "http://pi.tail1234.ts.net:8000"
+    tailnet = ad.admin_url
+
+    assert local != tailnet
+    assert local.endswith(f"/admin/bazos/ad/{ad.pk}/change/")
+    assert tailnet.endswith(f"/admin/bazos/ad/{ad.pk}/change/")
+
+
+@pytest.mark.django_db
+def test_admin_url_tolerates_a_trailing_slash_on_the_base(make_ad, query, settings):
+    """`reverse` returns a rooted path, so an unstripped base would yield `host//admin/`."""
+    settings.SITE_BASE_URL = "http://localhost:8000/"
+    ad = make_ad(query, bazos_id=14086)
+    ad.save()
+
+    assert "//admin" not in ad.admin_url
+    assert ad.admin_url == f"http://localhost:8000/admin/bazos/ad/{ad.pk}/change/"
+
+
+@pytest.mark.django_db
+def test_admin_url_differs_from_the_marketplace_link(make_ad, query):
+    """The two links in a notification must not collapse into the same URL."""
+    ad = make_ad(query, bazos_id=14087)
+    ad.save()
+
+    assert ad.link == ad.url
+    assert ad.admin_url != ad.link

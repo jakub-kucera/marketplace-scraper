@@ -70,6 +70,7 @@ write-up, and each names what would have to be true before it's worth starting.
 | [`DISCORD_BOT.md`](proposals/DISCORD_BOT.md) | 💡 proposal | 2026-07-24 | Replace webhook-only notifications with a real gateway bot — per-ad watch/mute/blocklist buttons, seller lookups, query control from Discord. §1 explains why gateway and not a public HTTP endpoint. |
 | [`JOB_QUEUE.md`](proposals/JOB_QUEUE.md) | 💡 proposal | 2026-07-26 | Generalise the `run_filter`/`run_sender` polling pattern into a `Job` model + registry + one worker, so new recurring work stops meaning a new compose service and a hand-rolled sleep loop. |
 | [`LLM_AD_REVIEW.md`](proposals/LLM_AD_REVIEW.md) | 💡 proposal | 2026-08-07 | An LLM ad judge as its own pipeline stage, and draft-only seller outreach. **Explicitly recommends against auto-sending messages to sellers.** §2f has free-tier cost figures and the Gemini EEA data-terms carve-out. |
+| [`PUBLIC_AD_PAGES.md`](proposals/PUBLIC_AD_PAGES.md) | 💡 proposal | 2026-08-24 | A self-hosted page per ad, linked from every notification. The admin-link half **shipped**; this is the deferred rest. §3 is why the Discord-unfurl argument is empty without ad images, §4 why the seller-identity data rules out an unauthenticated page, §5 the two settings that block any internet exposure. |
 
 ### `research/` — measured findings about the outside world
 
