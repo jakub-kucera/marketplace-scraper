@@ -7,6 +7,14 @@ class Discord(TimeStampedModel):
     url = models.URLField(max_length=200, help_text="Webhook URL", unique=True)
     notify = models.BooleanField(default=False, help_text="Notify/Ping on new Ad")
     for_logging = models.BooleanField(default=False, db_index=True)
+    for_summary = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "Post the end-of-pass scrape digest here. Never pings, whatever `notify` says — "
+            "it fires once per pass. Best kept off the `for_logging` channel."
+        ),
+    )
 
     def __str__(self):
         return f"{self.channel_name} | notify={self.notify}"

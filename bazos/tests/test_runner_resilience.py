@@ -28,6 +28,7 @@ def make_runner(unsafe=False):
     runner = ScrapeRunner.__new__(ScrapeRunner)
     runner.unsafe = unsafe
     runner.discord_loggers = []
+    runner.summary_senders = []
     runner.interval_multiplier = MagicMock()
     runner.ip_changer = MagicMock()
     runner.ip_changer.session = MagicMock()

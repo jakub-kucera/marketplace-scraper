@@ -27,6 +27,7 @@ def make_runner() -> ScrapeRunner:
     runner = ScrapeRunner.__new__(ScrapeRunner)
     runner.unsafe = False
     runner.discord_loggers = []
+    runner.summary_senders = []
     runner.interval_multiplier = MagicMock()
     return runner
 
