@@ -240,6 +240,7 @@ class QueryAdmin(admin.ModelAdmin):
     autocomplete_fields = ["category", "section", "sender"]
     inlines = (QueryChangeInline,)
     readonly_fields = ("config_history",)
+    ordering = ("-enabled", "marketplace", "text")
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -291,7 +292,7 @@ class QueryAdmin(admin.ModelAdmin):
     def last_run(self, obj):
         return getattr(obj, 'last_run', None)
 
-    last_run.admin_order_field = 'last_run'  # type: ignore[attr-defined]
+    last_run.admin_order_field = models.F('last_run').desc(nulls_last=True)  # type: ignore[attr-defined]
     last_run.short_description = 'Last run'  # type: ignore[attr-defined]
 
     @admin.display(description="Ads", ordering="ad_count")

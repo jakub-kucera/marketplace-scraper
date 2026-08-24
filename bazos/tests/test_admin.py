@@ -12,7 +12,7 @@ from django.contrib.auth import get_user_model
 from django.forms import model_to_dict
 from django.utils import timezone
 
-from bazos.admin import AdAdmin, QueryAdminForm
+from bazos.admin import AdAdmin, QueryAdmin, QueryAdminForm
 from bazos.filters import RULE_REGISTRY
 from bazos.models import Ad
 from senders.models import Discord
@@ -351,3 +351,101 @@ def test_ad_admin_ordering_puts_null_publish_date_last():
     ordered_ids = list(Ad.objects.order_by(*getattr(AdAdmin, "ordering")).values_list("pk", flat=True))
 
     assert ordered_ids == [newer.pk, older.pk, no_date.pk]
+
+
+# ---------------------------------------------------------------------------
+# QueryAdmin ordering — the changelist as a stable control panel
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def ordering_queries(db, category):
+    """Four queries spanning both sort keys that matter: enabled, then marketplace."""
+    from bazos.models import Marketplace, Query
+
+    def make(text, enabled=True, marketplace=Marketplace.BAZOS):
+        return Query.objects.create(
+            text=text,
+            category=category,
+            location_radius=25,
+            enabled=enabled,
+            marketplace=marketplace,
+        )
+
+    # Created in an order that no sort key would reproduce by accident, so a passing
+    # assertion cannot be the `-pk` fallback in disguise.
+    return {
+        "disabled_bazos": make("aaa", enabled=False),
+        "vinted": make("zzz", marketplace=Marketplace.VINTED),
+        "bazos_b": make("bbb"),
+        "bazos_a": make("aab"),
+    }
+
+
+@pytest.mark.django_db
+def test_changelist_lists_enabled_queries_before_disabled(query_admin, ordering_queries, rf):
+    """Disabled rows are dead weight on this page — and `randomly_generated` queries are
+    force-disabled at the top of every pass, so this is what sinks the generated noise."""
+    rows = list(query_admin.get_queryset(rf.get("/")).order_by(*query_admin.ordering))
+
+    assert rows[-1] == ordering_queries["disabled_bazos"]
+    assert all(row.enabled for row in rows[:-1])
+
+
+@pytest.mark.django_db
+def test_changelist_groups_by_marketplace_then_sorts_by_text(query_admin, ordering_queries, rf):
+    rows = list(query_admin.get_queryset(rf.get("/")).order_by(*query_admin.ordering))
+
+    assert rows[:3] == [
+        ordering_queries["bazos_a"],   # bazos, "aab"
+        ordering_queries["bazos_b"],   # bazos, "bbb"
+        ordering_queries["vinted"],    # vinted sorts after bazos
+    ]
+
+
+@pytest.mark.django_db
+def test_last_run_sorts_never_run_queries_last(query_admin, ordering_queries, rf):
+    """Postgres DESC defaults to NULLS FIRST, so a bare "-last_run" would open the
+    "most recently run" view on the queries that have never run at all."""
+    from django.utils import timezone
+
+    from bazos.models import QueryRun
+
+    ran = ordering_queries["bazos_b"]
+    QueryRun.objects.create(query=ran, run_start=timezone.now(), run_end=timezone.now())
+
+    order_field = QueryAdmin.last_run.admin_order_field
+    rows = list(query_admin.get_queryset(rf.get("/")).order_by(order_field))
+
+    assert rows[0] == ran
+    assert all(row.last_run is None for row in rows[1:])
+
+
+@pytest.mark.django_db
+def test_last_run_reversed_puts_never_run_queries_first(query_admin, ordering_queries, rf):
+    """Django reverses an `OrderBy` by flipping direction *and* null placement, so the
+    ascending click reads as least-recently-run first — never-run being the extreme."""
+    from django.utils import timezone
+
+    from bazos.models import QueryRun
+
+    ran = ordering_queries["bazos_b"]
+    QueryRun.objects.create(query=ran, run_start=timezone.now(), run_end=timezone.now())
+
+    reversed_field = QueryAdmin.last_run.admin_order_field.copy()
+    reversed_field.reverse_ordering()
+    rows = list(query_admin.get_queryset(rf.get("/")).order_by(reversed_field))
+
+    assert rows[-1] == ran
+    assert all(row.last_run is None for row in rows[:-1])
+
+
+@pytest.mark.django_db
+def test_changelist_honours_the_last_run_column_sort_links(admin_client_logged_in, ordering_queries):
+    """`admin_order_field` holds an `OrderBy` expression rather than a string, which is a
+    branch of Django's own ordering parser — exercise the real request, both directions."""
+    index = QueryAdmin.list_display.index("last_run")
+
+    for order_param in (str(index), f"-{index}"):
+        response = admin_client_logged_in.get("/admin/bazos/query/", {"o": order_param})
+        assert response.status_code == 200, order_param
+        assert len(response.context["cl"].result_list) == len(ordering_queries)
