@@ -1,8 +1,8 @@
 ---
 title: Docs Index
 status: active
-updated: 2026-08-23
-verified: 2026-08-23
+updated: 2026-08-24
+verified: 2026-08-24
 ---
 
 # Docs Index
@@ -79,6 +79,7 @@ not our schema. Re-verify against a live probe, not against the repo.
 | Doc | Status | Verified | What it is |
 |---|---|---|---|
 | [`PRICE_PARSING.md`](research/PRICE_PARSING.md) | 📐 reference | 2026-08-23 | All four marketplaces sampled live. **Three of them encode "zero" differently**, and `re.sub(r"\D","")` is correct for Bazos only — Vinted is 72% non-integer float, Aukro is int *or* float unstably within one response, Sbazar's `0` means free or negotiable depending on a flag. §1 is historical (P22 shipped); §2 onward is current. |
+| [`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md) | 📐 reference | 2026-08-24 | **The measured basis for `MONETIZATION.md` §4.2 and P23.** 2,038 Bazos MacBook ads modelled end to end: asking price predicts at R² 0.87 from listing text alone, but **70% of a naive underpricing alert is damage, parse failures and price-floor artifacts**, and **67% of residual variance is between sellers**. §6 is the blocker — the DB records no outcomes at all, so precision cannot be measured. §2's two parsing traps are what a productionised extractor must handle. |
 
 #### `research/marketplaces/` — which marketplace to add next
 
