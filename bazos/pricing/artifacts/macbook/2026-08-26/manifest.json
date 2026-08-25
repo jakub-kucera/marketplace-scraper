@@ -1,0 +1,258 @@
+{
+  "name": "macbook",
+  "kind": "linear",
+  "target": "log_price",
+  "intercept": -121.23794,
+  "features": [
+    {
+      "kind": "num",
+      "name": "year",
+      "fill": 2020.0,
+      "coef": 0.063749
+    },
+    {
+      "kind": "missing",
+      "name": "year",
+      "coef": 0.132619
+    },
+    {
+      "kind": "num",
+      "name": "ram_log",
+      "fill": 2.772588722239781,
+      "coef": 0.143232
+    },
+    {
+      "kind": "missing",
+      "name": "ram_log",
+      "coef": -0.027204
+    },
+    {
+      "kind": "num",
+      "name": "storage_log",
+      "fill": 6.238324625039508,
+      "coef": 0.12346
+    },
+    {
+      "kind": "missing",
+      "name": "storage_log",
+      "coef": -0.08069
+    },
+    {
+      "kind": "num",
+      "name": "screen",
+      "fill": 13.6,
+      "coef": 0.041291
+    },
+    {
+      "kind": "missing",
+      "name": "screen",
+      "coef": -0.042451
+    },
+    {
+      "kind": "bool",
+      "name": "warranty",
+      "coef": 0.030677
+    },
+    {
+      "kind": "bool",
+      "name": "new",
+      "coef": 0.116449
+    },
+    {
+      "kind": "bool",
+      "name": "defect",
+      "coef": -0.121445
+    },
+    {
+      "kind": "bool",
+      "name": "vat_dph",
+      "coef": 0.01131
+    },
+    {
+      "kind": "bool",
+      "name": "top_word",
+      "coef": -0.007357
+    },
+    {
+      "kind": "bool",
+      "name": "scratches",
+      "coef": -0.011773
+    },
+    {
+      "kind": "bool",
+      "name": "box",
+      "coef": 0.044259
+    },
+    {
+      "kind": "bool",
+      "name": "retina",
+      "coef": 0.026168
+    },
+    {
+      "kind": "bool",
+      "name": "touchbar",
+      "coef": -0.061325
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple1_base",
+      "coef": -0.010219
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple1_max",
+      "coef": 0.561437
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple1_pro",
+      "coef": 0.18977
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple2_base",
+      "coef": 0.230863
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple2_max",
+      "coef": 0.691535
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple2_pro",
+      "coef": 0.423606
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple3_base",
+      "coef": 0.294309
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple3_max",
+      "coef": 0.909059
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple3_pro",
+      "coef": 0.667351
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple4_base",
+      "coef": 0.485541
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple4_max",
+      "coef": 1.038671
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple4_pro",
+      "coef": 0.83231
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple5_base",
+      "coef": 0.669612
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple5_max",
+      "coef": 0.888904
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "apple5_pro",
+      "coef": 0.974651
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "intel3_base",
+      "coef": -0.208012
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "intel5_base",
+      "coef": -0.262966
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "intel7_base",
+      "coef": -0.298411
+    },
+    {
+      "kind": "cat",
+      "name": "chip_key",
+      "value": "intel9_base",
+      "coef": -0.152879
+    },
+    {
+      "kind": "cat",
+      "name": "family",
+      "value": "air",
+      "coef": 0.044137
+    },
+    {
+      "kind": "cat",
+      "name": "family",
+      "value": "macbook12",
+      "coef": -0.335903
+    },
+    {
+      "kind": "cat",
+      "name": "family",
+      "value": "macbook_unspec",
+      "coef": 0.111366
+    },
+    {
+      "kind": "cat",
+      "name": "family",
+      "value": "pro",
+      "coef": 0.180401
+    }
+  ],
+  "residual_sigma": 0.2264,
+  "seller_sigma_prior": {
+    "0": 0.3041,
+    "1": 0.2715,
+    "3": 0.2512,
+    "10": 0.1898,
+    "50": 0.1239
+  },
+  "seller_sigma_prior_n": {
+    "0": 560,
+    "1": 184,
+    "3": 185,
+    "10": 469,
+    "50": 640
+  },
+  "metrics": {
+    "n_train": 2038,
+    "r2_seller_grouped": 0.8612147274043239,
+    "medape_pct": 11.716430006839808
+  },
+  "estimator": "Ridge(alpha=1.0)",
+  "trained_at": "2026-08-25T22:52:48+00:00",
+  "version": "2026-08-26"
+}

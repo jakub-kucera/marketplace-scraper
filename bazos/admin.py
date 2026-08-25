@@ -13,7 +13,7 @@ from django.utils.html import format_html, format_html_join
 from django.utils.http import urlencode
 
 from bazos.filters import RULE_REGISTRY
-from bazos.models import Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
+from bazos.models import AdPriceScore, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
 class CategoryInline(admin.TabularInline):
@@ -421,6 +421,20 @@ class PriceChangeInline(admin.TabularInline):
     can_delete = False
 
 
+class AdPriceScoreInline(admin.TabularInline):
+    """What the price model thought, on the ad's own page.
+
+    P23 step 4's point: a rule that only returns APPROVE/REJECT/PASS throws away the
+    interesting number. This is where the number becomes visible.
+    """
+    model = AdPriceScore
+    extra = 0
+    fields = ("model_name", "model_version", "predicted", "discount_pct", "z_score",
+              "seller_prior_ads", "declined_reason", "created")
+    readonly_fields = fields
+    can_delete = False
+
+
 class AdDeliveryInline(admin.TabularInline):
     model = AdDelivery
     extra = 0
@@ -452,7 +466,7 @@ class AdAdmin(admin.ModelAdmin):
         "external_id", "marketplace",
         "seller_ad_counts",
     )
-    inlines = (AdDeliveryInline, PriceChangeInline)
+    inlines = (AdDeliveryInline, PriceChangeInline, AdPriceScoreInline)
     # query_count's Count(...) annotation forces a GROUP BY over the whole ad × addelivery
     # join. Without this, the changelist paginator's separate "N results" count query runs
     # that GROUP BY as a subquery aggregate over the FULL table on every page load — cheap
