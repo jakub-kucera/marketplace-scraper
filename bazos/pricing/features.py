@@ -125,6 +125,9 @@ def screen(t):
 # ---------- storage / ram ----------
 PLAUS_RAM = {2,4,6,8,12,16,18,24,32,36,48,64,96,128}
 PLAUS_SSD = {64,120,121,128,240,250,251,256,320,480,500,512,750,1000,1024,2000,2048,4000,4096,8000,8192}
+#: plausible as either RAM or storage. A lone one of these is storage unless the chip can
+#: actually carry that much memory -- only Apple's Max tier ever has, so "i5 128GB" is a disk.
+AMBIGUOUS_GB = {64, 128}
 
 TOKEN = re.compile(r'(\d{1,4}(?:\.\d)?)\s*(tb|gb)\b')
 TOKEN_LOOSE = re.compile(r'(\d{1,4}(?:\.\d)?)\s*(tb|gb)?\b')
@@ -144,7 +147,7 @@ def _tokens(t):
         out.append((_to_gb(m.group(1), m.group(2)), m.start(), m.end()))
     return out
 
-def ram_ssd(t):
+def ram_ssd(t, chip_variant=None):
     """Return (ram_gb, ssd_gb).
 
     Labels are searched only in the gap between this token and its neighbours, never across
@@ -195,9 +198,15 @@ def ram_ssd(t):
             if big:
                 ssd = max(big)
         if ram is None:
-            small = [v for v in free if v in PLAUS_RAM and v <= 128 and (ssd is None or v < ssd)]
+            small = [v for v in free
+                     if v in PLAUS_RAM and v <= 128 and (ssd is None or v < ssd)
+                     and not (v in AMBIGUOUS_GB and chip_variant != 'max')]
             if small:
                 ram = max(small)
+        if ssd is None:
+            lone = [v for v in free if v in AMBIGUOUS_GB and v != ram]
+            if lone:
+                ssd = max(lone)
 
     if ram is not None and ssd is not None and ram >= ssd:
         ram = None
@@ -255,7 +264,7 @@ def extract(name: str, desc: str) -> dict:
     out['chip_brand'], out['chip_gen'], out['chip_variant'] = br, gen, var
     out['year'] = year(tn, t)
     out['screen'] = screen(t)
-    ram, ssd = ram_ssd(t)
+    ram, ssd = ram_ssd(t, var)
     out['ram_gb'], out['ssd_gb'] = ram, ssd
     out.update(flags(t))
     return out

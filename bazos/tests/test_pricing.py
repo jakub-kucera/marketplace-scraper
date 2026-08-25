@@ -47,6 +47,18 @@ def test_warranty_date_is_not_a_capacity():
     assert got["ssd_gb"] == 1000
 
 
+@pytest.mark.parametrize("name,ram,ssd", [
+    ("MacBook Pro 13 2017 i5 128GB", None, 128),
+    ("MacBook Air 2012 64GB", None, 64),
+    ("MacBook Pro 16 M3 Max 128GB 4TB", 128, 4000),
+    ("MacBook Pro 14 M3 Max 64GB RAM 1TB SSD", 64, 1000),
+])
+def test_ambiguous_capacity_needs_a_max_chip_to_be_ram(name, ram, ssd):
+    """64 and 128 are both plausible capacities; only Apple's Max tier carries them as RAM."""
+    got = features.extract(name, "")
+    assert (got["ram_gb"], got["ssd_gb"]) == (ram, ssd)
+
+
 def test_charge_cycles_from_nabijeno():
     assert features.extract("MacBook Pro", "Pouze 8x nabijeno.")["cycles"] == 8
 
