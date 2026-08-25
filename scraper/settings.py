@@ -220,6 +220,13 @@ LOGGING = {
 }
 
 # Sentry DSN — left empty in .env to disable entirely.
+# Which price-model artifact to load. "latest" resolves to the highest version directory
+# present under bazos/pricing/artifacts/<name>/. Pinning an older version here is the
+# fast rollback lever -- no rebuild, just a restart (ML_PRICE_SCORING.md §4.5).
+PRICE_MODEL_VERSION: str = env("PRICE_MODEL_VERSION", default="latest")
+# Overrides bazos.const.PRICE_MODEL_SHADOW_MODE without a code change.
+PRICE_MODEL_SHADOW_MODE: bool = env.bool("PRICE_MODEL_SHADOW_MODE", default=True)
+
 SENTRY_DSN: str = env("SENTRY_DSN", default="")
 
 # Never report from a test run: the suite deliberately raises and logs exceptions

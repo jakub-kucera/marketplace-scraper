@@ -1,0 +1,139 @@
+"""MacBook price model for Bazos listings.
+
+Estimates `ln(price)` from specs parsed out of the listing text, then reports how far the
+asking price sits below that — both as a percentage and as a seller-aware z-score.
+
+The z-score is the part that makes a threshold meaningful. A flat "25% below predicted" is
+~0.95 sigma for a first-time private seller but ~2.9 sigma for a high-volume dealer, so the
+same rule means "ordinary noise" for one and "genuinely exceptional" for the other
+(docs/research/MACBOOK_PRICE_MODEL.md §5). Dividing by a sigma that depends on seller
+maturity puts both on a comparable evidence scale.
+"""
+import logging
+import math
+from typing import Any
+
+from django.conf import settings
+
+from bazos.models import Ad, Marketplace, PriceType
+from bazos.pricing import artifacts, features
+from bazos.pricing.artifacts import Manifest
+from bazos.pricing.base import PricePrediction
+
+logger = logging.getLogger(__name__)
+
+#: Damage vocabulary that disqualifies a listing from being scored at all. Deliberately does
+#: NOT include terms with a common negated form -- `bez poskozeni` ("without damage")
+#: contains `poskozen`, so blocking that word rejects the ads that say they are undamaged.
+#: See docs/QUERY_COMPOSITION.md §3.2.
+_DAMAGE = (
+    "nefunk", "praskl", "prakl", "rozbit", "rozibt", "ko lcd",
+    "na dily", "nahradni dily", "k oprave", "nekompletni",
+)
+
+
+class MacbookPriceModel:
+    """Satisfies :class:`bazos.pricing.base.PriceModel` structurally."""
+
+    name = "macbook"
+
+    def __init__(self, version: str | None = None) -> None:
+        self._requested: str = version or str(getattr(settings, "PRICE_MODEL_VERSION", "latest"))
+        self._manifest: Manifest | None = None
+        self._loaded = False
+
+    # -- artifact ---------------------------------------------------------
+    @property
+    def manifest(self) -> Manifest | None:
+        """Lazily loaded and cached for the process.
+
+        Loading is deferred rather than done at import so a broken artifact cannot stop the
+        app booting, and cached so `run_filter` pays the read once, not once per ad.
+        """
+        if not self._loaded:
+            self._manifest = artifacts.load_manifest(self.name, self._requested)
+            self._loaded = True
+        return self._manifest
+
+    @property
+    def version(self) -> str:
+        m = self.manifest
+        return m.version if m else "unavailable"
+
+    # -- protocol ---------------------------------------------------------
+    def applies_to(self, ad: Ad) -> bool:
+        if ad.marketplace != Marketplace.BAZOS:
+            return False
+        text = features.norm(f"{ad.name} || {ad.short_description or ''}")
+        return features.product_kind(text) == "macbook"
+
+    def predict(self, ad: Ad) -> PricePrediction | None:
+        """Score the ad, or decline. Never raises, never touches the network."""
+        manifest = self.manifest
+        if manifest is None:
+            return None
+        if ad.price is None or ad.price <= 0 or ad.price_type != PriceType.EXACT:
+            return None
+
+        feats = self.extract(ad)
+        if not self._gates_pass(ad, feats):
+            return None
+
+        try:
+            predicted_log = artifacts.evaluate(manifest, feats)
+            predicted = int(round(math.exp(predicted_log)))
+        except (ValueError, OverflowError) as exc:
+            logger.error("Price model %r failed on ad %s: %s", self.name, ad.pk, exc)
+            return None
+        if predicted <= 0:
+            return None
+
+        residual_log = math.log(ad.price) - predicted_log
+        prior_ads = self.seller_prior_ads(ad)
+        sigma = manifest.sigma_for(prior_ads)
+        z = residual_log / sigma if sigma > 0 else None
+        return PricePrediction(
+            predicted=predicted,
+            residual_log=residual_log,
+            z_score=z,
+            seller_prior_ads=prior_ads,
+        )
+
+    # -- helpers ----------------------------------------------------------
+    def extract(self, ad: Ad) -> dict[str, Any]:
+        feats = features.extract(ad.name, ad.short_description or "")
+        gen, variant = feats.get("chip_gen"), feats.get("chip_variant")
+        feats["chip_key"] = (
+            f"{feats['chip_brand']}{gen}_{variant}" if feats.get("chip_brand") else None
+        )
+        year = feats.get("year")
+        feats["age"] = None if year is None else max(0, features._MAX_MODEL_YEAR - 1 - int(year))
+        for src, dst in (("ram_gb", "ram_log"), ("ssd_gb", "storage_log")):
+            v = feats.get(src)
+            feats[dst] = math.log(v) if v else None
+        return feats
+
+    def _gates_pass(self, ad: Ad, feats: dict[str, Any]) -> bool:
+        """Refuse to score what the model is measurably bad at.
+
+        Complete specs take median error from 12.3% to 4.7%, damage words are 3.3x enriched
+        in the underpriced tail, and ads sitting exactly on a query's price floor are 9.2x
+        enriched -- so scoring any of them mostly manufactures false deals
+        (docs/research/MACBOOK_PRICE_MODEL.md §4).
+        """
+        if any(feats.get(k) is None for k in ("year", "chip_key", "ram_gb", "ssd_gb")):
+            return False
+        haystack = features.norm(f"{ad.name} {ad.short_description or ''}")
+        return not any(term in haystack for term in _DAMAGE)
+
+    @staticmethod
+    def seller_prior_ads(ad: Ad) -> int:
+        """How many other ads this seller has in the DB.
+
+        One indexed COUNT (`bazos_ad_email_publisher_id`), not a join, because this runs per
+        ad inside `run_filter`'s transaction. Returns 0 when the seller is unidentified,
+        which maps onto the widest sigma -- the right default for an unknown seller.
+        """
+        if ad.email_publisher_id is None:
+            return 0
+        return Ad.objects.filter(email_publisher_id=ad.email_publisher_id).exclude(pk=ad.pk).count()

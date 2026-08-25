@@ -583,6 +583,54 @@ class AdDelivery(TimeStampedModel):
         return f"{self.ad} → {self.query} [{self.status}]"
 
 
+class AdPriceScore(TimeStampedModel):
+    """What a price model thinks one ad is worth, and how unusual its asking price is.
+
+    A child table of `Ad` rather than columns on it, for the same reasons `PriceChange` is
+    one: `Ad` is re-read on every scraper pass and rendered on an admin changelist that has
+    already had to be tuned for cost, so widening that row is the thing to avoid. It is on
+    `Ad` and not `AdDelivery` because the score does not vary by query -- what a listing is
+    worth is a fact about the listing. Whether that is cheap *enough to notify about* is the
+    per-query decision, and that lives in the filter layer.
+
+    Declined scores are stored too, with null numbers and `declined_reason` set: "a model
+    looked and had no opinion" is a different fact from "nothing ever looked", and only the
+    second is worth retrying.
+
+    Design: docs/proposals/ML_PRICE_SCORING.md §2.
+    """
+    ad = models.ForeignKey(Ad, on_delete=models.CASCADE, related_name="price_scores")
+
+    model_name = models.CharField(max_length=64, help_text="Registry key of the model that produced this.")
+    model_version = models.CharField(max_length=32, help_text="Artifact version, so a bad model's rows are findable.")
+
+    predicted = models.BigIntegerField(null=True, blank=True, help_text="Predicted price in CZK. Null when the model declined.")
+    residual_log = models.FloatField(null=True, blank=True, help_text="ln(actual) - ln(predicted). Negative = cheaper than expected.")
+    discount_pct = models.FloatField(null=True, blank=True, help_text="(1 - actual/predicted) * 100. Positive = below prediction.")
+    z_score = models.FloatField(null=True, blank=True, help_text="Residual over the seller's own residual spread. Comparable across seller types.")
+    seller_prior_ads = models.IntegerField(null=True, blank=True, help_text="Other ads from this seller when scored; picks the sigma prior.")
+    declined_reason = models.CharField(max_length=255, null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Ad price score"
+        verbose_name_plural = "Ad price scores"
+        constraints = [
+            # One current score per model per ad. Not (ad, model, version): the question asked
+            # at read time is "what does the current model say", and this bounds growth. Score
+            # history becomes worth keeping once P24 gives outcomes to calibrate against --
+            # that is a deliberate later change, not something to bolt on now.
+            models.UniqueConstraint(fields=["ad", "model_name"], name="unique_price_score_per_ad_model"),
+        ]
+        indexes = [
+            models.Index(fields=["model_name", "z_score"], name="adpricescore_model_z_idx"),
+        ]
+
+    def __str__(self):
+        if self.predicted is None:
+            return f"{self.ad} | {self.model_name}: declined"
+        return f"{self.ad} | {self.model_name}: {self.predicted} Kc ({self.discount_pct:+.1f}%)"
+
+
 class PriceChange(TimeStampedModel):
     ad = models.ForeignKey(Ad, on_delete=models.CASCADE, related_name="price_history")
     old_price = models.CharField(max_length=30)

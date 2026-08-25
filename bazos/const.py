@@ -91,3 +91,19 @@ FILTER_POLL_INTERVAL: Final[int] = 30   # seconds
 SENDER_BATCH_SIZE: Final[int] = 50
 SENDER_POLL_INTERVAL: Final[int] = 10   # seconds
 MAX_SEND_ATTEMPTS: Final[int] = 5
+
+# ---------------------------------------------------------------------------
+# Price scoring (docs/proposals/ML_PRICE_SCORING.md §5)
+# ---------------------------------------------------------------------------
+
+# Compute and store scores but never reject on them. The default is ON, not a flag someone
+# has to remember to set: precision cannot be measured until P24 (delisting) exists, so the
+# thresholds below are a defensible starting point, not a calibrated one.
+PRICE_MODEL_SHADOW_MODE: Final[bool] = True
+# z <= -2 means ~44% below prediction for an unknown private seller but ~14% for a 50-ad
+# dealer. That asymmetry is the point -- it is one standard of evidence, not one percentage.
+PRICE_MODEL_Z_THRESHOLD: Final[float] = -2.0
+# The z-score alone answers "cheap for THIS seller", which a systematically expensive shop
+# can satisfy while still being above market. Requiring both makes a deal mean cheap on
+# both bases.
+PRICE_MODEL_MIN_DISCOUNT_PCT: Final[float] = 10.0

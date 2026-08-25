@@ -626,17 +626,22 @@ def test_price_drop_rule_rejects_vinted_price_increase_via_query_runner(query, m
 # ---------------------------------------------------------------------------
 
 def test_rule_registry_has_all_five_stage9_rules():
-    assert set(RULE_REGISTRY) == {
+    assert {
         "price_range",
         "blocklist_keyword",
         "required_keyword",
         "publisher_blocklist",
         "price_drop",
-    }
+    } <= set(RULE_REGISTRY)
 
 
-def test_default_rule_names_matches_registry():
-    assert DEFAULT_RULE_NAMES == list(RULE_REGISTRY)
+def test_default_rule_names_is_every_rule_except_price_model():
+    """`price_model` REJECTs anything it does not consider a deal, so it is registered but
+    deliberately NOT a default — enabling it by default would mute every existing query.
+    See docs/proposals/ML_PRICE_SCORING.md §1.3."""
+    assert DEFAULT_RULE_NAMES == [n for n in RULE_REGISTRY if n != "price_model"]
+    assert "price_model" in RULE_REGISTRY
+    assert "price_model" not in DEFAULT_RULE_NAMES
 
 
 @pytest.mark.django_db
