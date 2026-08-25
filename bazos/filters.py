@@ -17,6 +17,13 @@ import re
 from enum import Enum
 from typing import Protocol
 
+from django.conf import settings
+
+from bazos.const import (
+    PRICE_MODEL_MIN_DISCOUNT_PCT,
+    PRICE_MODEL_SHADOW_MODE,
+    PRICE_MODEL_Z_THRESHOLD,
+)
 from bazos.models import AdDelivery, AdStatus, PriceType, Query
 
 logger = logging.getLogger(__name__)
@@ -186,6 +193,58 @@ class PriceDropRule:
         return FilterResult.PASS, None
 
 
+class PriceModelRule:
+    """Rejects ads that a price model does NOT consider a deal.
+
+    Inverted relative to the other rules on purpose. The others answer "is there a reason to
+    drop this?"; this one answers "is there a reason to *send* this?", so on a query that
+    enables it the channel only ever sees listings the model flagged. That is what makes a
+    dedicated alert query work -- `Query.sender` is per query, so routing deals to one channel
+    and everything else to another is not expressible any other way.
+
+    Always persists the score before deciding (P23 step 4: a rule that only returns
+    APPROVE/REJECT/PASS throws away the interesting number).
+
+    PASSes -- deliberately, never rejects -- when:
+    - shadow mode is on (the shipping default; see `PRICE_MODEL_SHADOW_MODE`),
+    - no registered model claims the ad,
+    - the model declined (missing artifact, incomplete specs, damage words, non-EXACT price).
+
+    A model that cannot score must not be able to silently drop everything, so every
+    uncertain path is neutral rather than rejecting. Design: docs/proposals/ML_PRICE_SCORING.md
+    """
+    name = "price_model"
+
+    def apply(self, delivery: AdDelivery) -> tuple[FilterResult, str | None]:
+        # Imported lazily: bazos.pricing imports bazos.models, and filters.py is imported at
+        # app-load time by callers that must not pay for the pricing package.
+        from bazos.pricing.scoring import score_ad
+
+        try:
+            score = score_ad(delivery.ad)
+        except Exception:
+            # Scoring is an enhancement, not a gate. A bug here must not stop the pipeline
+            # filtering everything else, so this is one of the few places a bare except is
+            # the right call -- it is logged with a traceback and degrades to PASS.
+            logger.exception("Price scoring failed for ad %s; passing", delivery.ad_id)
+            return FilterResult.PASS, None
+
+        if score is None or score.z_score is None or score.discount_pct is None:
+            return FilterResult.PASS, None
+        if getattr(settings, "PRICE_MODEL_SHADOW_MODE", PRICE_MODEL_SHADOW_MODE):
+            return FilterResult.PASS, None
+
+        z_ok = score.z_score <= getattr(settings, "PRICE_MODEL_Z_THRESHOLD", PRICE_MODEL_Z_THRESHOLD)
+        pct_ok = score.discount_pct >= getattr(
+            settings, "PRICE_MODEL_MIN_DISCOUNT_PCT", PRICE_MODEL_MIN_DISCOUNT_PCT
+        )
+        if z_ok and pct_ok:
+            return FilterResult.PASS, None
+        return FilterResult.REJECT, (
+            f"not a deal: {score.discount_pct:+.1f}% vs predicted {score.predicted}, z={score.z_score:+.2f}"
+        )
+
+
 class RuleEngine:
     """Applies a list of :class:`FilterRule` objects in order.
 
@@ -210,8 +269,12 @@ RULE_REGISTRY: dict[str, FilterRule] = {
     "required_keyword": RequiredKeywordRule(),
     "publisher_blocklist": PublisherBlocklistRule(),
     "price_drop": PriceDropRule(),
+    "price_model": PriceModelRule(),
 }
-DEFAULT_RULE_NAMES: list[str] = list(RULE_REGISTRY)
+#: Everything except `price_model`. That rule REJECTs anything it does not consider a deal,
+#: so switching it on by default would mute every existing query. It is opt-in per query via
+#: `Query.filter_rule_names`, which is exactly the case P17's registry was built for.
+DEFAULT_RULE_NAMES: list[str] = [n for n in RULE_REGISTRY if n != "price_model"]
 
 
 def build_rule_engine(query: Query) -> RuleEngine:
