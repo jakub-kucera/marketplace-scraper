@@ -108,6 +108,10 @@ class MacbookPriceModel:
         )
         year = feats.get("year")
         feats["age"] = None if year is None else max(0, features._MAX_MODEL_YEAR - 1 - int(year))
+        # one level per model year, "na" included: depreciation is not linear in time --
+        # a chip generation lands and the whole cohort steps. Worth 1.35pp of MedAPE over a
+        # single slope (docs/research/PRICE_MODEL_BENCHMARK.md).
+        feats["year_cat"] = "na" if year is None else str(int(year))
         for src, dst in (("ram_gb", "ram_log"), ("ssd_gb", "storage_log")):
             v = feats.get(src)
             feats[dst] = math.log(v) if v else None
