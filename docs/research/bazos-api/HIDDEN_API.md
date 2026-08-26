@@ -1,8 +1,8 @@
 ---
 title: Bazos Hidden Mobile API — Research & Scraping Assessment
 status: reference
-updated: 2026-08-07
-verified: 2026-07-26
+updated: 2026-08-26
+verified: 2026-08-26
 ---
 
 # Bazos Hidden Mobile API — Research & Scraping Assessment
@@ -283,6 +283,38 @@ needed to use this today). There is **no working AND operator** beyond the
 already-existing implicit multi-word AND — don't design anything around an
 explicit `AND` keyword, it silently degrades results by requiring literal "and"
 text.
+
+### 4.1b No phrase search, and `OR` binds looser than the implicit AND (live, 2026-08-26)
+
+Two follow-ups to §4.1a, probed the same way (`api/v1/ads.php`, `x-total-count`), because
+query design turns on both.
+
+| Query | Total |
+|---|---|
+| `m3` | 2313 |
+| `m3 pro` | 1237 |
+| `pro m3` | **1237** |
+| `m3 max` | 437 |
+| `m3 pro OR m3 max` | **1492** |
+| `macbook` | 1627 |
+| `macbook m3 OR macbook m4 OR macbook m5` | **221** |
+
+**Precedence is the useful one: `OR` binds looser than the implicit AND.** `m3 pro OR m3
+max` returned 1492 — wider than either arm and consistent with `(m3 AND pro) OR (m3 AND
+max)` minus a plausible overlap. Had it parsed as `m3 AND (pro OR m3) AND max` the result
+could not have exceeded 437. So multi-word arms inside an `OR` chain behave as expected and
+need no parentheses (which §4.1a already showed are inert).
+
+**There is no phrase search, and word order carries no meaning.** `pro m3` returned exactly
+the same 1237 as `m3 pro`. Combined with §4.1a's finding that quoting is inert, there is no
+way to ask Bazos for two adjacent words.
+
+**Consequence for query design.** Bazos cannot distinguish *"M3 Pro"*, the chip, from
+*"MacBook **Pro** … M3"*, the base model — both contain `m3` and `pro`, and 1237 hits is far
+more than the real M3 Pro population. Any condition that depends on adjacency has to be
+enforced downstream, where `filter_required` matches substrings and therefore does honour
+adjacency. Written up as a composition rule in
+[`QUERY_COMPOSITION.md`](../../QUERY_COMPOSITION.md) §2–§4.
 
 Probe commands (reproducible):
 ```bash
