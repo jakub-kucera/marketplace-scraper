@@ -1,8 +1,8 @@
 ---
 title: Docs Index
 status: active
-updated: 2026-08-24
-verified: 2026-08-24
+updated: 2026-08-26
+verified: 2026-08-26
 ---
 
 # Docs Index
@@ -51,6 +51,7 @@ doc appears in the table below exactly once and that no relative link is broken.
 |---|---|---|---|
 | [`SHIPPED.md`](SHIPPED.md) | 🟢 active | 2026-08-23 | **What is actually implemented**, newest first, with the migration and commit that landed each item. Start here before believing any other doc's status. |
 | [`MONETIZATION.md`](MONETIZATION.md) | 🟢 active | 2026-08-23 | Can this be turned into money — data sales, flipping, subscriptions, selling the capability. **§6 is the legal section that constrains everything else** (Bazos ToS API-consent clause, sui generis database right / *Innoweb v Wegener*, GDPR Art 14, Act 480/2004). **§7.1 argues detection latency, not features, is the binding constraint** on the whole project. |
+| [`QUERY_COMPOSITION.md`](QUERY_COMPOSITION.md) | 🟢 active | 2026-08-26 | **How a `Query` becomes results, and what it can't express.** Bazos has no phrase search and one implicit-AND word bag; our side gives exactly **one positive OR-group** (`filter_required`) plus unlimited exclusions. §5 works "M3 Pro or better, ≥32GB, ≥1TB" — not exactly expressible — into the approximation that is, and §3.2 has the two traps (substring collisions like `8gb` ⊂ `48gb`, and Czech negation defeating a blocklist). |
 | [`BACKUPS.md`](BACKUPS.md) | ✅ shipped | 2026-08-23 | Dump options, destinations, cost, and the retention/GDPR interaction (a PII purge that doesn't reach the backups isn't a purge). **§9 is the restore runbook** — the live part of this doc. |
 
 ### `backlog/` — open work
@@ -70,6 +71,7 @@ write-up, and each names what would have to be true before it's worth starting.
 | [`DISCORD_BOT.md`](proposals/DISCORD_BOT.md) | 💡 proposal | 2026-07-24 | Replace webhook-only notifications with a real gateway bot — per-ad watch/mute/blocklist buttons, seller lookups, query control from Discord. §1 explains why gateway and not a public HTTP endpoint. |
 | [`JOB_QUEUE.md`](proposals/JOB_QUEUE.md) | 💡 proposal | 2026-07-26 | Generalise the `run_filter`/`run_sender` polling pattern into a `Job` model + registry + one worker, so new recurring work stops meaning a new compose service and a hand-rolled sleep loop. |
 | [`LLM_AD_REVIEW.md`](proposals/LLM_AD_REVIEW.md) | 💡 proposal | 2026-08-07 | An LLM ad judge as its own pipeline stage, and draft-only seller outreach. **Explicitly recommends against auto-sending messages to sellers.** §2f has free-tier cost figures and the Gemini EEA data-terms carve-out. |
+| [`ML_PRICE_SCORING.md`](proposals/ML_PRICE_SCORING.md) | 💡 proposal | 2026-08-26 | How a price estimator becomes a deployable part of the pipeline: scoring enriches `Ad`, alerting stays a `FilterRule` on `AdDelivery`. **Extends [`PROMPTS.md`](backlog/PROMPTS.md) P23 rather than superseding it** — P23's median-of-comparables becomes one entry in the model registry. §1.2 is why it is not a fourth pipeline stage. |
 | [`PUBLIC_AD_PAGES.md`](proposals/PUBLIC_AD_PAGES.md) | 💡 proposal | 2026-08-24 | A self-hosted page per ad, linked from every notification. The admin-link half **shipped**; this is the deferred rest. §3 is why the Discord-unfurl argument is empty without ad images, §4 why the seller-identity data rules out an unauthenticated page, §5 the two settings that block any internet exposure. |
 
 ### `research/` — measured findings about the outside world
@@ -81,6 +83,8 @@ not our schema. Re-verify against a live probe, not against the repo.
 |---|---|---|---|
 | [`PRICE_PARSING.md`](research/PRICE_PARSING.md) | 📐 reference | 2026-08-23 | All four marketplaces sampled live. **Three of them encode "zero" differently**, and `re.sub(r"\D","")` is correct for Bazos only — Vinted is 72% non-integer float, Aukro is int *or* float unstably within one response, Sbazar's `0` means free or negotiable depending on a flag. §1 is historical (P22 shipped); §2 onward is current. |
 | [`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md) | 📐 reference | 2026-08-24 | **The measured basis for `MONETIZATION.md` §4.2 and P23.** 2,038 Bazos MacBook ads modelled end to end: asking price predicts at R² 0.87 from listing text alone, but **70% of a naive underpricing alert is damage, parse failures and price-floor artifacts**, and **67% of residual variance is between sellers**. §6 is the blocker — the DB records no outcomes at all, so precision cannot be measured. §2's two parsing traps are what a productionised extractor must handle. |
+| [`PRICE_MODEL_BENCHMARK.md`](research/PRICE_MODEL_BENCHMARK.md) | 📐 reference | 2026-08-26 | **Does the price model need to be a GBM? No — but the gap is real, not noise.** 25 models, nested CV, grouped by seller *and* past→future. The GBM beats the best linear model by ΔR² 0.026 (CI 0.012–0.044) and 1.4 pp of MedAPE — measured, not hand-waved — and that does **not** justify putting numpy on the Pi. §3.1 is the headline: **two extractor regexes were worth +0.036 R², more than the whole model-class choice.** §9 is the other one: the GBM's naive interval covers **39.8%** at a nominal 80%. §11 is the shippable feature spec.
+| [`CROSS_MARKETPLACE_MACBOOK.md`](research/CROSS_MARKETPLACE_MACBOOK.md) | 📐 reference | 2026-08-26 | **Can Bazos, Sbazar and Vinted MacBook data go into one model?** Yes for Bazos+Sbazar **with a marketplace fixed effect** (Sbazar asks +3.5 %, CI +1.8–5.1 %); Vinted's apparent −17 % is composition and collapses to −1.8 % (CI −15–+13 %) on Apple silicon — n=15, method demo. **§5.1 is the trap**: Vinted stores the buyer total, exactly `ask × 1.05 + 18 CZK`, so pooling raw prices is 5 % wrong. §3.1 — Vinted/Sbazar store no description at all, and that is one boolean per `Query`, not a platform limit. |
 
 #### `research/marketplaces/` — which marketplace to add next
 
