@@ -6,7 +6,7 @@ deliberately not a runtime dependency (docs/proposals/ML_PRICE_SCORING.md §4.1)
 
 Usage:
     python manage.py train_price_model                    # version = today
-    python manage.py train_price_model --version 2026-08-26
+    python manage.py train_price_model --artifact-version 2026-08-26
     python manage.py train_price_model --dry-run          # metrics only, write nothing
 """
 import logging
@@ -20,7 +20,8 @@ class Command(BaseCommand):
     help = "Fit a price model from the DB and write a JSON artifact"
 
     def add_arguments(self, parser):
-        parser.add_argument("--version", default=None, help="Artifact version (default: today's date).")
+        # not --version: BaseCommand already owns that, and argparse raises on the collision.
+        parser.add_argument("--artifact-version", default=None, help="Artifact version (default: today's date).")
         parser.add_argument("--alpha", type=float, default=1.0, help="Ridge regularisation strength.")
         parser.add_argument("--dry-run", action="store_true", help="Report metrics without writing.")
 
@@ -46,5 +47,5 @@ class Command(BaseCommand):
         if options["dry_run"]:
             self.stdout.write(self.style.WARNING("--dry-run: nothing written"))
             return
-        path = training.write_artifact(manifest, options["version"])
+        path = training.write_artifact(manifest, options["artifact_version"])
         self.stdout.write(self.style.SUCCESS(f"wrote {path}"))

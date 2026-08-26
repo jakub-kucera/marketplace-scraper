@@ -25,9 +25,9 @@ logger = logging.getLogger(__name__)
 #: Numeric features, with the fill used when a listing does not state them. The paired
 #: `missing` indicator is what actually carries "this was not stated" -- filling alone would
 #: tell the model a median-aged machine, which is why both are emitted.
-NUMERIC = ("year", "ram_log", "storage_log", "screen")
+NUMERIC = ("ram_log", "storage_log", "screen")
 BOOLEAN = ("warranty", "new", "defect", "vat_dph", "top_word", "scratches", "box", "retina", "touchbar")
-CATEGORICAL = ("chip_key", "family")
+CATEGORICAL = ("chip_key", "family", "year_cat")
 
 
 def training_rows(marketplace: str = Marketplace.BAZOS) -> list[dict[str, Any]]:
