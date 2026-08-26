@@ -1,8 +1,8 @@
 ---
 title: MacBook price prediction — measured on the production corpus
 status: reference
-updated: 2026-08-24
-verified: 2026-08-24
+updated: 2026-08-26
+verified: 2026-08-26
 ---
 
 # MacBook price prediction — measured on the production corpus
@@ -30,6 +30,9 @@ verified: 2026-08-24
 | Do dealers charge a premium? | **No — this was the surprise.** Median −2.1% spec-matched; +1.5% in a within-config regression |
 | Is there cross-marketplace arbitrage? | **No.** Spec-matched, Sbazar +1% and Vinted +2% vs Bazos (small n) |
 | Can precision be measured? | **No.** The DB holds zero outcomes — see §6 |
+| Should dealers be excluded from the model? | **No.** Training on all sellers scores small sellers *better* (R² 0.818 vs 0.791) — dealers are the price reference (§5.3) |
+| Can dealers be ranked against each other? | **Yes.** A 35-point spread in price level, benchmarked leave-seller-out, with significance (§5.4) |
+| Does a per-seller term improve prediction? | **Barely** — 6.98% → 6.50% MedAPE, and only with ~20× more shrinkage than the textbook estimator suggests. Its real value is fixing the *threshold* (§5.7) |
 
 ## 2. Extraction
 
@@ -161,6 +164,223 @@ Relisting behaviour: of 103 listings reposted ≥3× over ≥14 days, **31 dropp
 8 went up** — median change 0%. Dealers mostly re-post at the same number, which makes
 `PriceDropRule` high-precision but very low-recall (26 price changes in the whole corpus).
 
+### 5.3 Excluding the dealers is the wrong instrument
+
+The obvious response to a two-thirds between-seller confound is to drop the dealers and model
+only the private market, where the bargains presumably are. Measured, that makes the model
+worse at exactly the job it was narrowed to do:
+
+| Trained on | Scored on | R² |
+|---|---|---|
+| **all sellers** | small sellers (n=436) | **0.818** |
+| small sellers only | small sellers (n=436) | 0.791 |
+| dealers only | small sellers (n=436) | 0.566 |
+
+**Dealers are the price reference even if you never buy from them.** They are the densest,
+most consistently-described, most repetitive part of the corpus, and removing them starves the
+model of the comparables it needs to price a private listing. Train on everything; decide
+separately who you are willing to *buy* from.
+
+The deeper problem is that seller tiers are not equally predictable, and a threshold expressed
+as a flat percentage silently assumes they are:
+
+| Seller tier | scored ads | R² | MedAPE | residual σ |
+|---|---|---|---|---|
+| private (1–2 ads) | 337 | 0.762 | 15.0% | **0.302** |
+| small (3–9) | 99 | 0.945 | 8.8% | 0.174 |
+| medium (10–49) | 134 | 0.879 | 9.5% | 0.200 |
+| large (50+) | 653 | 0.970 | 4.3% | **0.098** |
+
+A private seller's price is three times noisier than a dealer's. So a fixed "25% below
+predicted" rule is not one rule — it is four different standards of evidence wearing the same
+number:
+
+| Seller tier | −25% expressed in σ | % of that tier's ads firing | Reads as |
+|---|---|---|---|
+| private (1–2) | 0.95σ | 10.4% | ordinary noise |
+| small (3–9) | 1.64σ | 6.1% | mildly unusual |
+| medium (10–49) | 1.43σ | 6.7% | mildly unusual |
+| large (50+) | **2.92σ** | 1.2% | genuinely exceptional |
+
+The flat rule therefore spends most of its alert budget on private-seller noise while ignoring
+dealer markdowns three standard deviations out. **Filtering by seller size does not fix that —
+it discards the half of the market where the evidence is strongest.** The fix is to
+standardise the residual (§5.7), not to drop rows.
+
+### 5.4 The dealer scorecard
+
+If dealer price level is two thirds of the signal, it is worth measuring per shop rather than
+subtracting it away. Each seller with ≥25 ads was scored against a model trained with **that
+seller held out** (GroupKFold by seller), so their own pricing cannot define their benchmark.
+
+`level` is the mean residual converted to a percentage; `t` is that level in standard errors,
+so |t| ≥ 2 means the level is real rather than small-sample noise.
+
+| seller | ads | level | t | specs parse | discloses | damaged | median Kč | Apple si. | median yr |
+|---|---|---|---|---|---|---|---|---|---|
+| e2454 | 52 | **−9.7%** | **−5.1** | 96% | 100% | 0% | 19 900 | 96% | 2021 |
+| e2451 | 63 | **−8.3%** | **−5.0** | 21% | 100% | 3% | 18 999 | 83% | 2019 |
+| p1242 | 32 | −2.4% | −0.6 | 97% | 100% | 0% | 28 900 | 97% | 2023 |
+| e2600 | 34 | −2.3% | −1.2 | 79% | 100% | 0% | 17 900 | 97% | 2021 |
+| e1371 | 62 | −1.9% | −0.7 | 95% | 95% | 2% | 23 900 | 92% | 2022 |
+| e2488 | 98 | −1.8% | −2.2 | 100% | 100% | 0% | 6 540 | 5% | 2017 |
+| e2479 | 207 | +1.4% | +2.8 | 100% | 99% | 0% | 6 590 | 5% | 2017 |
+| e2477 | 76 | +3.4% | +1.6 | 78% | 96% | 1% | 19 900 | 100% | 2021 |
+| e2511 | 359 | +3.5% | +8.9 | 100% | 100% | 0% | 8 490 | 17% | 2018 |
+| e2572 | 87 | +7.0% | +7.2 | 97% | 93% | 0% | 8 490 | 25% | 2017 |
+| e2464 | 84 | **+10.6%** | +4.3 | 64% | **26%** | **13%** | 9 990 | 37% | 2020 |
+| e472 | 52 | **+17.8%** | +8.0 | 56% | 100% | 0% | 17 980 | 73% | 2021 |
+| e476 | 27 | **+25.3%** | +6.8 | 7% | 100% | 4% | 14 490 | 4% | 2019 |
+
+The cheapest shop asks 9.7% below market and the dearest 25.3% above — a spread of 35
+percentage points, and both ends are statistically solid.
+
+Four things the table says that a single price-level number would not:
+
+- **Two shops are genuinely cheap** — `e2454` and `e2451`, both |t| ≈ 5.
+- **Three are genuinely dear** — `e476`, `e472`, `e2464`, all |t| > 4.
+- **`e2464` is the one to avoid.** Dear *and* opaque *and* selling broken machines: 10.6% above
+  market, **13% of its listings mention damage**, and it is the only large seller with
+  essentially no condition disclosure (26% against 93–100% everywhere else).
+- **Middling levels are mostly not real.** `p1242`, `e2600` and `e1371` all look ≈2% cheap on
+  |t| < 1.3. Any ranking that reads those as "cheap shops" is reading sampling error.
+
+**Specs-parse rate is an independent axis and worth carrying separately.** `e2451` is
+genuinely cheap but describes stock badly (21% parse), so most of what it lists cannot be
+scored at all; `e2479` and `e2511` parse at 100% but sit slightly above market. Cheapness and
+scoreability are different properties of a shop.
+
+#### 5.4.1 How much history a price level needs
+
+The same computation across every seller with ≥3 ads (57 sellers, of which 28 — 49% — have a
+level significantly different from market) shows how quickly an apparent discount stops being
+real:
+
+| ads from the seller | sellers | % with a significant level | median absolute level |
+|---|---|---|---|
+| 3–4 | 23 | 35% | **9.3%** |
+| 5–9 | 15 | 47% | 7.2% |
+| 10–24 | 6 | 67% | 22.4% |
+| 25+ | 13 | **69%** | **3.5%** |
+
+Read the first and last rows together: **sellers with three or four listings show the largest
+apparent discounts and the least reason to believe them.** Median absolute level falls from 9.3% to
+3.5% as sample size grows, which is the signature of noise, not of small shops being cheaper.
+Among non-significant sellers the median apparent discount is 5.4%; among significant ones,
+11.0%. This is the whole case for shrinkage (§5.5).
+
+#### 5.4.2 Are the cheap shops just dumping worse stock?
+
+The obvious confound. Partially testable, and it does not hold:
+
+| | damaged | scratches mentioned | warranty |
+|---|---|---|---|
+| cheap dealers (level < −5%, n=2) | 1.6% | 0.8% | 74% |
+| dear dealers (level > +10%, n=3) | 5.6% | 6.0% | 66% |
+
+The cheap shops disclose *more* warranty and mention *less* damage than the dear ones. **The
+limit of this check must be stated: the model sees only text.** It cannot see photographs,
+true cosmetic grade, battery wear beyond what is written, or whether an invoice is real. This
+rules out the disclosed-defect explanation and nothing more.
+
+### 5.5 A seller term that survives small samples
+
+A seller with one prior listing that happened to be cheap is not a cheap seller. The standard
+correction is partial pooling: believe a fraction `n/(n + κ)` of a seller's apparent price
+level and the population average for the rest, where `n` is how many of their listings were
+scored **before** the ad being priced. Everything below is computed time-causally — a seller's
+history at scoring time contains only listings that appeared earlier.
+
+**κ has to be tuned, not derived.** The method-of-moments estimator (σ²within / σ²between,
+measured at 0.1247 and 0.1721) returns **κ = 0.53**, which credits a *single* listing with 66%
+weight. At that setting the seller term actively **hurts** sellers with 1–2 prior ads. The
+estimator is inflated by the many two-ad sellers whose apparent spread is pure noise —
+precisely the population §5.4.1 shows cannot be trusted. Sweeping κ against held-out error
+puts the optimum near **12**, roughly 20× more shrinkage:
+
+| κ | weight at n=1 | weight at n=50 | 1–2 prior | 3–9 prior | 10+ prior | overall |
+|---|---|---|---|---|---|---|
+| 0.5 *(≈ raw mean)* | 0.67 | 0.99 | 8.65% | 6.87% | 4.50% | 6.92% |
+| 1 | 0.50 | 0.98 | 8.02% | 6.70% | 4.50% | 6.87% |
+| 2 | 0.33 | 0.96 | 9.07% | 6.83% | 4.49% | 6.79% |
+| 3 | 0.25 | 0.94 | 9.82% | 6.67% | 4.50% | 6.74% |
+| 5 | 0.17 | 0.91 | 9.46% | 6.24% | 4.45% | 6.58% |
+| 8 | 0.11 | 0.86 | 9.28% | 5.65% | 4.52% | 6.60% |
+| **12** | **0.08** | **0.81** | 9.60% | **5.51%** | 4.43% | **6.50%** |
+| 20 | 0.05 | 0.71 | 9.77% | 5.97% | 4.35% | 6.54% |
+| 35 | 0.03 | 0.59 | 9.91% | 6.10% | 4.30% | 6.54% |
+| 60 | 0.02 | 0.45 | 9.88% | 6.50% | 4.37% | 6.57% |
+| ∞ *(seller term off)* | 0.00 | 0.00 | 10.02% | 7.20% | 4.64% | 6.98% |
+
+Values are MedAPE. Three readings:
+
+- **The headline gain is small.** Seller-blind 6.98% → raw per-seller mean 6.92% → shrunk at
+  κ=12 **6.50%**. The base model already infers dealer identity from text (`DPH`, warranty
+  language, town, the formulaic title style), so an explicit seller term is largely redundant.
+- **The gain concentrates where it should**: sellers with a little history but not much. At
+  3–9 prior listings, error falls 7.20% → 5.51%, a **23% reduction**. Below that there is not
+  enough history; above it the base model already knows the shop.
+- **The curve is flat between κ = 5 and 20**, so the choice is not delicate — but the
+  difference between κ = 0.5 and κ = 12 is real, and the moment estimator lands on the wrong
+  side of it.
+
+Sellers with no history are untouched by construction, and that is correct behaviour rather
+than a limitation. **About 24% of listings come from a seller with no prior appearance, and
+that rate is stable across the window** — the cold-start case is a permanent feature of this
+market, not a transitional one that accumulating data will close.
+
+⚠️ κ was tuned on the same 99 days it is scored on. With a single parameter and a flat optimum
+this is not a serious overfit, but it has not been validated out-of-period.
+
+### 5.6 The noise prior must depend on seller maturity
+
+Shrinking the seller's *level* is only half of it. A threshold expressed in standard deviations
+needs a per-seller σ, and that σ must itself be shrunk toward a prior — which cannot be a single
+global value. Residual σ by how many listings the seller had already shown:
+
+| prior listings from this seller | scored ads | residual σ |
+|---|---|---|
+| 0 (never seen before) | 407 | **0.294** |
+| 1–2 | 117 | 0.219 |
+| 3–9 | 144 | 0.172 |
+| 10–49 | 365 | 0.143 |
+| 50+ | 394 | **0.065** |
+
+**A first-time seller is 4.5× noisier than a shop with 50+ listings.** The first attempt here
+shrank every seller's σ toward one population value of 0.125 — a figure dominated by
+high-volume dealers, whose pricing is formulaic. Applied to private sellers that understates
+their true spread by more than half, and `z ≤ −2` fired on **15%** of their listings. The prior
+has to be a function of seller maturity, not a constant.
+
+### 5.7 What the seller term actually buys: a comparable threshold
+
+With both the level and the noise shrunk against maturity-aware priors, "2σ below this
+seller's own baseline" becomes one standard of evidence instead of four:
+
+| Seller tier | shrunk σ | z ≤ −2 means | % firing, flat −25% | % firing, z ≤ −2 |
+|---|---|---|---|---|
+| private (1–2 ads) | 0.294 | **44% below** | 10.4% | 4.3% |
+| small (3–9) | 0.219 | 35% below | 6.1% | 3.8% |
+| medium (10–49) | 0.159 | 27% below | 6.7% | 7.0% |
+| large (50+) | 0.076 | **14% below** | 1.2% | 1.7% |
+
+Gated alert volume barely moves — **2.6/week against 3.2/week** for the flat rule — but the
+composition changes completely: private-seller flags fall from 9 to 2 and dealer flags rise
+from 9 to 10. The rule stops firing on the noisiest listings in the corpus and starts firing on
+shops discounting 30–40% against their own established baseline. It also demands a **44%
+discount from an unknown private seller** before calling it a deal, which is the right bar for
+the segment where the model is least sure.
+
+**This is the payoff, and it is not accuracy.** The seller term moves prediction error by half
+a percentage point (§5.5); what it fixes is the threshold. If only one piece of §5.3–§5.7 is
+built, build this one.
+
+⚠️ Everything in §5.3–§5.7 is measured against *prediction error*, not money. The seller-aware
+rule is demonstrably better at finding listings that are unusual for their seller. It is **not**
+established that those sell faster or resell for more, because §6 still applies: the database
+records no outcomes. This changes which listings you look at; whether that is an improvement in
+profit is the question P24 exists to answer.
+
 ## 6. Why none of this can be calibrated yet
 
 **`Ad.modified` never advances past `Ad.created`** — measured across all 2,038 rows, max delta
@@ -210,9 +430,26 @@ which P23 step 6 already warns against.
 
 ## 9. Reproduction
 
-Read-only over SSH against the production Postgres; nothing was written. Working scripts were
-session-scratch and are not in the repo — the durable artifacts are this document and the two
-parsing traps in §2, which any productionised extractor must handle.
+Read-only over SSH against the production Postgres; nothing was written.
+
+The working scripts are kept in [`experiments/price_model/`](../../experiments/price_model/)
+— throwaway analysis, excluded from ruff and mypy, needing `poetry install --with ml`. The
+corpus itself is deliberately not committed: it carries seller names and publisher ids.
+This document remains the durable artifact. The pipeline was, in order:
+
+| script | what it did |
+|---|---|
+| `mbfeat.py` | the regex spec extractor of §2 — chip, year, screen, RAM, SSD, condition flags |
+| `harness.py` | feature matrix + the time-causal expanding-window replay used throughout §5.3–§5.7 |
+| `seller_base.py` | seller identity (email id, else phone id, else per-row unique) and time-causal prior-ad counts |
+| `part1.py` | §5.3 — train-on-all vs train-on-small, and predictability by seller tier |
+| `part2.py` | §5.4 — the leave-seller-out dealer scorecard |
+| `part3.py` / `part3b.py` / `part3c.py` | §5.5–§5.7 — partial pooling, then the maturity-aware noise prior |
+| `ksweep.py` | §5.5 — the κ sweep that overturned the moment estimator |
+
+Only two things here are worth re-deriving rather than re-reading: the two parsing traps in §2,
+which any productionised extractor must handle, and the κ tuning in §5.5, which must be redone
+against whatever feature set a real implementation ends up with.
 
 Corpus pull:
 
