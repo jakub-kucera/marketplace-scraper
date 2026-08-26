@@ -54,6 +54,19 @@ pytest-recording = "^0.13"
 [tool.poetry.group.notebooks.dependencies]
 jupyter = "^1.0.0"
 
+# Training and offline analysis only, and `optional = true` on purpose: nothing installs
+# this unless asked (`poetry install --with ml`). Serving never needs it -- a price model
+# ships as a JSON manifest evaluated in pure Python, precisely so the ARM64 runtime image
+# does not carry numpy/scipy/sklearn (docs/proposals/ML_PRICE_SCORING.md §4.1). A
+# non-optional group would land it in CI and in the weekly contract-check container too.
+[tool.poetry.group.ml]
+optional = true
+
+[tool.poetry.group.ml.dependencies]
+scikit-learn = "^1.5"
+pandas = "^2.2"
+numpy = "^2.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
