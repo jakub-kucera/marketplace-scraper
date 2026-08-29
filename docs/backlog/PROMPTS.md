@@ -1,7 +1,7 @@
 ---
 title: Ready-to-Run Prompts
 status: active
-updated: 2026-08-23
+updated: 2026-08-30
 verified: 2026-08-23
 ---
 
@@ -621,6 +621,70 @@ Steps:
 
 ---
 
+### P27 — Desktop PC price model: the two experiments that would unblock it
+
+> **Source**: [`PC_PRICE_MODEL.md`](../research/PC_PRICE_MODEL.md), a feasibility study on
+> query 9 (`PC, Počítače`, 1 668 ads over 259 days). The conclusion was **not yet** — the model
+> reaches R² 0.853 / MedAPE 13.4% where the specs parse, but only 52% of desktops parse that
+> far, and storage lands at 39%. This prompt is the two things that would change that answer.
+> Neither is a modelling change; both are about seeing the machine.
+
+> ⏳ **Item 1 has a wait attached — do not start it before ~2026-11-01.** It needs corpus, not
+> work. Starting early just re-measures the same 166 rows.
+
+```
+Two independent experiments. Item 1 is nearly free and waits on data; item 2 is real work.
+
+### 1. Re-measure extraction once full descriptions have accumulated
+
+`load_full_description` is already TRUE on query 9, but it was enabled partway through, so at
+the time of the study only 166 of 1 411 desktops had one. On exactly those rows the gain was
+large and landed on the weakest fields: storage +18.7pp, DDR +22.3pp, GPU model +12.7pp,
+RAM +11.4pp. That is a much bigger effect than the same flag had on MacBooks, because desktop
+titles run out of room before they run out of components.
+
+Steps:
+- Wait until a clear majority of query-9 desktops carry a `full_description` (check with
+  `count(full_description) / count(*)` on the query-9 join; ~2 months from 2026-08-29).
+- Re-run `experiments/price_model/pc/pcfeat.py` coverage and `pcmodel.py` and update
+  PC_PRICE_MODEL.md §4.1, §4.2 and §5 in place with the new numbers.
+- The decision this informs: if GPU+CPU+RAM coverage clears ~70% (from 51.9%) and storage
+  clears ~60% (from 39.0%), the completeness gate stops throwing away most of the corpus and
+  a shadow-mode deployment becomes arguable. If it does not move, the honest answer is that
+  desktop listings simply do not state enough, and this line of work should stop.
+
+### 2. An external GPU performance scale
+
+PC_PRICE_MODEL.md §6 tested the obvious "map component names to their specs" idea and found it
+REDUNDANT: a lookup keyed on the GPU model adds nothing when the model name is already a
+feature, and filling VRAM from a median made MedAPE slightly WORSE (17.8% -> 18.4%) because it
+erased the real 8GB/16GB distinction on the 12 cards that ship both. Do not rebuild that.
+
+What was NOT tested, and is the only version of the idea that can work: a single ordinal
+performance score per GPU from an external benchmark (3DMark Time Spy, PassMark G3D). That is
+genuinely not derivable from the name -- it is what places `rx 6700 xt` and `rtx 3060 ti` on
+one scale, across vendors and generations, which the name-parsed tier/generation ordinal
+cannot do.
+
+Steps:
+- Build a static `gpu_model -> benchmark_score` table covering the ~40 models that account for
+  most of the corpus (140 distinct tokens exist, but the tail is thin). Check the licensing on
+  whichever benchmark source you use before committing the table.
+- Add it as one numeric feature and re-run the §5 decomposition. The specific thing to compare
+  is "GPU tier+gen ordinal" (R² 0.515 on complete-spec rows) against the same with the
+  benchmark score added.
+- Treat it as a null result worth writing down if it does not beat the ordinal -- that would
+  say the naming scheme already encodes performance well enough, which is a useful fact.
+
+Note on model class: unlike the MacBook case, gradient boosting clearly beats ridge here
+(0.853/13.4% vs 0.769/17.1% on complete rows). That conflicts with the pure-Python JSON
+serving path in `docs/proposals/ML_PRICE_SCORING.md` §4.1, so if this ever ships, either
+pre-expand the interactions into explicit features or accept a different serving story.
+DO NOT resolve that by adding numpy/sklearn to the runtime image without reading §4.1 first.
+```
+
+---
+
 ### P26 — `Ad`/`AdDelivery` split: deferred review findings
 
 > **Source**: an independent code review of commit `9d20b91` ("wip AdDelivery"), reproduced
@@ -778,6 +842,11 @@ built together with **P16** since all three touch the notification-formatting pa
   meant to happen *before* deploying the split, and the split is deployed.
 - **P25** (`load_full_description` drops the publisher name) — ~15 min, no dependencies, but it
   only takes effect on queries with `load_full_description=True`; read its scope note first.
+- **P27** (desktop PC price model) — **item 1 is a re-measurement, not work, and is gated on
+  waiting until ~2026-11-01** for full descriptions to accumulate; item 2 (an external GPU
+  benchmark scale) is the only untested version of the component-lookup idea. Read
+  [`PC_PRICE_MODEL.md`](../research/PC_PRICE_MODEL.md) §6 first — the obvious version of that
+  idea was measured and is redundant.
 - **P10** (coverage audit) — quick wins on confidence. Cheaper now that the E2E replay harness
   and its cassettes exist.
 - **P13** (filter-before-detail-fetch) — matters more once cadence rises, i.e. right after P21a.

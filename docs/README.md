@@ -1,8 +1,8 @@
 ---
 title: Docs Index
 status: active
-updated: 2026-08-26
-verified: 2026-08-26
+updated: 2026-08-29
+verified: 2026-08-29
 ---
 
 # Docs Index
@@ -83,6 +83,7 @@ not our schema. Re-verify against a live probe, not against the repo.
 |---|---|---|---|
 | [`PRICE_PARSING.md`](research/PRICE_PARSING.md) | 📐 reference | 2026-08-23 | All four marketplaces sampled live. **Three of them encode "zero" differently**, and `re.sub(r"\D","")` is correct for Bazos only — Vinted is 72% non-integer float, Aukro is int *or* float unstably within one response, Sbazar's `0` means free or negotiable depending on a flag. §1 is historical (P22 shipped); §2 onward is current. |
 | [`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md) | 📐 reference | 2026-08-24 | **The measured basis for `MONETIZATION.md` §4.2 and P23.** 2,038 Bazos MacBook ads modelled end to end: asking price predicts at R² 0.87 from listing text alone, but **70% of a naive underpricing alert is damage, parse failures and price-floor artifacts**, and **67% of residual variance is between sellers**. §6 is the blocker — the DB records no outcomes at all, so precision cannot be measured. §2's two parsing traps are what a productionised extractor must handle. |
+| [`PC_PRICE_MODEL.md`](research/PC_PRICE_MODEL.md) | 📐 reference | 2026-08-29 | **Does the MacBook work transfer to desktops? Partly.** 1 668 ads from query 9. Overall R² 0.635 / MedAPE 17.8%, but **0.853 / 13.4% where the specs parse** — extraction is the constraint, and storage coverage is only 39%. Three findings worth the read: desktops are a *private-seller* market (half the sellers appear once), so the seller-aware threshold does **not** transfer; GPU tier parsed from the model name beats a per-model dummy; and §6 tests the name→spec lookup idea and finds it **redundant** — a table only pays where the name doesn't determine the spec. |
 | [`PRICE_MODEL_BENCHMARK.md`](research/PRICE_MODEL_BENCHMARK.md) | 📐 reference | 2026-08-26 | **Does the price model need to be a GBM? No — but the gap is real, not noise.** 25 models, nested CV, grouped by seller *and* past→future. The GBM beats the best linear model by ΔR² 0.026 (CI 0.012–0.044) and 1.4 pp of MedAPE — measured, not hand-waved — and that does **not** justify putting numpy on the Pi. §3.1 is the headline: **two extractor regexes were worth +0.036 R², more than the whole model-class choice.** §9 is the other one: the GBM's naive interval covers **39.8%** at a nominal 80%. §11 is the shippable feature spec.
 | [`CROSS_MARKETPLACE_MACBOOK.md`](research/CROSS_MARKETPLACE_MACBOOK.md) | 📐 reference | 2026-08-26 | **Can Bazos, Sbazar and Vinted MacBook data go into one model?** Yes for Bazos+Sbazar **with a marketplace fixed effect** (Sbazar asks +3.5 %, CI +1.8–5.1 %); Vinted's apparent −17 % is composition and collapses to −1.8 % (CI −15–+13 %) on Apple silicon — n=15, method demo. **§5.1 is the trap**: Vinted stores the buyer total, exactly `ask × 1.05 + 18 CZK`, so pooling raw prices is 5 % wrong. §3.1 — Vinted/Sbazar store no description at all, and that is one boolean per `Query`, not a platform limit. |
 
