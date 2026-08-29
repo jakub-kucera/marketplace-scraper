@@ -1,6 +1,5 @@
 import logging
 from datetime import datetime, timezone
-from ipaddress import ip_address
 from pathlib import Path
 from random import uniform
 from time import sleep
@@ -116,13 +115,16 @@ class ScrapeRunner:
         Previously a 403 here fell into the generic `except Exception` below, was written
         off, and the loop moved to the next query on the *same* dead IP milliseconds later
         — which is why the failures arrive in clusters rather than singly.
+
+        `QueryRun.exit_ip` is filled in only on the block path, from the IP the block
+        response names. There is no way to fill it in for a successful run and no point
+        trying: the transport isolates circuits per destination host, so an IP-echo lookup
+        would record an exit no marketplace request ever used (see
+        `IPChanger.get_current_ip`). An empty `exit_ip` on a successful run means "not
+        knowable", not "not looked up".
         """
         for attempt in range(1, MAX_BLACKLIST_RETRIES + 1):
-            query_run = QueryRun(
-                query=query,
-                run_start=datetime.now(timezone.utc),
-                exit_ip=self._current_exit_ip(),
-            )
+            query_run = QueryRun(query=query, run_start=datetime.now(timezone.utc))
             query_run.save()
             try:
                 assert self.ip_changer.session is not None
@@ -136,9 +138,10 @@ class ScrapeRunner:
             except MarketplaceBlockedError as e:
                 query_run.success = False
                 query_run.error = f"{type(e).__name__}: {e}"
+                query_run.exit_ip = e.exit_ip
                 logger.warning(
                     "Query %s blacklisted on exit IP %s (attempt %d/%d)",
-                    query, query_run.exit_ip or "unknown", attempt, MAX_BLACKLIST_RETRIES,
+                    query, e.exit_ip or "unknown", attempt, MAX_BLACKLIST_RETRIES,
                 )
             except Exception as e:
                 query_run.success = False
@@ -187,22 +190,6 @@ class ScrapeRunner:
         return QueryResult.failure(
             query, f"blacklisted after {MAX_BLACKLIST_RETRIES} attempts", query_run.exit_ip
         )
-
-    def _current_exit_ip(self) -> str:
-        """Best-effort egress IP, recorded on QueryRun for failure attribution.
-
-        Sampled per attempt rather than per pass on purpose: Tor rebuilds circuits on its
-        own schedule, and "did the exit change mid-pass?" is exactly the question this
-        column exists to answer (IP reputation vs. a sliding-window rate limit). The
-        lookup does not touch the marketplace, so it costs nothing against the budget there.
-
-        Never fatal: an unreachable IP-echo service must not take down a scraping pass.
-        """
-        try:
-            return str(ip_address(self.ip_changer.get_current_ip()))
-        except Exception:
-            logger.warning("Could not determine the current exit IP", exc_info=True)
-            return ""
 
     def _sleep_between_queries(self) -> None:
         wait = uniform(*QUERY_WAIT_TIME)

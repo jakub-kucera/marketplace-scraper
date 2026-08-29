@@ -31,10 +31,11 @@ def make_listing_item(**overrides) -> dict:
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, json_data=None, headers=None):
+    def __init__(self, status_code=200, json_data=None, headers=None, text=""):
         self.status_code = status_code
         self._json_data = json_data
         self.headers = headers or {}
+        self.text = text
 
     def json(self):
         return self._json_data
@@ -245,11 +246,19 @@ class TestRunQuery:
         from bazos.exceptions import MarketplaceBlockedError
 
         scraper = self._scraper_not_blacklisted(monkeypatch)
-        scraper.session.get.return_value = FakeResponse(status_code=status_code, json_data={})
+        # The API answers a block in JSON rather than nginx's HTML, but names the IP in
+        # the same shape — measured live 2026-08-29.
+        scraper.session.get.return_value = FakeResponse(
+            status_code=status_code,
+            json_data={},
+            text='{"error_code":"403","message":"You don\'t have permission to access '
+                 'this server. IP: 86.54.28.49"}',
+        )
 
-        with pytest.raises(MarketplaceBlockedError):
+        with pytest.raises(MarketplaceBlockedError) as excinfo:
             list(scraper.run_query(query))
 
+        assert excinfo.value.exit_ip == "86.54.28.49"
         assert scraper.sent_requests_count == 1
 
 
