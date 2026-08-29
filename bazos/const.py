@@ -79,7 +79,19 @@ QUERY_WAIT_TIME: Final[tuple[float, float]] = (5.0, 15.0)
 # How many times a query is attempted before it is written off for this pass. Attempts
 # after the first are preceded by an IP rotation. The attempt itself is the blacklist
 # probe — see ScrapeRunner._run_query_with_rotation for why there is no separate one.
-MAX_BLACKLIST_RETRIES: Final[int] = 3
+#
+# Sized against a measured block rate, not intuition. Somewhere around half of Tor exits
+# are 403'd by Bazos — 5/12 and 8/14 in two probes on 2026-08-29, and the QueryRun history
+# implies ~48% — and IsolateDestAddr draws an independent exit per destination host, so
+# every attempt is an independent ~coin flip. At 3 attempts that left ~14% of query-passes
+# with nothing at all, matching that history exactly (1428/1654 = 86.3% eventual success
+# over 2026-08-24..29, which is 1 - 0.5^3). 8 takes the expected loss to ~1%. The spread
+# between those samples is the reason for the margin: 8 stays near 1% anywhere in it,
+# where 6 would be ~2% at the bad end. It is only affordable because a rotation is now a
+# SOCKS-credential swap costing ~1 s rather than a 10-50 s NEWNYM round trip; raising it
+# on the old rotation would have added minutes to every blocked query. Pass wall clock
+# *falls* despite the higher ceiling, for the same reason.
+MAX_BLACKLIST_RETRIES: Final[int] = 8
 
 # ---------------------------------------------------------------------------
 # Pipeline process constants
