@@ -33,7 +33,6 @@ def make_runner(unsafe=False):
     runner.ip_changer = MagicMock()
     runner.ip_changer.session = MagicMock()
     runner.ip_changer.check_ip_local.return_value = False
-    runner.ip_changer.get_current_ip.return_value = "1.2.3.4"
     runner.ip_changer.rotate_circuit.return_value = True
     runner.zero_rows_passes = 0
     runner.zero_new_ads_passes = 0

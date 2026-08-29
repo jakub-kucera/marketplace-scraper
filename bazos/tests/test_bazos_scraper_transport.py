@@ -193,12 +193,19 @@ def test_check_blacklisted_is_false_on_a_normal_response(scraper):
 
 
 @pytest.mark.django_db
-def test_run_query_raises_on_403(scraper, notebook_query):
-    """Hand-written cassette: a ban cannot be recorded on demand."""
+def test_run_query_raises_on_403_carrying_the_ip_the_block_named(scraper, notebook_query):
+    """Hand-written cassette: a ban cannot be recorded on demand.
+
+    The IP matters as much as the raise. It is the only knowable record of which exit
+    node was blocked — the transport isolates circuits per destination host, so no
+    IP-echo lookup answers for the circuit this request travelled.
+    """
     cassette = MANUAL_CASSETTES / "blacklisted_403.yaml"
     with vcr.use_cassette(str(cassette), record_mode="none", match_on=["method", "path"]):
-        with pytest.raises(MarketplaceBlockedError):
+        with pytest.raises(MarketplaceBlockedError) as excinfo:
             list(scraper.run_query(notebook_query))
+
+    assert excinfo.value.exit_ip == "37.114.63.5"
 
 
 @pytest.mark.django_db

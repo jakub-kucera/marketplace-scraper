@@ -4,8 +4,13 @@
 # Shape is taken from the live-verified behaviour of the block (403 on the
 # request path, no Retry-After, no 429 stage). Served for both the listing path
 # and the /search.php blacklist probe, so one cassette covers
-# `run_query` raising BazosBlacklistedError and `check_blacklisted()` returning
+# `run_query` raising MarketplaceBlockedError and `check_blacklisted()` returning
 # True. Matched on method+path only — the query string is irrelevant to a ban.
+#
+# The body is the real one, byte for byte as measured live 2026-08-29 (82 bytes,
+# nginx's own deny page). It matters that it stays real: the IP it names is the
+# only trustworthy record of which exit node was blocked, and
+# `MarketplaceBlockedError.from_response` parses it out of exactly this string.
 interactions:
 - request:
     body: null
@@ -20,7 +25,7 @@ interactions:
     uri: https://pc.bazos.cz/notebook/0/?hledat=thinkpad+x230&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat
   response:
     body:
-      string: "<html><head><title>403 Forbidden</title></head><body><h1>Forbidden</h1></body></html>"
+      string: "<H1>Forbidden</H1>You don't have permission to access this server. IP: 37.114.63.5"
     headers:
       Content-Type:
       - text/html
@@ -40,7 +45,7 @@ interactions:
     uri: https://www.bazos.cz/search.php?hledat=iphone&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat&kitx=ano
   response:
     body:
-      string: "<html><head><title>403 Forbidden</title></head><body><h1>Forbidden</h1></body></html>"
+      string: "<H1>Forbidden</H1>You don't have permission to access this server. IP: 37.114.63.5"
     headers:
       Content-Type:
       - text/html

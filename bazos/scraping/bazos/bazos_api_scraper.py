@@ -164,7 +164,7 @@ class BazosApiScraper:
             logger.warning("BazosApiScraper: no response fetching offset=%d, stopping query", offset)
             return [], None
         if response.status_code in (403, 429):
-            raise MarketplaceBlockedError()
+            raise MarketplaceBlockedError.from_response(response)
         if response.status_code != 200:
             logger.warning("BazosApiScraper: status=%d fetching offset=%d, stopping query", response.status_code, offset)
             return [], None

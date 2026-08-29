@@ -163,7 +163,6 @@ def make_runner(summary_senders=None):
     runner.ip_changer = MagicMock()
     runner.ip_changer.session = MagicMock()
     runner.ip_changer.check_ip_local.return_value = False
-    runner.ip_changer.get_current_ip.return_value = "185.242.6.116"
     runner.zero_rows_passes = 0
     runner.zero_new_ads_passes = 0
     return runner

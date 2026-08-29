@@ -30,7 +30,7 @@ class StopLoop(Exception):
     """Sentinel used to escape ScrapeRunner.run()'s `while True` after one pass."""
 
 
-def make_runner(exit_ip="185.242.6.116"):
+def make_runner():
     runner = ScrapeRunner.__new__(ScrapeRunner)
     runner.unsafe = False
     runner.discord_loggers = []
@@ -39,7 +39,6 @@ def make_runner(exit_ip="185.242.6.116"):
     runner.ip_changer = MagicMock()
     runner.ip_changer.session = MagicMock()
     runner.ip_changer.check_ip_local.return_value = False
-    runner.ip_changer.get_current_ip.return_value = exit_ip
     runner.ip_changer.rotate_circuit.return_value = True
     runner.zero_rows_passes = 0
     runner.zero_new_ads_passes = 0
@@ -222,27 +221,47 @@ def test_local_ip_skips_the_pass_but_still_sleeps(query):
 
 
 @pytest.mark.django_db
-def test_query_run_records_the_exit_ip(query):
-    """The column that settles IP-reputation vs. sliding-window rate limiting."""
-    runner = make_runner(exit_ip="185.242.6.116")
+def test_query_run_records_the_exit_ip_the_marketplace_reported(query):
+    """The only trustworthy source for it. The 403 body names the IP Bazos saw; an
+    IP-echo lookup would name the icanhazip circuit's exit instead, which is a different
+    circuit under IsolateDestAddr and was never used to reach the marketplace.
+    """
+    runner = make_runner()
+    runner.ip_changer.rotate_circuit.return_value = False
 
-    with patch.object(QueryRunner, "run", return_value=0):
+    with patch.object(QueryRunner, "run",
+                      side_effect=MarketplaceBlockedError(exit_ip="37.114.63.5")):
         run_one_pass(runner)
 
-    assert QueryRun.objects.get(query=query).exit_ip == "185.242.6.116"
+    assert QueryRun.objects.get(query=query).exit_ip == "37.114.63.5"
 
 
 @pytest.mark.django_db
-def test_unreachable_ip_echo_service_does_not_break_the_pass(query):
+def test_a_block_body_without_an_ip_leaves_the_column_empty(query):
     runner = make_runner()
-    runner.ip_changer.get_current_ip.side_effect = OSError("no route to host")
+    runner.ip_changer.rotate_circuit.return_value = False
+
+    with patch.object(QueryRunner, "run", side_effect=MarketplaceBlockedError()):
+        run_one_pass(runner)
+
+    assert QueryRun.objects.get(query=query).exit_ip == ""
+
+
+@pytest.mark.django_db
+def test_a_successful_run_costs_no_egress_lookup(query):
+    """Blocks are the only runs that can know their exit IP, so a successful one must not
+    pay a Tor round trip to record a wrong answer. This fired once per *attempt*: 2709
+    lookups in five days, each with a 20 s connect budget.
+    """
+    runner = make_runner()
 
     with patch.object(QueryRunner, "run", return_value=2):
         run_one_pass(runner)
 
+    runner.ip_changer.get_current_ip.assert_not_called()
     run = QueryRun.objects.get(query=query)
-    assert run.exit_ip == ""
     assert run.success is True
+    assert run.exit_ip == ""
 
 
 # ---------------------------------------------------------------------------

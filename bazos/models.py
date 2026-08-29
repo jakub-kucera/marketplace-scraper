@@ -346,7 +346,12 @@ class QueryRun(models.Model):
         # Indexed because grouping/filtering failures by IP is the entire reason the
         # column exists, on the fastest-growing table here.
         db_index=True,
-        help_text="Egress IP this run went out on, sampled at run_start.",
+        help_text=(
+            "Egress IP the marketplace reported when it blocked this run, read out of the "
+            "403 body. Empty on a successful run — the transport isolates circuits per "
+            "destination host, so there is no IP-echo lookup that would answer for the "
+            "circuit the marketplace was actually served by."
+        ),
     )
 
 
