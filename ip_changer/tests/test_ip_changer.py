@@ -2,11 +2,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
+from django.conf import settings
 from stem import Signal
 
 from ip_changer.dummy import DummyIPChanger
 from ip_changer.ip_changer import IPChanger
-from ip_changer.tor import MAX_RENEW_ATTEMPTS, TorIPChanger
+from ip_changer.tor import TorIPChanger, tor_proxies
 
 
 class StubIPChanger(IPChanger):
@@ -14,11 +15,8 @@ class StubIPChanger(IPChanger):
     def renew_session(self):
         self.session = MagicMock()
 
-    def renew_ip(self):
-        pass
-
-    def renew_ip_and_check_new(self) -> str:
-        return "1.2.3.4"
+    def rotate_circuit(self) -> bool:
+        return True
 
 
 # --- DummyIPChanger ---
@@ -30,6 +28,12 @@ def test_dummy_session_is_a_real_requests_session():
 
 def test_dummy_check_ip_local_always_false():
     assert DummyIPChanger().check_ip_local() is False
+
+
+def test_dummy_reports_that_it_cannot_rotate():
+    """One egress, no circuits — the runner must stop retrying rather than re-run the
+    query against the same IP that just blocked it."""
+    assert DummyIPChanger().rotate_circuit() is False
 
 
 def test_get_current_ip_strips_whitespace():
@@ -63,6 +67,7 @@ def tor_changer():
 
 
 def test_tor_renew_ip_sends_newnym_signal(tor_changer):
+    """Not on the retry path any more, but still the coarse manual reset."""
     with patch("ip_changer.tor.socket.gethostbyname", return_value="172.18.0.5"), \
          patch("ip_changer.tor.Controller") as mock_controller_cls:
         mock_controller = MagicMock()
@@ -72,56 +77,54 @@ def test_tor_renew_ip_sends_newnym_signal(tor_changer):
     mock_controller.signal.assert_called_once_with(Signal.NEWNYM)
 
 
-def test_tor_renew_session_sets_socks5_proxies():
-    with patch.object(TorIPChanger, "renew_session"):
-        changer = TorIPChanger()
-    changer.renew_session()
-    assert changer.session.proxies["http"].startswith("socks5h://")
-    assert changer.session.proxies["https"].startswith("socks5h://")
+def test_tor_session_carries_socks_credentials_pinning_one_circuit():
+    """The credentials are the mechanism: Tor's IsolateSOCKSAuth gives each distinct
+    username its own circuit, so the username *is* the circuit handle."""
+    changer = TorIPChanger()
+
+    for scheme in ("http", "https"):
+        proxy = changer.session.proxies[scheme]
+        assert proxy.startswith("socks5h://")
+        assert f"{changer.circuit_id}:x@" in proxy
 
 
-def test_tor_skip_1st_renew_returns_current_ip_without_rotating(tor_changer):
-    tor_changer.skip_1st_renew = True
-    tor_changer.session.get.return_value = MagicMock(text="5.5.5.5\n")
-    result = tor_changer.renew_ip_and_check_new()
-    assert result == "5.5.5.5"
-    assert tor_changer.skip_1st_renew is False
+def test_tor_rotate_circuit_swaps_in_a_new_credential_and_session():
+    changer = TorIPChanger()
+    before_id, before_session = changer.circuit_id, changer.session
+
+    assert changer.rotate_circuit() is True
+
+    assert changer.circuit_id != before_id
+    assert changer.session is not before_session
+    assert f"{changer.circuit_id}:x@" in changer.session.proxies["https"]
 
 
-def test_tor_skip_1st_renew_does_not_call_renew_ip(tor_changer):
-    tor_changer.skip_1st_renew = True
-    tor_changer.session.get.return_value = MagicMock(text="5.5.5.5\n")
-    with patch.object(tor_changer, "renew_ip") as mock_renew:
-        tor_changer.renew_ip_and_check_new()
-    mock_renew.assert_not_called()
-
-
-def test_tor_renew_signals_newnym_on_every_round_not_just_once(tor_changer):
-    """Tor rate-limits NEWNYM to ~1/10 s and drops the rest. The old loop signalled once
-    and then only polled, so a dropped signal meant polling a circuit that could never
-    change — an unbounded spin on the blocked exit.
+def test_tor_rotate_circuit_sends_no_control_port_signal():
+    """The point of the change: rotation is a local credential swap, so it costs no
+    NEWNYM round trip and no rate-limit wait. Tor builds the circuit on the next request.
     """
-    ips = iter(["1.1.1.1", "1.1.1.1", "1.1.1.1", "9.9.9.9"])
-    # **kwargs: get_current_ip takes an `attempts` argument now.
-    tor_changer.get_current_ip = MagicMock(side_effect=lambda **kwargs: next(ips))
+    changer = TorIPChanger()
 
-    with patch.object(tor_changer, "renew_ip") as mock_renew, \
-         patch("ip_changer.tor.sleep"):
-        result = tor_changer.renew_ip_and_check_new()
+    with patch("ip_changer.tor.Controller") as mock_controller_cls, \
+         patch("ip_changer.tor.socket.gethostbyname") as mock_resolve:
+        changer.rotate_circuit()
 
-    assert result == "9.9.9.9"
-    assert mock_renew.call_count == 3
+    mock_controller_cls.from_port.assert_not_called()
+    mock_resolve.assert_not_called()
 
 
-def test_tor_renew_gives_up_after_max_attempts_and_reports_the_unchanged_ip(tor_changer):
-    """Bounded, and honest about failing: ScrapeRunner.change_ip compares the result to the
-    old IP to decide whether retrying the query is worth anything.
-    """
-    tor_changer.get_current_ip = MagicMock(return_value="1.1.1.1")
+def test_tor_rotate_circuit_never_repeats_a_credential():
+    changer = TorIPChanger()
 
-    with patch.object(tor_changer, "renew_ip") as mock_renew, \
-         patch("ip_changer.tor.sleep"):
-        result = tor_changer.renew_ip_and_check_new()
+    ids = {changer.circuit_id}
+    for _ in range(20):
+        changer.rotate_circuit()
+        ids.add(changer.circuit_id)
 
-    assert result == "1.1.1.1"
-    assert mock_renew.call_count == MAX_RENEW_ATTEMPTS
+    assert len(ids) == 21
+
+
+def test_unauthenticated_proxies_have_no_credentials():
+    """`PROXIES` is the scrapers' no-session fallback: nothing there rotates, so it must
+    not claim a circuit of its own."""
+    assert tor_proxies()["https"] == f"socks5h://{settings.TOR_PROXY_IP}:9050"
