@@ -1,6 +1,7 @@
 import logging
 import socket
-from time import monotonic, sleep
+from secrets import token_hex
+
 import requests
 import requests_random_user_agent  # type: ignore  # noqa: F401 (side-effecting import: patches requests.Session UA)
 from stem import Signal
@@ -11,79 +12,68 @@ from ip_changer.ip_changer import IPChanger
 
 logger = logging.getLogger(__name__)
 
-PROXIES = {
-    'http': f'socks5h://{settings.TOR_PROXY_IP}:9050',
-    'https': f'socks5h://{settings.TOR_PROXY_IP}:9050'
-}
 
-#: Tor rate-limits NEWNYM to roughly one per 10 s and silently ignores signals sent
-#: inside that window, so a shorter wait makes a re-signal a no-op rather than a retry.
-NEWNYM_WAIT_SECONDS = 10
-#: Bound on the rotate-and-check loop. Without one a Tor that will not hand over a new
-#: exit hangs the whole scraper pass indefinitely.
-MAX_RENEW_ATTEMPTS = 5
-#: Wall-clock ceiling on one rotation, because the attempt count alone does not bound the
-#: time: each round's IP lookup can itself burn its connect+read budget. A pass has nothing
-#: that can interrupt it — the force-run flag and _interruptible_sleep only apply between
-#: passes — so this is the only thing keeping a sulking Tor from eating an entire evening.
-ROTATION_DEADLINE_SECONDS = 180
+def tor_proxies(circuit_id: str | None = None) -> dict[str, str]:
+    """SOCKS proxy dict for the Tor container, optionally pinned to one circuit.
+
+    Tor keys stream isolation on the SOCKS credentials (`IsolateSOCKSAuth`, on by
+    default), so a username it has not seen before is served by a brand-new circuit with
+    a new exit node — built on demand, in well under a second. That is the whole
+    mechanism behind `TorIPChanger.rotate_circuit`, and it needs no control-port signal.
+
+    Passing no `circuit_id` shares the unauthenticated default circuit, which is what the
+    scrapers' own no-session fallback and `compare_bazos_scrapers` want: they are not
+    rotating anything.
+    """
+    credentials = f"{circuit_id}:x@" if circuit_id else ""
+    url = f"socks5h://{credentials}{settings.TOR_PROXY_IP}:9050"
+    return {"http": url, "https": url}
+
+
+PROXIES = tor_proxies()
 
 
 class TorIPChanger(IPChanger):
-    def __init__(self, skip_1st_renew=False):
-        super().__init__(skip_1st_renew=skip_1st_renew)
+    def __init__(self):
+        # Before super(), which calls renew_session().
+        self.circuit_id = token_hex(8)
+        super().__init__()
 
     def renew_session(self):
         self.session = requests.Session()
-        self.session.proxies = PROXIES
+        self.session.proxies = tor_proxies(self.circuit_id)
+
+    def rotate_circuit(self) -> bool:
+        """Draw a fresh circuit by asking Tor for one under a credential it has not seen.
+
+        Measured on the Pi 2026-08-29: a fresh SOCKS username gets a new exit in
+        0.6-1.2 s. The NEWNYM loop this replaced cost 10-50 s for a *worse* answer — it
+        signalled the control port, slept `NEWNYM_WAIT_SECONDS` for the rate limit, then
+        re-read icanhazip to prove the exit had changed. Under `IsolateDestAddr` that
+        proof is about the icanhazip circuit and says nothing about the marketplace's,
+        so the budget bought a check that could not be right (see
+        `IPChanger.get_current_ip`).
+
+        A random token rather than a counter so a restarted process cannot land back on
+        a circuit it just abandoned.
+
+        Always True: this is local state, and Tor builds the circuit lazily on the next
+        request. A circuit that cannot be built surfaces there, as a request failure.
+        """
+        self.circuit_id = token_hex(8)
+        self.renew_session()
+        logger.info("Rotated to Tor circuit %s", self.circuit_id)
+        return True
 
     def renew_ip(self):
+        """Signal NEWNYM: a new identity for *every* circuit at once.
+
+        Nothing calls this. It is kept as the coarse manual reset — `rotate_circuit` is
+        per-session and cannot help if Tor's guards themselves are the problem — but
+        don't read its existence as evidence the retry path signals the control port; it
+        does not, deliberately.
+        """
         address = socket.gethostbyname(settings.TOR_PROXY_IP)
         with Controller.from_port(address=address, port=9051) as controller:
             controller.authenticate(password=settings.TOR_PROXY_PASSWORD)
             controller.signal(Signal.NEWNYM)
-
-    def renew_ip_and_check_new(self) -> str:
-        """Rotate until the exit IP actually changes. Never raises on a failed lookup.
-
-        This runs on the recovery path — the caller is already dealing with a blocked or
-        broken transport — so a timed-out IP lookup here must be a wasted round, not an
-        exception that takes the pass down with it. An unknown starting IP is treated as
-        "anything readable is progress"; an unknown new IP just means this round proved
-        nothing and we try again.
-        """
-        old_ip = self.try_get_current_ip()
-        logger.debug("Old IP: %s", old_ip)
-
-        if self.skip_1st_renew:
-            self.skip_1st_renew = False
-            logger.debug("Skipping 1st renew")
-            return old_ip or ""
-
-        deadline = monotonic() + ROTATION_DEADLINE_SECONDS
-        for attempt in range(1, MAX_RENEW_ATTEMPTS + 1):
-            if monotonic() > deadline:
-                logger.error(
-                    "Rotation deadline of %ds hit after %d attempts, giving up",
-                    ROTATION_DEADLINE_SECONDS, attempt - 1,
-                )
-                break
-            # Re-signal on every round rather than signalling once and then polling: if
-            # Tor drops the first NEWNYM (it rate-limits them), polling the same circuit
-            # can never make it change, so the old loop spun forever on that IP.
-            self.renew_ip()
-            sleep(NEWNYM_WAIT_SECONDS)  # let the new circuit come up, and clear the rate limit
-            self.renew_session()
-            new_ip = self.try_get_current_ip()
-            if new_ip is not None and new_ip != old_ip:
-                logger.info("New IP: %s", new_ip)
-                return new_ip
-            logger.warning(
-                "NEWNYM %d/%d did not get a new exit IP (%s)",
-                attempt, MAX_RENEW_ATTEMPTS, new_ip or "lookup failed",
-            )
-        logger.error(
-            "Exit IP still %s after %d NEWNYM attempts, giving up on rotation",
-            old_ip or "unknown", MAX_RENEW_ATTEMPTS,
-        )
-        return old_ip or ""

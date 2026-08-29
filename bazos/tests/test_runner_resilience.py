@@ -34,6 +34,7 @@ def make_runner(unsafe=False):
     runner.ip_changer.session = MagicMock()
     runner.ip_changer.check_ip_local.return_value = False
     runner.ip_changer.get_current_ip.return_value = "1.2.3.4"
+    runner.ip_changer.rotate_circuit.return_value = True
     runner.zero_rows_passes = 0
     runner.zero_new_ads_passes = 0
     return runner
@@ -109,7 +110,7 @@ def test_a_failed_rotation_does_not_cost_other_queries_their_turn(query, categor
         load_full_description=False,
     )
     runner = make_runner()
-    runner.ip_changer.renew_ip_and_check_new.side_effect = requests.exceptions.ConnectTimeout("boom")
+    runner.ip_changer.rotate_circuit.side_effect = requests.exceptions.ConnectTimeout("boom")
 
     def fake_run(self):
         if self.query.pk == query.pk:
