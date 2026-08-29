@@ -3,10 +3,12 @@
 Context (measured from the QueryRun history of 2026-08-23): the runner used to fire a
 pre-flight `check_blacklisted()` probe per query against one fixed `search.php` URL, and
 treat a 403 raised by the *actual* query as a generic failure — logged, written off, and
-the next query attempted on the same dead IP milliseconds later. Because the block is
-path-scoped, the probe reported "clear" while the real request 403'd: every
-`MarketplaceBlockedError` row in that history is a run whose probe had just passed, and the
-failures arrived in clusters because nothing rotated between them.
+the next query attempted on the same dead IP milliseconds later. The probe reported
+"clear" while the real request 403'd: every `MarketplaceBlockedError` row in that history
+is a run whose probe had just passed. It could not have been right — the Tor proxy runs
+`SocksPort ... IsolateDestAddr`, so the probe URL and the query URL were served by
+different circuits with different exit nodes. The failures arrived in clusters because
+nothing rotated between them.
 
 So the probe is gone and the query attempt is the probe: a 403 rotates the IP and retries,
 up to MAX_BLACKLIST_RETRIES times.
@@ -38,6 +40,7 @@ def make_runner(exit_ip="185.242.6.116"):
     runner.ip_changer.session = MagicMock()
     runner.ip_changer.check_ip_local.return_value = False
     runner.ip_changer.get_current_ip.return_value = exit_ip
+    runner.ip_changer.rotate_circuit.return_value = True
     runner.zero_rows_passes = 0
     runner.zero_new_ads_passes = 0
     return runner
@@ -79,7 +82,7 @@ def test_blacklisted_query_rotates_ip_and_retries_the_same_query(query):
     with patch.object(QueryRunner, "run", fake_run):
         run_one_pass(runner)
 
-    runner.ip_changer.renew_ip_and_check_new.assert_called_once()
+    runner.ip_changer.rotate_circuit.assert_called_once()
 
     runs = list(QueryRun.objects.filter(query=query).order_by("run_start"))
     assert len(runs) == 2
@@ -105,7 +108,7 @@ def test_durably_blacklisted_query_is_skipped_without_taking_down_the_pass(query
     assert blocked_runs.count() == MAX_BLACKLIST_RETRIES
     assert not blocked_runs.filter(success=True).exists()
     # Rotation happens *between* attempts, so there is one fewer than there are attempts.
-    assert runner.ip_changer.renew_ip_and_check_new.call_count == MAX_BLACKLIST_RETRIES - 1
+    assert runner.ip_changer.rotate_circuit.call_count == MAX_BLACKLIST_RETRIES - 1
 
     assert QueryRun.objects.get(query=other_query, success=True).new_ads_count == 5
 
@@ -154,17 +157,18 @@ def test_a_retried_new_query_still_runs_as_a_new_query(query, make_ad):
 
 @pytest.mark.django_db
 def test_failed_rotation_abandons_the_query_instead_of_burning_attempts(query):
-    """`renew_ip_and_check_new` hands back the *old* IP when it gives up. Re-running the
-    query against the exit that just 403'd it cannot succeed, so don't pay for it.
+    """A transport with a single egress (DummyIPChanger) says so by returning False.
+    Re-running the query against the exit that just 403'd it cannot succeed, so don't
+    pay for it.
     """
-    runner = make_runner(exit_ip="185.242.6.116")
-    runner.ip_changer.renew_ip_and_check_new.return_value = "185.242.6.116"
+    runner = make_runner()
+    runner.ip_changer.rotate_circuit.return_value = False
 
     with patch.object(QueryRunner, "run", side_effect=MarketplaceBlockedError()):
         run_one_pass(runner)
 
     assert QueryRun.objects.filter(query=query).count() == 1
-    runner.ip_changer.renew_ip_and_check_new.assert_called_once()
+    runner.ip_changer.rotate_circuit.assert_called_once()
 
 
 @pytest.mark.django_db
@@ -176,7 +180,7 @@ def test_a_non_blacklist_failure_is_not_retried(query):
         run_one_pass(runner)
 
     assert QueryRun.objects.filter(query=query).count() == 1
-    runner.ip_changer.renew_ip_and_check_new.assert_not_called()
+    runner.ip_changer.rotate_circuit.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -245,33 +249,41 @@ def test_unreachable_ip_echo_service_does_not_break_the_pass(query):
 # What a rotation reports, and where
 # ---------------------------------------------------------------------------
 
-def test_successful_rotation_is_logged_locally_but_not_to_discord():
+def test_successful_rotation_is_not_announced_to_discord():
     """A rotation that worked carries nothing actionable — the *next* query attempt is
-    what decides whether the new exit is any good — and `change_ip` fires up to twice per
-    query across every query in a pass. That is enough to swamp a webhook that
-    rate-limits around 30 posts/min, taking the alerts that do matter down with it.
+    what decides whether the new circuit is any good — and it fires up to
+    MAX_BLACKLIST_RETRIES times per query across every query in a pass. That is enough to
+    swamp a webhook that rate-limits around 30 posts/min, taking the alerts that do
+    matter down with it.
     """
-    runner = make_runner(exit_ip="1.1.1.1")
+    runner = make_runner()
     discord = MagicMock()
     runner.discord_loggers = [discord]
-    runner.ip_changer.renew_ip_and_check_new.return_value = "2.2.2.2"
 
-    # Asserting on the module logger rather than `caplog`: settings.py configures the
-    # `bazos` logger with propagate=False, so records never reach caplog's root handler.
-    with patch("bazos.scraping.runner.logger") as mock_logger:
-        assert runner.change_ip() is True
+    assert runner.change_ip() is True
 
     discord.send_plain.assert_not_called()
-    mock_logger.info.assert_any_call("NEW IP=%s", "2.2.2.2")
+
+
+def test_rotation_costs_no_egress_lookup():
+    """The regression this whole change is about: proving the rotation worked used to
+    mean reading icanhazip, which under IsolateDestAddr reports a different circuit than
+    the marketplace is served by. It bought a wrong answer for a 10-50 s round trip.
+    """
+    runner = make_runner()
+
+    runner.change_ip()
+
+    runner.ip_changer.get_current_ip.assert_not_called()
 
 
 def test_failed_rotation_still_posts_to_discord():
     """The failure is the actionable half: it means the caller is about to give up on
     this query for the pass."""
-    runner = make_runner(exit_ip="1.1.1.1")
+    runner = make_runner()
     discord = MagicMock()
     runner.discord_loggers = [discord]
-    runner.ip_changer.renew_ip_and_check_new.return_value = "1.1.1.1"
+    runner.ip_changer.rotate_circuit.return_value = False
 
     assert runner.change_ip() is False
 
