@@ -1,7 +1,10 @@
+import logging
 import re
 from ipaddress import ip_address
 
 from requests import Response
+
+logger = logging.getLogger(__name__)
 
 #: Both the HTML and the JSON block bodies name the offending IP, in the same shape:
 #: `<H1>Forbidden</H1>You don't have permission to access this server. IP: 37.114.63.5`
@@ -56,11 +59,19 @@ def parse_blocked_exit_ip(body: str) -> str:
     Validated rather than taken at face value: the pattern is loose enough to match
     prose, and `QueryRun.exit_ip` is a 45-char column whose whole purpose is being
     grouped on.
+
+    A match that fails validation is logged rather than dropped quietly. It is otherwise
+    indistinguishable from a body naming no IP at all, so a body-format drift would show
+    up only as the column silently going empty across every attempt.
     """
     match = BLOCKED_IP_PATTERN.search(body[:BLOCKED_BODY_SCAN_CHARS])
     if match is None:
         return ""
+    # `.rstrip(".")` and not `.rstrip(".:")`: the pattern is greedy and `.` is the most
+    # likely sentence terminator to follow the IP, but `2001:db8::` ends in colons legally.
+    candidate = match.group(1).rstrip(".")
     try:
-        return str(ip_address(match.group(1)))
+        return str(ip_address(candidate))
     except ValueError:
+        logger.warning("Block body named an unparseable IP: %r", match.group(1))
         return ""
