@@ -33,7 +33,7 @@ class ScrapeRunner:
             for s in Discord.objects.filter(for_summary=True)
         ]
         ip_changer_class = DummyIPChanger if settings.IP_CHANGER_TYPE == "DUMMY" else TorIPChanger
-        self.ip_changer = ip_changer_class(skip_1st_renew=False)
+        self.ip_changer = ip_changer_class()
         self.zero_rows_passes = 0
         self.zero_new_ads_passes = 0
 
@@ -163,8 +163,7 @@ class ScrapeRunner:
                 rotated = False
             if not rotated:
                 self.log(
-                    f"Could not rotate away from {query_run.exit_ip or 'the current IP'}, "
-                    f"abandoning {query} this pass",
+                    f"Could not rotate onto a fresh circuit, abandoning {query} this pass",
                     level=logging.WARNING,
                 )
                 return QueryResult.failure(
@@ -301,34 +300,26 @@ class ScrapeRunner:
             discord_logger.send_plain(message)
 
     def change_ip(self) -> bool:
-        """Rotate to a different egress IP. Returns whether the exit actually changed.
+        """Move onto a fresh egress for the next attempt. Returns whether one exists.
 
-        Does NOT validate the new IP against the marketplace — validation is the caller's next real
-        query attempt (see `_run_query_with_rotation`). This used to call
-        `renew_ip_bazos_ok`, which validated each candidate with the same misleading
-        fixed-URL probe, so it could burn every attempt rejecting usable IPs or settle on
-        one the probe liked and the query did not.
+        Does NOT validate the new egress against the marketplace — validation is the
+        caller's next real query attempt (see `_run_query_with_rotation`).
 
-        The return value matters because `renew_ip_and_check_new` gives up after a bounded
-        number of NEWNYM attempts and hands back the *old* IP. Retrying a query against the
-        exit that just 403'd it cannot succeed, so the caller stops instead.
+        It also does not report which IP we landed on, and cannot: the Tor proxy runs
+        `SocksPort ... IsolateDestAddr`, so asking icanhazip answers for a different
+        circuit than the marketplace will be served by. The old "NEW IP=" line was that
+        wrong answer, bought with a 10-50 s NEWNYM round trip per retry. The IP that
+        actually blocked us comes back in the 403 body instead.
 
-        Only a *failed* rotation goes to Discord (`self.log`). The successful "NEW IP="
-        line and the "current=" line are local only (console + DB via django-db-logger).
-        During the clustered-403 runs this whole change targets, `change_ip` fires up to
-        twice per query across every query in the pass, and a webhook that rate-limits
-        around 30 posts/min is easy to swamp
+        Only a *failed* rotation goes to Discord (`self.log`) — it means the caller is
+        about to give up on this query for the pass. A successful one is local only
+        (console + DB via django-db-logger): with MAX_BLACKLIST_RETRIES attempts per
+        query across every query in a pass, a webhook that rate-limits around 30
+        posts/min is easy to swamp.
         """
-        old_ip = self._current_exit_ip()
-        logger.info("Changing IP, current=%s", old_ip or "unknown")
-        new_ip = self.ip_changer.renew_ip_and_check_new()
-        # An unknown old IP is treated as a successful rotation: the caller should spend
-        # its remaining attempts rather than give up on a guess.
-        rotated = new_ip != old_ip
-        if rotated:
-            # Local only — deliberately not `self.log`. See the docstring.
-            logger.info("NEW IP=%s", new_ip)
-        else:
-            self.log(f"IP rotation FAILED, still on {new_ip}", level=logging.WARNING)
+        rotated = self.ip_changer.rotate_circuit()
+        if not rotated:
+            self.log("IP rotation FAILED, this transport has only one egress",
+                     level=logging.WARNING)
         return rotated
 
