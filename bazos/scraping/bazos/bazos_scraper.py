@@ -278,7 +278,7 @@ class BazosScraper:
                 logger.warning("Failed to load %s after %d attempts, stopping query", url, MAX_ATTEMPTS)
                 break
             if response.status_code == 403:
-                raise MarketplaceBlockedError()
+                raise MarketplaceBlockedError.from_response(response)
 
             products = list(self.get_page_products(response))
             yield from products
