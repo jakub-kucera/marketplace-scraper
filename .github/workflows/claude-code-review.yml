@@ -49,14 +49,16 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
-          # `high` is passed explicitly because a non-interactive run has no
-          # remembered effort level to reuse and would fall back to the default.
-          prompt: '/code-review:code-review high --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # `--allowedTools` REPLACES the default tool set rather than adding to it,
-          # so the read tools must be listed alongside the comment tool. With the
-          # comment tool alone the reviewer cannot open a single file: it finished in
-          # ~15s over 4 turns and posted nothing (PR #69, run 33120109372).
+          # No effort level here: this is the *plugin* command, which hardcodes the model
+          # per agent internally. Effort levels (`low`..`max`) belong to the built-in
+          # `/code-review` skill, which is a different implementation.
+          prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          # `--allowedTools` REPLACES the default tool set rather than adding to it, so
+          # everything the command needs has to be listed. It is agent-driven (it launches
+          # Haiku/Sonnet/Opus subagents, hence `Task`) and talks to GitHub over `gh`, so the
+          # tools below mirror the `allowed-tools` frontmatter of the plugin's own
+          # commands/code-review.md, plus what those subagents need to read the repo.
           claude_args: |
-            --allowedTools "Read,Grep,Glob,LS,Bash(git diff:*),Bash(git log:*),Bash(git show:*),mcp__github_inline_comment__create_inline_comment"
+            --allowedTools "Task,TodoWrite,Read,Grep,Glob,LS,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git blame:*),mcp__github_inline_comment__create_inline_comment"
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
