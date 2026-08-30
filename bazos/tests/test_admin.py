@@ -12,7 +12,7 @@ from django.contrib.auth import get_user_model
 from django.forms import model_to_dict
 from django.utils import timezone
 
-from bazos.admin import AdAdmin, QueryAdmin, QueryAdminForm
+from bazos.admin import AdAdmin, QueryAdmin, QueryAdminForm, QueryRunAdmin
 from bazos.filters import RULE_REGISTRY
 from bazos.models import Ad
 from senders.models import Discord
@@ -449,3 +449,82 @@ def test_changelist_honours_the_last_run_column_sort_links(admin_client_logged_i
         response = admin_client_logged_in.get("/admin/bazos/query/", {"o": order_param})
         assert response.status_code == 200, order_param
         assert len(response.context["cl"].result_list) == len(ordering_queries)
+
+
+@pytest.fixture
+def query_run_admin():
+    from django.contrib.admin.sites import AdminSite
+
+    from bazos.admin import QueryRunAdmin
+    from bazos.models import QueryRun
+
+    return QueryRunAdmin(QueryRun, AdminSite())
+
+
+@pytest.mark.django_db
+def test_duration_is_the_measured_run_length(query_run_admin, query, rf):
+    from django.utils import timezone
+
+    from bazos.models import QueryRun
+
+    started = timezone.now()
+    QueryRun.objects.create(query=query, run_start=started, run_end=started + timedelta(seconds=12.5))
+
+    row = query_run_admin.get_queryset(rf.get("/")).get()
+
+    assert row.duration == timedelta(seconds=12.5)
+    assert query_run_admin.duration(row) == "12.5 s"
+
+
+@pytest.mark.django_db
+def test_duration_is_blank_for_a_run_that_never_ended(query_run_admin, query, rf):
+    """`run_end` is nullable — a crashed or in-flight run must not read as 0.0 s."""
+    from django.utils import timezone
+
+    from bazos.models import QueryRun
+
+    QueryRun.objects.create(query=query, run_start=timezone.now(), run_end=None)
+
+    row = query_run_admin.get_queryset(rf.get("/")).get()
+
+    assert row.duration is None
+    assert query_run_admin.duration(row) is None
+
+
+@pytest.mark.django_db
+def test_duration_sorts_longest_first_with_unmeasured_runs_last(query_run_admin, query, rf):
+    """Postgres DESC defaults to NULLS FIRST, so a bare "-duration" would open the
+    "slowest runs" view on the runs that have no duration at all."""
+    from django.utils import timezone
+
+    from bazos.models import QueryRun
+
+    started = timezone.now()
+    short = QueryRun.objects.create(query=query, run_start=started, run_end=started + timedelta(seconds=1))
+    long = QueryRun.objects.create(query=query, run_start=started, run_end=started + timedelta(seconds=90))
+    unfinished = QueryRun.objects.create(query=query, run_start=started, run_end=None)
+
+    order_field = QueryRunAdmin.duration.admin_order_field
+    rows = list(query_run_admin.get_queryset(rf.get("/")).order_by(order_field))
+
+    assert rows == [long, short, unfinished]
+
+
+@pytest.mark.django_db
+def test_changelist_honours_the_duration_column_sort_links(admin_client_logged_in, query):
+    """`admin_order_field` holds an `OrderBy` expression rather than a string, which is a
+    branch of Django's own ordering parser — exercise the real request, both directions."""
+    from django.utils import timezone
+
+    from bazos.models import QueryRun
+
+    started = timezone.now()
+    QueryRun.objects.create(query=query, run_start=started, run_end=started + timedelta(seconds=3))
+    QueryRun.objects.create(query=query, run_start=started, run_end=None)
+
+    index = QueryRunAdmin.list_display.index("duration")
+
+    for order_param in (str(index), f"-{index}"):
+        response = admin_client_logged_in.get("/admin/bazos/queryrun/", {"o": order_param})
+        assert response.status_code == 200, order_param
+        assert len(response.context["cl"].result_list) == 2
