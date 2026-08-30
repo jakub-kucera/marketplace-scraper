@@ -422,8 +422,9 @@ Polish the Django admin for the current pipeline state.
 
 3. `QueryRunAdmin`:
    - ✅ DONE — Register it if not already registered.
-   - Show duration (run_end - run_start).
-     STILL OPEN.
+   - ✅ DONE — Show duration (run_end - run_start). Annotated `run_end - run_start` in
+     `get_queryset`; null (crashed / in-flight run) renders blank rather than 0.0 s, and
+     `admin_order_field` is an `OrderBy` so the descending click keeps those rows last.
 
 Note when picking this up: `QueryAdmin.get_queryset` already combines aggregates over two
 different multi-valued relations (`runs` for last_run, `ads` for ad_count). Any further

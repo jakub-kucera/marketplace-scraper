@@ -358,6 +358,7 @@ class QueryRunAdmin(admin.ModelAdmin):
         "query",
         "run_start",
         "run_end",
+        "duration",
         "new_ads_count",
         "exit_ip",
         "success",
@@ -371,6 +372,28 @@ class QueryRunAdmin(admin.ModelAdmin):
     # search is an unanchored icontains — on a table that now grows by one row per retry
     # attempt that is a seq scan over every trace on every keystroke-submitted search.
     search_fields = ("exit_ip",)
+
+    def get_queryset(self, request):
+        # Two columns of the same row, so unlike QueryAdmin's aggregates this adds no
+        # join and cannot multiply rows.
+        return super().get_queryset(request).annotate(
+            duration=models.F("run_end") - models.F("run_start"),
+        )
+
+    def duration(self, obj):
+        delta = getattr(obj, "duration", None)
+        if delta is None:
+            # A run with no run_end has no duration rather than a zero one — it either
+            # crashed or is still in flight. None renders as the admin's empty value.
+            return None
+        return f"{delta.total_seconds():.1f} s"
+
+    # Descending is the direction the column is for ("which runs are slow"), and nulls
+    # belong at that end's bottom; Django reverses an OrderBy by flipping the null
+    # placement too, so the ascending click reads shortest-first with the unmeasured
+    # runs leading. Same shape as QueryAdmin.last_run.
+    duration.admin_order_field = models.F("duration").desc(nulls_last=True)  # type: ignore[attr-defined]
+    duration.short_description = "Duration"  # type: ignore[attr-defined]
 
 
 @admin.register(QueryChange)
