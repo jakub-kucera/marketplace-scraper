@@ -529,7 +529,6 @@ def test_changelist_honours_the_duration_column_sort_links(admin_client_logged_i
         assert response.status_code == 200, order_param
         assert len(response.context["cl"].result_list) == 2
 
-
 # ---------------------------------------------------------------------------
 # QueryAdminForm — distance filter fields
 # ---------------------------------------------------------------------------
@@ -578,3 +577,4 @@ def test_form_accepts_neither_field_set(query, valid_query_data):
     assert form.is_valid(), form.errors
     saved = form.save()
     assert (saved.filter_location_center, saved.filter_location_radius) == ("", None)
+    
