@@ -119,3 +119,14 @@ PRICE_MODEL_Z_THRESHOLD: Final[float] = -2.0
 # can satisfy while still being above market. Requiring both makes a deal mean cheap on
 # both bases.
 PRICE_MODEL_MIN_DISCOUNT_PCT: Final[float] = 10.0
+
+# ---------------------------------------------------------------------------
+# Postal-code geocoding (bazos/geo.py)
+# ---------------------------------------------------------------------------
+
+# Bazos's own geocoder, confirmed live both directions (docs/research/bazos-api/HIDDEN_API.md
+# §3.1/§6.4d). Used only to fill the PostalCode cache — a code is looked up once, ever.
+BAZOS_ZIP_API_URL: Final[str] = f"{BAZOS_API_BASE_URL}/zip.php"
+# Pacing between geocode lookups, for the backfill command that walks hundreds of them in a
+# row. The scraper's own per-ad lookups are already spaced by the walk around them.
+GEOCODE_WAIT_TIME: Final[tuple[float, float]] = (1.0, 3.0)

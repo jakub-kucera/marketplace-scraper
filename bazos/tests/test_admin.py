@@ -528,3 +528,53 @@ def test_changelist_honours_the_duration_column_sort_links(admin_client_logged_i
         response = admin_client_logged_in.get("/admin/bazos/queryrun/", {"o": order_param})
         assert response.status_code == 200, order_param
         assert len(response.context["cl"].result_list) == 2
+
+
+# ---------------------------------------------------------------------------
+# QueryAdminForm — distance filter fields
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_form_normalises_the_distance_centre(query, valid_query_data):
+    valid_query_data["filter_location_center"] = "110 00"
+    valid_query_data["filter_location_radius"] = 10
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    assert form.save().filter_location_center == "11000"
+
+
+@pytest.mark.django_db
+def test_form_rejects_a_centre_that_is_not_a_postal_code(query, valid_query_data):
+    valid_query_data["filter_location_center"] = "Praha"
+    valid_query_data["filter_location_radius"] = 10
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert not form.is_valid()
+    assert "filter_location_center" in form.errors
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("center,radius", [("110 00", ""), ("", 10)])
+def test_form_rejects_half_a_distance_filter(query, valid_query_data, center, radius):
+    """Half a filter is no filter, but looks like a configured one on the change form."""
+    valid_query_data["filter_location_center"] = center
+    valid_query_data["filter_location_radius"] = radius
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert not form.is_valid()
+
+
+@pytest.mark.django_db
+def test_form_accepts_neither_field_set(query, valid_query_data):
+    valid_query_data["filter_location_center"] = ""
+    valid_query_data["filter_location_radius"] = ""
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert (saved.filter_location_center, saved.filter_location_radius) == ("", None)

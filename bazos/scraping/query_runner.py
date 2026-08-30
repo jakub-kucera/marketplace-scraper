@@ -5,6 +5,7 @@ import requests
 from django.db import DatabaseError
 
 from bazos.const import NEW_PRODUCT_LOAD_MAX
+from bazos.geo import ensure_postal_code, parse_postal_code
 from bazos.models import Ad, AdDelivery, AdStatus, Marketplace, PriceChange, Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
@@ -57,6 +58,13 @@ class QueryRunner:
         if existing is not None:
             return existing
         product.save()
+        # Resolve the ad's postal code here, not in run_filter, for two reasons: this is
+        # the process that owns a Tor session and knows how to pace, and doing it before
+        # the delivery row exists means the filter never races a half-warmed cache. Almost
+        # always a cache hit and no request at all — a query's ads come from a small,
+        # quickly-saturated set of postal codes. Unpaced on purpose: the miss is rare and
+        # the surrounding walk is already spaced.
+        ensure_postal_code(parse_postal_code(product.location), self.session)
         return product
 
     def _handle_new_product(self, product: Ad):

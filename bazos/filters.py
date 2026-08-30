@@ -24,6 +24,7 @@ from bazos.const import (
     PRICE_MODEL_SHADOW_MODE,
     PRICE_MODEL_Z_THRESHOLD,
 )
+from bazos.geo import distance_between_codes, normalize_postal_code, parse_postal_code
 from bazos.models import AdDelivery, AdStatus, PriceType, Query
 
 logger = logging.getLogger(__name__)
@@ -193,6 +194,59 @@ class PriceDropRule:
         return FilterResult.PASS, None
 
 
+class LocationDistanceRule:
+    """Rejects ads further than `query.filter_location_radius` km from `filter_location_center`.
+
+    This is the "search wide, notify near" rule. The marketplace-side location params
+    (`Query.location_center`/`location_radius`) decide what gets scraped and are binary and
+    server-side; a query that wants to watch the whole country cannot use them to keep the
+    Discord channel local. This one runs after the scrape, over the same ads, so both are
+    expressible at once.
+
+    Distance is straight-line between two post offices (`bazos/geo.py`), not driving
+    distance, and the ad's real position is somewhere inside its postal area — so treat the
+    radius as approximate and do not tune it in single km.
+
+    PASSes — never rejects — when:
+    - the query has not set both a centre and a radius (**the default**, so an existing
+      query keeps receiving everything),
+    - the ad's location string carries no postal code, which is every Sbazar and Vinted ad
+      (that is the gate on marketplace: an ad with no code is not a distant ad),
+    - either code is missing from the `PostalCode` cache — a code is normally geocoded when
+      its first ad is scraped, so this is the window before `manage.py geocode_postal_codes`
+      has been run over ads that predate the feature.
+
+    "Unknown location" therefore means "send it", matching the permissive-when-unset
+    convention of the keyword rules. The opposite would let a geocoding outage silently
+    mute a query.
+    """
+    name = "location_distance"
+
+    def apply(self, delivery: AdDelivery) -> tuple[FilterResult, str | None]:
+        query = delivery.query
+        radius = query.filter_location_radius
+        center = normalize_postal_code(query.filter_location_center)
+        if center is None or radius is None:
+            return FilterResult.PASS, None
+        ad_code = parse_postal_code(delivery.ad.location)
+        if ad_code is None:
+            return FilterResult.PASS, None
+        distance = distance_between_codes(center, ad_code)
+        if distance is None:
+            logger.info(
+                "Distance filter inactive for ad %s: %s or %s is not geocoded",
+                delivery.ad_id, center, ad_code,
+            )
+            return FilterResult.PASS, None
+        if distance > radius:
+            # One decimal, not zero: rounding 10.4 to "10 km away, limit 10 km" reads as
+            # a bug in the rule rather than a listing just outside the radius.
+            return FilterResult.REJECT, (
+                f"{distance:.1f} km away ({ad_code}), limit {radius} km from {center}"
+            )
+        return FilterResult.PASS, None
+
+
 class PriceModelRule:
     """Rejects ads that a price model does NOT consider a deal.
 
@@ -269,6 +323,7 @@ RULE_REGISTRY: dict[str, FilterRule] = {
     "required_keyword": RequiredKeywordRule(),
     "publisher_blocklist": PublisherBlocklistRule(),
     "price_drop": PriceDropRule(),
+    "location_distance": LocationDistanceRule(),
     "price_model": PriceModelRule(),
 }
 #: Everything except `price_model`. That rule REJECTs anything it does not consider a deal,

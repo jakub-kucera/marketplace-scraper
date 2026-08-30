@@ -16,6 +16,7 @@ from bazos.filters import (
     RULE_REGISTRY,
     BlocklistKeywordRule,
     FilterResult,
+    LocationDistanceRule,
     PassthroughRule,
     PriceDropRule,
     PriceRangeRule,
@@ -26,7 +27,15 @@ from bazos.filters import (
     parse_price,
     parse_price_and_type,
 )
-from bazos.models import AdDelivery, AdStatus, EmailPublisher, PhonePublisher, PriceChange, PriceType
+from bazos.models import (
+    AdDelivery,
+    AdStatus,
+    EmailPublisher,
+    PhonePublisher,
+    PostalCode,
+    PriceChange,
+    PriceType,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -687,3 +696,126 @@ def test_build_rule_engine_selected_rule_still_applies(query, make_ad):
     result, reason = engine.apply(unsaved_delivery(ad, query))
     assert result == FilterResult.APPROVE
     assert reason is None
+
+
+# ---------------------------------------------------------------------------
+# LocationDistanceRule — "search wide, notify near"
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def geocoded(db):
+    """Praha and Brno in the PostalCode cache — ~184 km apart."""
+    PostalCode.objects.create(code="11000", city="Praha", latitude=50.087334, longitude=14.421111)
+    PostalCode.objects.create(code="60200", city="Brno", latitude=49.195060, longitude=16.606837)
+
+
+def _near_query(query, center="110 00", radius=10):
+    query.filter_location_center = center
+    query.filter_location_radius = radius
+    return query
+
+
+@pytest.mark.django_db
+def test_distance_rule_rejects_an_ad_outside_the_radius(query, make_ad, geocoded):
+    ad = make_ad(query, 1)
+    ad.location = "Brno, 602 00"
+    delivery = unsaved_delivery(ad, _near_query(query, radius=10))
+
+    result, reason = LocationDistanceRule().apply(delivery)
+
+    assert result == FilterResult.REJECT
+    assert reason is not None
+    assert "km away (60200)" in reason
+    assert "limit 10 km from 11000" in reason
+
+
+@pytest.mark.django_db
+def test_distance_rule_passes_an_ad_inside_the_radius(query, make_ad, geocoded):
+    ad = make_ad(query, 1)
+    ad.location = "Brno, 602 00"
+    delivery = unsaved_delivery(ad, _near_query(query, radius=250))
+
+    assert LocationDistanceRule().apply(delivery)[0] == FilterResult.PASS
+
+
+@pytest.mark.django_db
+def test_distance_rule_passes_an_ad_in_the_centre_itself(query, make_ad, geocoded):
+    ad = make_ad(query, 1)
+    ad.location = "Praha 1, 110 00"
+    delivery = unsaved_delivery(ad, _near_query(query, radius=1))
+
+    assert LocationDistanceRule().apply(delivery)[0] == FilterResult.PASS
+
+
+@pytest.mark.django_db
+def test_distance_rule_is_inactive_by_default(query, make_ad, geocoded):
+    """The shipping default is blank/blank — an existing query must keep receiving
+    everything, including ads from the other end of the country."""
+    ad = make_ad(query, 1)
+    ad.location = "Brno, 602 00"
+
+    assert query.filter_location_center == ""
+    assert query.filter_location_radius is None
+    assert LocationDistanceRule().apply(unsaved_delivery(ad, query))[0] == FilterResult.PASS
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("center,radius", [("110 00", None), ("", 10)])
+def test_distance_rule_passes_when_only_half_configured(query, make_ad, geocoded, center, radius):
+    ad = make_ad(query, 1)
+    ad.location = "Brno, 602 00"
+    query.filter_location_center = center
+    query.filter_location_radius = radius
+
+    assert LocationDistanceRule().apply(unsaved_delivery(ad, query))[0] == FilterResult.PASS
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("location", [
+    "",                                       # Vinted
+    "Praha 5, Praha, Hlavní město Praha",     # Sbazar: names, no code
+])
+def test_distance_rule_passes_an_ad_with_no_postal_code(query, make_ad, geocoded, location):
+    """No code is not "far away". This is what keeps the rule Bazos-only without it
+    having to branch on marketplace."""
+    ad = make_ad(query, 1)
+    ad.location = location
+
+    delivery = unsaved_delivery(ad, _near_query(query, radius=10))
+    assert LocationDistanceRule().apply(delivery)[0] == FilterResult.PASS
+
+
+@pytest.mark.django_db
+def test_distance_rule_passes_when_the_ad_code_is_not_geocoded(query, make_ad, geocoded):
+    """The window before `geocode_postal_codes` has run over pre-existing ads. An
+    unresolvable code must not be able to silently mute a query."""
+    ad = make_ad(query, 1)
+    ad.location = "Pelhřimov, 394 03"
+
+    delivery = unsaved_delivery(ad, _near_query(query, radius=10))
+    assert LocationDistanceRule().apply(delivery)[0] == FilterResult.PASS
+
+
+@pytest.mark.django_db
+def test_distance_rule_passes_when_the_centre_is_not_geocoded(query, make_ad, geocoded):
+    ad = make_ad(query, 1)
+    ad.location = "Brno, 602 00"
+
+    delivery = unsaved_delivery(ad, _near_query(query, center="394 03", radius=10))
+    assert LocationDistanceRule().apply(delivery)[0] == FilterResult.PASS
+
+
+@pytest.mark.django_db
+def test_distance_rule_accepts_an_unnormalised_centre(query, make_ad, geocoded):
+    """`Query.filter_location_center` is free text; only the admin form normalises it."""
+    ad = make_ad(query, 1)
+    ad.location = "Brno, 602 00"
+
+    delivery = unsaved_delivery(ad, _near_query(query, center="11000", radius=10))
+    assert LocationDistanceRule().apply(delivery)[0] == FilterResult.REJECT
+
+
+def test_distance_rule_is_a_default_rule():
+    """Safe to default because it is neutral until a query sets both fields — unlike
+    price_model, which rejects out of the box."""
+    assert "location_distance" in DEFAULT_RULE_NAMES

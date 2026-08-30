@@ -42,6 +42,34 @@ class Category(models.Model):  # type: ignore[django-manager-missing]
         return urljoin(self.section.full_url, self.url)
 
 
+class PostalCode(TimeStampedModel):
+    """One PSČ and where it is, cached from Bazos's `zip.php` geocoder.
+
+    A cache, not a reference table: rows appear as the scraper meets new codes, so it is
+    always incomplete and a miss must never be read as "that place does not exist". It is
+    a table rather than a bundled JSON artifact (the shape `bazos/pricing/artifacts/` uses)
+    because it grows at runtime — nobody has the CZ postal-code list up front, and `zip.php`
+    caps a prefix search at ~9 rows, so it cannot be enumerated offline either.
+
+    Coordinates are the post office's, not the seller's: an ad's true location is somewhere
+    inside its delivery area. That puts a floor of a few km on the accuracy of any distance
+    measured from these, which is why `Query.filter_location_radius` is in whole km and
+    should not be set to values that pretend to more precision than that.
+    """
+    code = models.CharField(max_length=5, unique=True, help_text="Five digits, no space, e.g. 11000")
+    city = models.CharField(max_length=128, blank=True)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+
+    class Meta:
+        verbose_name = "Postal code"
+        verbose_name_plural = "Postal codes"
+        ordering = ("code",)
+
+    def __str__(self):
+        return f"{self.code} {self.city}".strip()
+
+
 class Marketplace(models.TextChoices):
     BAZOS     = "bazos",     "Bazos"
     BAZOS_API = "bazos_api", "Bazos (API)"
@@ -65,6 +93,8 @@ TRACKED_CONFIG_FIELDS = (
     "filter_blocklist",
     "filter_required",
     "filter_rule_names",
+    "filter_location_center",
+    "filter_location_radius",
     "extra_params",
     "sender_id",
 )
@@ -92,7 +122,23 @@ class Query(TimeStampedModel):
 
     filter_blocklist = models.JSONField(default=list, blank=True, help_text="Reject if name/description contains any of these phrases.")
     filter_required = models.JSONField(default=list, blank=True, help_text="Reject unless name/description contains at least one of these phrases.")
-    filter_rule_names = models.JSONField(default=list, blank=True, help_text="Which filter rules to apply (empty = all default rules). Valid names: price_range, blocklist_keyword, required_keyword, publisher_blocklist, price_drop.")
+    filter_rule_names = models.JSONField(default=list, blank=True, help_text="Which filter rules to apply (empty = all default rules). Valid names: price_range, blocklist_keyword, required_keyword, publisher_blocklist, price_drop, location_distance.")
+
+    # Distinct from location_center/location_radius above, which are search params sent to
+    # the marketplace and therefore decide what is *scraped*. These two decide what is
+    # *notified*, at the filter stage, out of whatever was scraped — so a query can watch
+    # all of Czechia and still only ping the channel for ads within pickup range. Both
+    # blank (the default) means no distance filtering at all.
+    filter_location_center = models.CharField(
+        max_length=10,
+        blank=True,
+        help_text="PSČ to measure ad distance from, e.g. 110 00. Blank = no distance filter.",
+    )
+    filter_location_radius = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Reject ads further than this many km from filter_location_center. Blank = no distance filter.",
+    )
 
     extra_params = models.JSONField(
         default=dict,
