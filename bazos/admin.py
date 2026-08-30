@@ -13,7 +13,8 @@ from django.utils.html import format_html, format_html_join
 from django.utils.http import urlencode
 
 from bazos.filters import RULE_REGISTRY
-from bazos.models import AdPriceScore, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
+from bazos.geo import normalize_postal_code
+from bazos.models import AdPriceScore, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
 class CategoryInline(admin.TabularInline):
@@ -208,6 +209,31 @@ class QueryAdminForm(forms.ModelForm):
     def clean_filter_required(self):
         return self.cleaned_data.get("filter_required") or []
 
+    def clean_filter_location_center(self):
+        raw = (self.cleaned_data.get("filter_location_center") or "").strip()
+        if not raw:
+            return ""
+        normalized = normalize_postal_code(raw)
+        if normalized is None:
+            raise forms.ValidationError("Not a postal code — expected five digits, e.g. 110 00.")
+        # Stored normalised so the filter never has to guess which of "110 00"/"11000" a
+        # given row used, and so the PostalCode cache keys line up on sight in the admin.
+        return normalized
+
+    def clean(self):
+        cleaned = super().clean()
+        center = cleaned.get("filter_location_center")
+        radius = cleaned.get("filter_location_radius")
+        # Half a distance filter is not a weaker filter, it is no filter — and it looks
+        # exactly like a configured one on the change form. Refuse it rather than let a
+        # query silently notify everything the user thought it had narrowed.
+        if bool(center) != (radius is not None):
+            raise forms.ValidationError(
+                "Set both filter_location_center and filter_location_radius, or neither — "
+                "one alone does nothing."
+            )
+        return cleaned
+
 
 @admin.register(Query)
 class QueryAdmin(admin.ModelAdmin):
@@ -277,6 +303,20 @@ class QueryAdmin(admin.ModelAdmin):
             # query that has never found an ad needs the Coalesce to read as 0, not blank.
             ad_count=Coalesce(Subquery(ad_count_subquery), 0, output_field=IntegerField()),
         )
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        center = obj.filter_location_center
+        if center and not PostalCode.objects.filter(code=center).exists():
+            # Saved anyway, but say so: an ungeocodable centre leaves the rule permanently
+            # PASSing, which from the change form looks identical to a working filter.
+            self.message_user(
+                request,
+                f"Postal code {center} is not geocoded yet, so the distance filter on this "
+                f"query does nothing until it is. Run: "
+                f"python manage.py geocode_postal_codes --codes {center}",
+                messages.WARNING,
+            )
 
     @admin.display(description="Query", ordering="pk")
     def query_name(self, obj):
@@ -670,3 +710,14 @@ class PhonePublisherAdmin(PublisherAdminBase):
 
     list_display = ("bazos_id", "phone", "blocked", "ad_count", "partner_count")
     readonly_fields = ("ads_link", "partners")
+
+
+@admin.register(PostalCode)
+class PostalCodeAdmin(admin.ModelAdmin):
+    """The geocode cache. Read-mostly — rows are written by the scraper and by
+    `manage.py geocode_postal_codes`; editing one here is the escape hatch for a code
+    zip.php places badly.
+    """
+    list_display = ("code", "city", "latitude", "longitude", "created")
+    search_fields = ("code", "city")
+    ordering = ("code",)

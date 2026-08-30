@@ -1,7 +1,7 @@
 ---
 title: Backlog Ideas — Not Yet in Any Stage
 status: active
-updated: 2026-08-23
+updated: 2026-08-30
 verified: 2026-08-23
 ---
 
@@ -49,7 +49,7 @@ under the radar), not by order of appearance below.
 | — | **Rotating proxy** — replace Tor | **M** (~1–2 days + ~$3–6/mo) | P21a, plus a benchmark never yet run | **[`PROMPTS.md`](PROMPTS.md) P21b.** The only part needing money and an unvalidated assumption — and the durable fix for Tor's ongoing failures. |
 | 9 | `AdOutcome` — record what you actually did about an ad | **S** (~half day) | nothing | **Do soon** — cheapest item here, and the only source of ground truth |
 | 3a | Thumbnail in Discord embed | **S/M** (~1-2 days) | nothing | **Do soon** — and see #10, which wants the same notification rework |
-| 10 | Distance / travel-cost-aware scoring | **M** (~1-2 days) | nothing (`zip.php` already probed) | **Do soon** if flipping is the goal |
+| 10 | Distance / travel-cost-aware scoring | **M** (~1-2 days) | nothing (`zip.php` already probed) | 🟡 radius **shipped**; travel-cost scoring still open, and now blocked on a margin estimate |
 | 8 | Full-listing rescan flag (comprehensive price-drop detection) | **S** structurally (~1hr); **M** with the cap/throttle guardrail it needs | nothing, but must ship with a page cap/throttle | **Do soon, but scope narrowly** |
 | 6 | Posting-time-of-day → interval tuning | **S** (~half day) *once unblocked* | ⚠️ **blocked** — needs second-resolution timestamps (see §6) | **Blocked, and superseded in value by the latency chain** |
 | 2 | asyncio scraping | **M/L**, but only as part of a scraper you haven't built yet | the API cutover | **Still not independently actionable** — and *less* attractive after P21a (see §2 note) |
@@ -473,7 +473,23 @@ worse than none, because it looks like data.
 
 ---
 
-## 10. Distance / travel-cost-aware scoring
+## 10. Distance / travel-cost-aware scoring — 🟡 **radius shipped 2026-08-30, economics still open**
+
+> **Shipped since this was written:** the "cheap first version" below, in a better form than it
+> proposed. `Query.filter_location_center`/`filter_location_radius` + the `location_distance`
+> filter rule reject an ad whose PSČ is further than N km from a centre, *after* the scrape — so
+> the "search wide, notify near" split this section asks for now exists. The PSČ-prefix
+> approximation turned out to be unnecessary: `Ad.location` already carries the full code
+> (`"Pelhřimov, 394 03"`), and `zip.php` geocodes it into the `PostalCode` cache, so real
+> coordinates were cheaper than the approximation. See [`SHIPPED.md`](../SHIPPED.md).
+>
+> **What is still open here, and it is the more valuable half:** ranking within the radius, and
+> the radius as a function of value rather than a per-query constant — i.e. steps 4's
+> `TravelCostRule` (`estimated_margin − 2 × distance_km × cost_per_km`), which needs an estimated
+> margin and therefore the price model. Steps 1-3 (GPS columns on `Ad`, a stored distance column)
+> are **not** needed for that: the cached postal-code coordinates already answer "how far", and a
+> few km of post-office imprecision is far below the noise in any margin estimate.
+
 
 > **Source**: internal analysis 2026-07-29, prompted by [`MONETIZATION.md`](../MONETIZATION.md)
 > §4.2's per-flip P&L, where travel is a real line item against a ~1,200 CZK margin.
