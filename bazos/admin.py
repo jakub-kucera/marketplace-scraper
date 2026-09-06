@@ -308,12 +308,14 @@ class QueryAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
         center = obj.filter_location_center
         if center and not PostalCode.objects.filter(code=center).exists():
-            # Saved anyway, but say so: an ungeocodable centre leaves the rule permanently
-            # PASSing, which from the change form looks identical to a working filter.
+            # Saved anyway, and the next scrape pass resolves it
+            # (`ScrapeRunner._ensure_filter_centres`) — but say so, because until then the
+            # rule PASSes everything, which from the change form is indistinguishable from
+            # a working filter. The command is the way to close the window immediately.
             self.message_user(
                 request,
                 f"Postal code {center} is not geocoded yet, so the distance filter on this "
-                f"query does nothing until it is. Run: "
+                f"query does nothing until the next scrape pass resolves it. To do it now: "
                 f"python manage.py geocode_postal_codes --codes {center}",
                 messages.WARNING,
             )

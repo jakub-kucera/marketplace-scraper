@@ -2,7 +2,7 @@
 title: Ready-to-Run Prompts
 status: active
 updated: 2026-08-30
-verified: 2026-08-23
+verified: 2026-08-30
 ---
 
 # Ready-to-Run Prompts
@@ -11,8 +11,10 @@ Copy-paste any of these when you have tokens to burn.
 
 **Sections are ordered by priority, not by prompt number** — the defects and prerequisites
 (P20–P24) sit above the older improvements (P7–P17) because they're things quietly broken or
-blocking, not enhancements. See [Order recommendation](#order-recommendation) at the bottom for
-the actual sequence to work in.
+blocking, not enhancements. **The section order is now out of step with the priority order**:
+P20 has shrunk to a 15-minute logging leftover and P23 was overtaken by what shipped, so
+neither still belongs at the top of the file. [Order recommendation](#order-recommendation) at
+the bottom is authoritative — read that, not the section order.
 
 **Prompt numbers are stable and gapped on purpose.** P1, P3–P6, P15, P17–P19 and P22 are gone
 from this file because they are **done** — they are recorded in [`SHIPPED.md`](../SHIPPED.md)
@@ -40,95 +42,60 @@ Steps:
 
 ---
 
-### P20 — IP-guard hardening: no request timeouts, two unguarded call sites
+### P20 — IP-guard hardening: the log-level and escalation leftover
 
-> **🔶 Two of the three original cases are done; this is what is left.** P20 was written
-> 2026-07-29 against three failure modes — (a) `check_ip_local()` silently skipping every query
-> forever, (b) unbounded rotation loops, (c) the guards *raising* and killing the whole pass.
+> **🟢 Cases (a), (b) and (c) are all done as of 2026-08-29. What remains is step 5 only**, and
+> it is a visibility nicety rather than something that can cost a pass. P20 was written
+> 2026-07-29 against three failure modes; here is where each stands, verified against the tree
+> **2026-08-30**:
 >
-> - **(a) — done, differently than proposed.** `check_ip_local()` now runs **once per pass** at
->   the top of `ScrapeRunner.run` and skips the whole pass rather than `continue`-ing per query,
->   so a misconfigured `LOCAL_IP_SUBNET` can no longer burn a pass one silent skip at a time.
->   *Leftover:* it logs at WARNING, and step 5's escalating consecutive-detection counter was
->   not built. A guard that disables all work should probably be ERROR.
-> - **(b) — done.** `renew_ip_bazos_ok` takes a `max_attempts` cap, and `tor.py`'s second
->   unbounded loop is now `for attempt in range(1, MAX_RENEW_ATTEMPTS + 1)` (`= 5`), re-signalling
->   NEWNYM each round instead of polling a circuit that never rotated. `NEWNYM_WAIT_SECONDS = 10`
->   paces the retries; step 8's *escalating* backoff was not built and probably isn't needed.
-> - **(c) — still open, and it is the whole of this prompt now.** See below.
+> - **(a) `check_ip_local()` silently skipping every query forever — done, differently than
+>   proposed.** It runs **once per pass** at the top of `ScrapeRunner.run` and skips the whole
+>   pass rather than `continue`-ing per query.
+> - **(b) unbounded rotation loops — done, then deleted outright.** The NEWNYM-and-verify loop
+>   this bullet used to describe (`renew_ip_bazos_ok`, `MAX_RENEW_ATTEMPTS`) **no longer
+>   exists**: rotation is now a fresh SOCKS credential (`rotate_circuit`), which has no loop to
+>   bound. Do not go looking for those symbols — see CLAUDE.md's "IP rotation" note.
+> - **(c) the guards raising and killing the whole pass — done.** This was "the whole of this
+>   prompt" in the previous revision and it is now closed:
+>   - `ip_changer/ip_changer.py:16-18` — `IP_LOOKUP_TIMEOUT = (20, 15)` and
+>     `IP_LOOKUP_ATTEMPTS = 3`. The connect half is generous because it has to cover Tor
+>     **circuit construction**; a flat 10 s timed out in production right after a rotation.
+>   - `bazos/scraping/runner.py:42-49` — `check_ip_local()` is inside the pass-level `try`, so a
+>     raise skips the pass instead of escaping `run()` and forcing a 60 s rebuild.
+>   - `bazos/scraping/runner.py:160-166` — the `change_ip()` fall-through is wrapped, so one
+>     query's failed rotation no longer costs the other queries their turn.
 
-**What is still broken, verified against the tree 2026-08-23:**
+**What is actually left, verified 2026-08-30:**
 
-1. **There are no request timeouts anywhere in `ip_changer/`.** `grep -rn timeout ip_changer/`
-   is empty and `requests` has no default. `IPChanger.get_current_ip` does a bare
-   `self.session.get('https://icanhazip.com')` over a Tor SOCKS proxy that regularly drops
-   circuits — the observed hang was **~4 minutes on one socket**.
-2. **`check_ip_local()` at `runner.py:37` has no try/except.** It is the first thing
-   `run()` does each pass, it calls `get_current_ip()`, and if that raises the exception escapes
-   `run()` entirely — `run_scraper` catches at top level, sleeps 60s and rebuilds the runner.
-   The whole pass is lost before a single query is attempted.
-3. **`change_ip()` at `runner.py:120` sits *outside* the per-attempt `try`.** In
-   `_run_query_with_rotation` it is called after the `finally`, on the fall-through from
-   `MarketplaceBlockedError`. Both `get_current_ip()` (in `change_ip`'s own log line) and
-   `renew_ip_and_check_new()` can raise there, and nothing catches it — so the rotation path,
-   which by definition only runs when the transport is already unhealthy, is the one path with
-   no protection.
-
-The pre-flight `blacklist_check(query.url)` call that used to be the third exposure site is
-**gone** — removing the probe removed that crash surface as a side effect.
-
-> **The original evidence, still the justification.** Observed crash, twice in one log
-> (2026-08-08):
->
-> ```
-> ip_changer.py:31 get_current_ip → session.get('https://icanhazip.com')
-> requests.exceptions.ConnectionError: ('Connection aborted.',
->     RemoteDisconnected('Remote end closed connection without response'))
-> ```
->
-> Diagnosis: **not** Bazos rate-limiting — the failing host is `icanhazip.com`, and
-> `RemoteDisconnected` means no HTTP response arrived at all, unlike a 403/429. It is a dead Tor
-> circuit / refused exit (`PROXY_ROTATION.md` §2), compounded by icanhazip
-> being Cloudflare-fronted and therefore hostile to Tor exits by default.
+1. **Step 5 — `check_ip_local` logs at WARNING, not ERROR** (`runner.py:46`), and there is **no
+   consecutive-local-IP counter**. A guard that disables all work should reach the Discord log
+   channels and Sentry (which auto-captures ERROR+), and a persistent `LOCAL_IP_SUBNET`
+   misconfiguration should escalate rather than repeat quietly forever. ~15 minutes.
+2. **Step 2's multi-host fallback was not built, and that is now a deliberate open question
+   rather than a task.** `get_current_ip` retries **icanhazip three times** rather than falling
+   through to `api.ipify.org`/`ifconfig.me`/`ident.me`. Whether the fallback list is still worth
+   adding is genuinely unclear: the function's remaining caller is `check_ip_local`, which asks
+   "is *any* traffic leaving unproxied" — a property of the transport, not of one destination —
+   and it now fails fast and skips the pass rather than hanging. Decide before building.
 
 ```
-Harden the IP guards in ip_changer/ and bazos/scraping/runner.py against raising.
+Raise check_ip_local's log level to ERROR in bazos/scraping/runner.py so it reaches the
+Discord log channels and Sentry, and count consecutive local-IP passes on ScrapeRunner so a
+persistent misconfiguration escalates instead of repeating quietly forever. Mirror the
+existing zero-results canary (`_check_zero_results_canary`) rather than inventing a second
+escalation mechanism — it already owns the "N consecutive bad passes" shape and its Discord
+routing.
 
-Context: every request in ip_changer/ is a bare session.get() with no timeout, over a Tor
-SOCKS proxy that regularly drops circuits. Two call sites are unguarded, and both of them
-cost an entire scraper pass when they raise: check_ip_local() at the top of ScrapeRunner.run,
-and change_ip() on the blacklist-rotation fall-through in _run_query_with_rotation.
-
-Steps:
-1. Add explicit timeouts to EVERY request in ip_changer/ — timeout=(5, 15) (connect, read)
-   on get_current_ip and check_bazos_blacklisted. Prefer setting it once on the session or a
-   mounted adapter in renew_session() so new call sites cannot forget. A 4-minute hang on a
-   dead socket is worse than a fast failure.
-2. Make get_current_ip resilient rather than trusting one Cloudflare-fronted host over Tor:
-   try a small list of fallbacks (api.ipify.org, ifconfig.me, ident.me) and raise only if all
-   fail. Consider skipping the local-IP check entirely when IP_CHANGER_TYPE=TOR, where a local
-   egress is impossible by construction (socks5h fails closed, it does not fall back to a
-   direct connection) — it is currently the most Tor-hostile request in the pipeline and it
-   guards a case the transport makes unreachable.
-3. Wrap check_ip_local() in ScrapeRunner.run so a failure skips the pass the same way a True
-   result does, instead of escaping run() and forcing a 60s rebuild of the whole runner.
-4. Wrap the change_ip() call in _run_query_with_rotation so a rotation failure ends that
-   query's retry loop (return None, keep the pass) rather than killing the pass. Record it on
-   the QueryRun row the way the existing except branches already do.
-5. For the (a) leftover: raise check_ip_local's log level to ERROR so it reaches the Discord
-   log channels and Sentry (which only auto-captures ERROR+), and count consecutive local-IP
-   passes so a persistent misconfiguration escalates instead of repeating quietly forever.
-6. Tests: a guard that raises does not abort the pass (one for each of the two call sites);
-   timeouts are actually set on the session; check_ip_local returning True skips the pass
-   loudly; get_current_ip falls through to a second host when the first one fails.
+Tests: the counter survives across passes; a normal pass resets it; the escalation fires at
+the threshold and not before.
 ```
 
-> **Note on the durable fix.** These are damage control for a transport failing on reputation,
-> not on anything you're doing wrong — your volume is nowhere near a rate limit. **P21b**
-> replaces Tor entirely and makes most of this moot: `HttpProxyIPChanger.renew_ip` is a no-op,
-> so the icanhazip round-trip that crashes here largely stops existing. Do P20 anyway — a guard
-> that can take down the runner is worth fixing regardless of transport — but don't expect it to
-> make the 403s go away.
+> **Note on the durable fix.** These were damage control for a transport failing on
+> reputation, not on anything you are doing wrong — your volume is nowhere near a rate limit.
+> **P21b** replaces Tor entirely and makes most of this moot. The original 2026-08-08 crash
+> (`RemoteDisconnected` from icanhazip over a dead Tor circuit, twice in one log) is what
+> justified the timeouts that are now in place.
 
 ---
 
@@ -270,12 +237,37 @@ Part 4b — lower the interval the rest of the way:
 
 ---
 
-### P23 — `PriceAnomalyRule` — the first rule that actually finds deals
+### P23 — `PriceAnomalyRule` — the broad-coverage half of price scoring
 > ⚠️ Requires P22 (needs a numeric price). Design rationale already written:
 > [`DISCOVERY_PIPELINE.md`](../research/bazos-api/DISCOVERY_PIPELINE.md)
 > §1 stage 2 ("Cheap filter pass — zero extra API calls"). This prompt is the promotion of
 > that design, not a new idea. Distinct from BACKLOG_IDEAS.md #4, which compares against
 > *external* retail prices; this one compares against *your own accumulated Bazos history*.
+
+> **🟡 Partly overtaken by what shipped 2026-08-26 — read this before starting.** Price scoring
+> exists (`bazos/pricing/`, [`ML_PRICE_SCORING.md`](../proposals/ML_PRICE_SCORING.md),
+> `AdPriceScore`, the `price_model` rule, migration `0037`), and it already satisfies steps 1,
+> 4 and 6 of the prompt below: registered in `RULE_REGISTRY`, deliberately **excluded** from
+> `DEFAULT_RULE_NAMES`, storing the number rather than only branching on it, and shadow-mode by
+> default pending calibration.
+>
+> **What it does not do is cover anything.** `MODEL_REGISTRY` holds exactly one entry —
+> `macbook` — so `get_price_model` returns None for every other ad and the rule PASSes. The
+> shipped design is *narrow and precise* (a trained linear model over a measured feature spec);
+> this prompt is *broad and shallow* (a rolling median over your own history, any category).
+> They are complements, not rivals, and `registry.py`'s own comment already names the slot:
+> *"a narrower model must be registered before a broader one."*
+>
+> **So the work below is now re-scoped:** not a second rule competing with `price_model`, but a
+> **catch-all `PriceModel` implementation registered last**, whose `applies_to` returns True
+> whenever there is enough comparable history and which declines otherwise. Steps 2, 3, 5 and 7
+> below are the substance and still apply verbatim; steps 1, 4 and 6 are done — reuse
+> `AdPriceScore` and the existing shadow-mode plumbing rather than adding
+> `Ad.price_percentile`.
+>
+> Note the calibration dependency is unchanged and now binding: step 6 wants real outcomes from
+> BACKLOG_IDEAS.md **#9** (`AdOutcome`), and `bazos/const.py` says the same thing about **P24**.
+> Neither exists, so anything built here stays in shadow mode too.
 
 ```
 Every rule in `bazos/filters.py` today is a static per-query predicate (price range, keyword
@@ -801,37 +793,54 @@ substance (see `docs/archive/shipped/AD_DELIVERY_SPLIT.md` §7's note on why `00
 
 ## Order recommendation
 
-> **Revised 2026-08-23.** Earlier revisions optimised for "cheapest independent win"; that
+> **Revised 2026-08-30.** Earlier revisions optimised for "cheapest independent win"; that
 > doesn't survive contact with what the project is *for* (see
 > [`MONETIZATION.md`](../MONETIZATION.md) §7.1). The priority is **latency, then failure
-> visibility, then data usability** — features after that. What changed in this revision: the
-> zeroth item (database backups) shipped, Vinted and Sbazar shipped, P22 shipped, and P21a's
-> guard-collapse half shipped. Everything already done now lives in
+> visibility, then data usability** — features after that.
+>
+> **What changed in this revision, all verified against the tree rather than against the
+> previous revision:** P20 dropped from item 1 to item 5 (its remaining case closed
+> 2026-08-29 — timeouts, and both unguarded call sites); P23 was rewritten, because price
+> scoring shipped 2026-08-26 in a narrower and deeper form than that prompt describes; P24
+> was promoted above P21b, since it is what gates using what shipped; and BACKLOG_IDEAS #10's
+> radius half shipped 2026-08-30. Everything already done lives in
 > [`SHIPPED.md`](../SHIPPED.md), not here.
 
 **Do these first, in this order:**
 
-1. **P20** — ~1 hour. Timeouts in `ip_changer/`, a resilient `get_current_ip`, and the two
-   remaining unguarded call sites (`check_ip_local` in `run()`, `change_ip()` on the rotation
-   fall-through). Cases (a) and (b) are done; this is the leftover, and it is still the thing
-   that can lose a whole pass to one dropped socket.
-2. **P21a Parts 1 + 4a** (tunable API page size, then the production cutover and ~10 min
+1. **P21a Parts 1 + 4a** (tunable API page size, then the production cutover and ~10 min
    interval) — ~1–2 days, **no cost, no external dependency.** Part 2 already landed, so this
    is now a smaller prompt than it was: ~15 min → ~5 min median latency. Best value-per-day
-   in this file.
+   in this file, and it is now the top item because P20 closed.
+   ⚠️ **Part 1 has acquired a prerequisite nobody wrote down.** `BazosApiScraper` sets
+   `location = item["locality"]`, and the API's *thin* listing payload is `"Praha 10"` with
+   **no postal code** — the code is detail-only (`HIDDEN_API.md` §5.1 vs §5.2,
+   `DISCOVERY_PIPELINE.md` §1 stage 2 says so outright). The `location_distance` filter parses
+   its code out of `Ad.location`, so **cutting over as-is silently disables the distance filter
+   on every migrated query** — it degrades to PASS, which is indistinguishable from "no filter
+   configured". Fix that in Part 1, before the cutover, not after.
+2. **P24** (delisting / time-to-disappear) — ~1–2 days. **Promoted above P21b.** It is the only
+   outcome data the system would have, and `bazos/const.py` names it as the specific gate on
+   taking price scoring out of shadow mode: `Ad.modified` never advances past `created`, so
+   nothing in the DB records whether an ad ever sold. Genuinely unblocked — `Ad.price` exists.
 3. **P21b** (rotating proxy → ~1–2 min) — ~1–2 days + ~$3–6/mo. Deliberately last of the
    latency chain: the only item requiring a paid account and an unrun benchmark. **Note the
-   independent reliability argument** — Tor is still the transport and still failing, so this
-   may be worth doing on those grounds alone.
-4. **P24** (delisting / time-to-disappear) — ~1–2 days. The feedback signal for P23 and the
-   prerequisite for any valuation or index work. Now genuinely unblocked: `Ad.price` exists.
-5. **P23** (`PriceAnomalyRule`) — ~1–2 days, in shadow mode first. The first rule that finds
-   deals rather than matching keywords, and the first real payoff from P22's numeric prices.
+   independent reliability argument** — Tor is still the transport and still failing (~48% of
+   exits 403'd, measured 2026-08-29), so this may be worth doing on those grounds alone.
+4. **P23** (broad-coverage price scoring) — ~1–2 days, shadow mode regardless. Re-scoped: the
+   registry and the rule shipped 2026-08-26, but `MODEL_REGISTRY` holds one model (`macbook`),
+   so every other ad gets no opinion. This is the catch-all model that fills the gap. Read its
+   revised header first — half the original steps are already done.
+5. **P20's leftover** — ~15 min. `check_ip_local` at WARNING with no consecutive-pass counter.
+   Was item 1 in the previous revision; cases (a), (b) and (c) all closed 2026-08-29, and what
+   remains cannot cost a pass.
 
-**Then, if flipping is the actual goal**, the two cheap items from
-[`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) that aren't prompts yet: **#9** (`AdOutcome`, ~half a day —
-the only source of ground truth for calibrating P23) and **#10** (distance/travel-cost scoring),
-built together with **P16** since all three touch the notification-formatting path.
+**Then, if flipping is the actual goal**, the cheap item from
+[`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) that isn't a prompt yet: **#9** (`AdOutcome`, ~half a
+day) — the manual counterpart to P24 and, with it, the only ground truth for calibrating
+anything. **#10's radius half shipped 2026-08-30** (see [`SHIPPED.md`](../SHIPPED.md)); its
+travel-cost half needs a margin estimate and therefore waits on P23 and P24. **P16** is still
+worth building alongside whichever of these touches the notification path.
 
 **Still worthwhile, lower priority:**
 

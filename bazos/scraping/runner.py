@@ -6,6 +6,7 @@ from time import sleep
 
 from bazos.const import MAX_BLACKLIST_RETRIES, QUERY_WAIT_TIME
 from bazos.exceptions import MarketplaceBlockedError
+from bazos.geo import ensure_postal_code, normalize_postal_code
 from bazos.models import Query, QueryRun
 from bazos.scraping.pass_summary import PassSummary, QueryResult
 from bazos.scraping.query_runner import QueryRunner
@@ -71,6 +72,7 @@ class ScrapeRunner:
     def _run_pass(self) -> None:
         Query.objects.filter(randomly_generated=True).update(enabled=False)
         queries = Query.objects.filter(enabled=True).order_by('?')
+        self._ensure_filter_centres(queries)
 
         start = datetime.now(timezone.utc)
         results: list[QueryResult] = []
@@ -93,6 +95,29 @@ class ScrapeRunner:
             sum(r.new_ads for r in succeeded),
             len(succeeded),
         )
+
+    def _ensure_filter_centres(self, queries) -> None:
+        """Geocode the distance filter's centres, so nobody has to run a command by hand.
+
+        An ad's own postal code is resolved in `QueryRunner._resolve_ad` as the ad is
+        created. A `Query.filter_location_center` has no such moment: it is typed into the
+        admin, and if no ad ever came from exactly that code it stays absent from the
+        `PostalCode` cache — which makes `LocationDistanceRule` PASS everything, silently
+        and indistinguishably from "no filter configured".
+
+        Here rather than in `QueryAdmin.save_model` because this is the process that owns
+        the Tor session, and because a `zip.php` call inside an admin request can spend
+        `BAZOS_REQUEST_TIMEOUT` (up to 50 s) or 403 — neither of which should stand between
+        an operator and saving a query. Once per pass costs one indexed SELECT per query;
+        only a genuinely new centre costs a request.
+
+        Failures are already silent by contract (`ensure_postal_code` never raises without
+        `raise_on_block`), so a blocked circuit just means the filter stays inactive for
+        that query until a later pass resolves it.
+        """
+        assert self.ip_changer.session is not None
+        for code in {q.filter_location_center for q in queries if q.filter_location_center}:
+            ensure_postal_code(normalize_postal_code(code), self.ip_changer.session)
 
     def _run_query_with_rotation(self, query: Query) -> QueryResult:
         """Run one query, rotating the IP and retrying when the marketplace 403s the *real*

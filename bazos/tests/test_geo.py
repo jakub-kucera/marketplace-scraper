@@ -234,3 +234,46 @@ def test_scraper_makes_no_geocode_request_for_a_cached_code(query, make_ad, prah
         runner.run_existing_query()
 
     session.get.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# ScrapeRunner — query centres are geocoded without anyone running a command
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_pass_geocodes_a_query_filter_centre(query):
+    """A centre is typed into the admin, so unlike an ad's code it has no creation moment
+    to be resolved at — without this the filter silently PASSes everything."""
+    from unittest.mock import patch
+
+    from bazos.scraping.runner import ScrapeRunner
+
+    query.filter_location_center = "11000"
+    query.filter_location_radius = 10
+    query.save()
+    session = _session(_response([
+        {"zip_code": "110 00", "city": "Praha", "latitude": "50.087334", "longitude": "14.421111"},
+    ]))
+    with patch.object(ScrapeRunner, "__init__", lambda self: None):
+        runner = ScrapeRunner()
+    runner.ip_changer = Mock(session=session)
+
+    runner._ensure_filter_centres([query])
+
+    assert PostalCode.objects.get(code="11000").city == "Praha"
+
+
+@pytest.mark.django_db
+def test_pass_skips_queries_with_no_centre(query):
+    from unittest.mock import patch
+
+    from bazos.scraping.runner import ScrapeRunner
+
+    session = _session()
+    with patch.object(ScrapeRunner, "__init__", lambda self: None):
+        runner = ScrapeRunner()
+    runner.ip_changer = Mock(session=session)
+
+    runner._ensure_filter_centres([query])
+
+    session.get.assert_not_called()
