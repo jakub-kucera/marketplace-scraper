@@ -2,7 +2,7 @@
 title: Shipped
 status: active
 updated: 2026-08-30
-verified: 2026-08-24
+verified: 2026-08-30
 ---
 
 # Shipped
@@ -12,11 +12,13 @@ file is the single answer to "is that done?" — if something is listed here, it
 listed as open in [`PROMPTS.md`](backlog/PROMPTS.md) or
 [`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md).
 
-Verified against migrations, code and `git log` on **2026-08-23**. Newest first.
+Verified against migrations, code and `git log` on **2026-08-30**. Newest first.
 
 | Shipped | What landed | Migration / commit | Designed in |
 |---|---|---|---|
 | 2026-08-30 | **Notification-side distance filter** — the near half of [`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md) #10. `Query.filter_location_center`/`filter_location_radius` + the `location_distance` rule reject an ad whose PSČ is further than N km from a centre, **after** the scrape — so one query can watch all of Czechia and still only notify what is inside pickup range, which the server-side `location_center`/`location_radius` search params cannot express. `bazos/geo.py` parses the code straight out of the `Ad.location` Bazos already ships (`"Pelhřimov, 394 03"` — 100% coverage on the live corpus), resolves it through Bazos's `zip.php` geocoder into the new `PostalCode` cache, and measures with haversine. Resolution runs in the **scraper** (Tor session, pacing, block handling already there) at `Ad` creation, so `run_filter` stays a DB-only stage and never races a half-warm cache; `manage.py geocode_postal_codes` backfills ads that predate the feature and hand-typed query centres. Every uncertain path PASSes — unset fields, an ad with no code (all Sbazar/Vinted), an unresolved code — so the default lets everything in and a geocoding outage cannot mute a query. **Travel-cost scoring (margin − 2 × km × cost/km) is still open**; this ships the radius, not the economics. | `0039` | [`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md) #10 (the "cheap first version"), geocoder measured in [`HIDDEN_API.md`](research/bazos-api/HIDDEN_API.md) §6.4d |
+| 2026-08-29 | **Tor rotation rebuilt, and exit-IP attribution fixed.** Rotation is now a **fresh SOCKS credential** (`IsolateSOCKSAuth`), not a NEWNYM signal: `rotate_circuit()` swaps `circuit_id` and rebuilds the session in 0.6-1.2 s, replacing a 10-50 s signal→sleep→re-read-icanhazip loop that verified a circuit nobody was going to use. `renew_ip_and_check_new`/`try_get_current_ip`/`MAX_RENEW_ATTEMPTS`/`ROTATION_DEADLINE_SECONDS` are **deleted, not merely unused**. `QueryRun.exit_ip` now records the IP **the marketplace itself names in its 403 body** (`MarketplaceBlockedError.from_response`), because `SocksPort ... IsolateDestAddr` draws a separate circuit per destination host — so an icanhazip lookup answers about an egress the query never used. `MAX_BLACKLIST_RETRIES` 3 → **8**, sized against a measured ~48% exit block rate. This also closed **P20 case (c)**: `IP_LOOKUP_TIMEOUT=(20,15)`, `IP_LOOKUP_ATTEMPTS=3`, and both previously-unguarded call sites wrapped. | `0038` · `7ba8a17`, `aebdafd`, `4ab27ab` | [`PROMPTS.md`](backlog/PROMPTS.md) P20 case (c); measurements in CLAUDE.md's "IP rotation" note |
+| 2026-08-26 | **Price scoring — a pluggable model registry + an opt-in filter rule.** `PriceModel` Protocol + `MODEL_REGISTRY` (the third instance of the Protocol-plus-registry pattern), `AdPriceScore` (`predicted`, `residual_log`, `discount_pct`, `z_score`, unique on `(ad, model_name)`), the `price_model` rule, and `manage.py train_price_model`. Artifacts are **JSON, not pickles** — no numpy/scipy/sklearn in the runtime deps, inference is a dot product in pure Python; sklearn is a dev-only training dependency. **Deliberately excluded from `DEFAULT_RULE_NAMES`** (it REJECTs anything it does not consider a deal, so defaulting it on would mute every existing query) and **`PRICE_MODEL_SHADOW_MODE` defaults to True**, because precision is not measurable until P24 exists. ⚠️ **`MODEL_REGISTRY` holds exactly one model (`macbook`)** — every other ad gets no opinion, which is what `PROMPTS.md` P23 is now scoped to fix. | `0037` · `c3ca486`, `de41c15`, `777c36e`, `0d90a42` | [`ML_PRICE_SCORING.md`](proposals/ML_PRICE_SCORING.md) — supersedes [`PROMPTS.md`](backlog/PROMPTS.md) P23's mechanism, not its intent |
 | 2026-08-24 | **Admin self-link in notifications.** `Ad.admin_url` (absolute, built with `reverse`, keyed on `pk`) + a `SITE_BASE_URL` setting; `DiscordSender` appends it under the marketplace link, always wrapped in `<>` since the host is not crawler-reachable. Read via `getattr`, **not** added to the `Sendable` protocol. `SITE_BASE_URL` is configuration because `run_sender` serves no request and has no `Host` to infer from — and an `.local` name is dead off-LAN. No migration. | *(no migration)* | [`PUBLIC_AD_PAGES.md`](proposals/PUBLIC_AD_PAGES.md) §2 — the rest of that proposal is **not** built |
 | 2026-08-24 | **Query config edit log.** `QueryChange` — an append-only field-level diff of every `Query` save that altered its configuration, so a `QueryRun` can be read against the config that was live at the time. Old values are snapshotted in `Query.from_db` (no extra SELECT on the per-pass `query.save()`), diffed on `save()` against `TRACKED_CONFIG_FIELDS`, and written inside one transaction only when the diff is non-empty. `new_query`/`randomly_generated` are excluded as pipeline-managed, and a queryset `.update()` is a documented blind spot. `on_delete=SET_NULL` plus a `query_label` snapshot keeps history readable after the query is deleted. Admin: a capped inline on the Query form, a read-only cross-query changelist with `date_hierarchy`, and `load_full_description` added to the Query changelist. | `0036` | — (designed in-thread) |
 | 2026-08-24 | **End-of-pass scrape digest.** `ScrapeRunner` posts one summary per pass to the channels flagged `Discord.for_summary` — per-query new-ad counts grouped by marketplace, failures first, quiet queries collapsed to a tail count, trimmed to Discord's 2000-char limit. Formatting lives in `bazos/scraping/pass_summary.py` (pure, no DB/network); `_run_query_with_rotation` now returns a `QueryResult` instead of `None`, so failures reach the digest instead of vanishing. Counts are **discovered, not notified** — the filter runs in a separate process and has not seen them yet. | `senders/0003` | — (built from the review in this repo's history, no design doc) |
@@ -55,10 +57,19 @@ retry cap, dedup-check extraction. That file is a completed changelog and is kep
 - **P21a (latency, free half)** — Part 2 (the guard work) is done and then some; **Parts 1 and 4a
   — the tunable API page size, the production cutover and the interval drop — have not
   happened.** `BazosApiScraper` exists but no `Query` selects it, and the interval is unchanged,
-  so **none of the latency win has actually been realised yet**.
-- **P20 (IP guards)** — cases (a) and (b) are done. Case (c) is not: there are still **no request
-  timeouts anywhere in `ip_changer/`**, and two call sites (`check_ip_local()` in `run()`,
-  `change_ip()` on the rotation fall-through) can still raise and cost a whole pass.
+  so **none of the latency win has actually been realised yet**. ⚠️ The cutover now has a
+  prerequisite: the API's thin payload carries `locality` (`"Praha 10"`) with **no postal code**,
+  so migrating a query to `bazos_api` silently disables its `location_distance` filter. Fix that
+  in Part 1 — see `PROMPTS.md`'s order recommendation, item 1.
+- **P20 (IP guards)** — **all three cases are now done** (a and b earlier, c on 2026-08-29). What
+  is left is step 5 alone: `check_ip_local` logs at WARNING rather than ERROR and there is no
+  consecutive-local-IP counter. That is visibility, not a pass-losing defect — do not keep citing
+  P20 as the thing that can lose a pass to a dropped socket.
+- **Price scoring** — the machinery shipped, but it **covers one product (`macbook`) and rejects
+  nothing** (`PRICE_MODEL_SHADOW_MODE=True`). Both limits are deliberate and both are blocked on
+  the same missing thing: outcome data. P24 (delisting) is the named gate in `bazos/const.py`.
+- **BACKLOG_IDEAS #10 (distance)** — the **radius half shipped 2026-08-30**; travel-cost scoring
+  (margin − 2 × km × cost/km) needs a margin estimate and so waits on price scoring and P24.
 - **P9 (admin UX)** — several items landed with the seller-identity work; the rest of the list in
   `backlog/PROMPTS.md` P9 is still open.
 - **Bazos hidden API** — Stages A and B done, **Stage C (select in production) and Stage D
