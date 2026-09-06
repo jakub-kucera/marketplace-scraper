@@ -288,15 +288,37 @@ class PriceModelRule:
         if getattr(settings, "PRICE_MODEL_SHADOW_MODE", PRICE_MODEL_SHADOW_MODE):
             return FilterResult.PASS, None
 
-        z_ok = score.z_score <= getattr(settings, "PRICE_MODEL_Z_THRESHOLD", PRICE_MODEL_Z_THRESHOLD)
-        pct_ok = score.discount_pct >= getattr(
-            settings, "PRICE_MODEL_MIN_DISCOUNT_PCT", PRICE_MODEL_MIN_DISCOUNT_PCT
+        z_limit = self._threshold(
+            delivery.query, "filter_price_model_z",
+            "PRICE_MODEL_Z_THRESHOLD", PRICE_MODEL_Z_THRESHOLD,
         )
-        if z_ok and pct_ok:
+        pct_limit = self._threshold(
+            delivery.query, "filter_price_model_min_discount",
+            "PRICE_MODEL_MIN_DISCOUNT_PCT", PRICE_MODEL_MIN_DISCOUNT_PCT,
+        )
+        if score.z_score <= z_limit and score.discount_pct >= pct_limit:
             return FilterResult.PASS, None
+        # The thresholds are in the reason, not just the measurements: while these are being
+        # calibrated the useful question about a rejection is "by how much did it miss, and
+        # against what bar", and `filter_reason` is the only place that survives.
         return FilterResult.REJECT, (
-            f"not a deal: {score.discount_pct:+.1f}% vs predicted {score.predicted}, z={score.z_score:+.2f}"
+            f"not a deal: {score.discount_pct:+.1f}% vs predicted {score.predicted}, "
+            f"z={score.z_score:+.2f} (limits z<={z_limit:g}, discount>={pct_limit:g}%)"
         )
+
+    @staticmethod
+    def _threshold(query: Query, field: str, setting_name: str, default: float) -> float:
+        """Per-query override, else the global setting, else the shipped constant.
+
+        The query field wins even when it is *more permissive* than the global — that is
+        the point of it. `None` means "not set", which is why these columns are nullable
+        rather than defaulted: a query that has never been tuned must be indistinguishable
+        from one tuned back to the default value.
+        """
+        override = getattr(query, field, None)
+        if override is not None:
+            return override
+        return getattr(settings, setting_name, default)
 
 
 class RuleEngine:

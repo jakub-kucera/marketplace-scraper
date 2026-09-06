@@ -95,6 +95,8 @@ TRACKED_CONFIG_FIELDS = (
     "filter_rule_names",
     "filter_location_center",
     "filter_location_radius",
+    "filter_price_model_z",
+    "filter_price_model_min_discount",
     "extra_params",
     "sender_id",
 )
@@ -122,7 +124,7 @@ class Query(TimeStampedModel):
 
     filter_blocklist = models.JSONField(default=list, blank=True, help_text="Reject if name/description contains any of these phrases.")
     filter_required = models.JSONField(default=list, blank=True, help_text="Reject unless name/description contains at least one of these phrases.")
-    filter_rule_names = models.JSONField(default=list, blank=True, help_text="Which filter rules to apply (empty = all default rules). Valid names: price_range, blocklist_keyword, required_keyword, publisher_blocklist, price_drop, location_distance.")
+    filter_rule_names = models.JSONField(default=list, blank=True, help_text="Which filter rules to apply (empty = all default rules). Valid names: price_range, blocklist_keyword, required_keyword, publisher_blocklist, price_drop, location_distance, price_model (opt-in only).")
 
     # Distinct from location_center/location_radius above, which are search params sent to
     # the marketplace and therefore decide what is *scraped*. These two decide what is
@@ -138,6 +140,32 @@ class Query(TimeStampedModel):
         null=True,
         blank=True,
         help_text="Reject ads further than this many km from filter_location_center. Blank = no distance filter.",
+    )
+
+    # Per-query overrides for the two `price_model` thresholds. Blank falls back to
+    # settings, then to bazos.const — so an unset query behaves exactly as before.
+    #
+    # Both are tracked in TRACKED_CONFIG_FIELDS on purpose. Calibrating these is done by
+    # feel against a stream of notifications, and without an audit row "when did I loosen
+    # this, and what did it let through afterwards" is unanswerable. See
+    # docs/research/MACBOOK_PRICE_MODEL.md §6 for why the shipped defaults are a starting
+    # point rather than a measured optimum.
+    filter_price_model_z = models.FloatField(
+        null=True,
+        blank=True,
+        help_text=(
+            "price_model: reject unless z_score <= this. HIGHER is more permissive "
+            "(-2.0 strict, -1.0 looser, 0.0 nearly off). Blank = use the global default."
+        ),
+    )
+    filter_price_model_min_discount = models.FloatField(
+        null=True,
+        blank=True,
+        help_text=(
+            "price_model: reject unless the ad is at least this % below the predicted price. "
+            "LOWER is more permissive (10.0 strict, 0.0 loose, negative accepts ads priced "
+            "above prediction). Blank = use the global default."
+        ),
     )
 
     extra_params = models.JSONField(
