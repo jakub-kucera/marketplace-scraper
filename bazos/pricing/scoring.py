@@ -36,7 +36,8 @@ def score_ad(ad: Ad, *, refresh: bool = False) -> AdPriceScore | None:
     if prediction is None:
         defaults.update(
             predicted=None, residual_log=None, discount_pct=None, z_score=None,
-            seller_prior_ads=None, declined_reason="model declined (gates or missing artifact)",
+            seller_prior_ads=None, features=None,
+            declined_reason="model declined (gates or missing artifact)",
         )
     else:
         defaults.update(
@@ -45,6 +46,7 @@ def score_ad(ad: Ad, *, refresh: bool = False) -> AdPriceScore | None:
             discount_pct=prediction.discount_pct,
             z_score=prediction.z_score,
             seller_prior_ads=prediction.seller_prior_ads,
+            features=prediction.features,
             declined_reason=None,
         )
     score, _ = AdPriceScore.objects.update_or_create(

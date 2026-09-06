@@ -612,12 +612,45 @@ class Ad(TimeStampedModel):
         return SellerAdCounts.for_ad(self)
 
     @property
+    def price_score_summary(self) -> str:
+        """One line about what a price model thought, or "" if none had an opinion.
+
+        Costs one extra query on top of `seller_ad_counts()`'s several — the warning
+        against calling `.message` in a loop over a large queryset applies here too, only
+        more so. Declined scores render as nothing: "a model looked and had no opinion" is
+        worth storing (see `AdPriceScore`) but not worth a line in a notification.
+        """
+        score = (
+            self.price_scores
+            .exclude(predicted__isnull=True)
+            .order_by("-created")
+            .first()
+        )
+        if score is None:
+            return ""
+        line = f"Model: {score.predicted} Kč predicted"
+        if score.discount_pct is not None:
+            line += f" | {score.discount_pct:+.0f}%"
+        if score.z_score is not None:
+            line += f" | z {score.z_score:+.1f}"
+        return f"{line} ({score.model_name} {score.model_version})"
+
+    @property
     def message(self):
-        return self.name + '\n' + \
-            self.price_raw + '\n' + \
-            self.location + '\n' + \
-            self.short_description + '\n' + \
-            self.seller_ad_counts().summary
+        parts = [
+            self.name,
+            self.price_raw,
+            self.location,
+            self.short_description,
+            self.seller_ad_counts().summary,
+        ]
+        # Appended rather than interleaved so every existing golden message keeps its
+        # shape — test_pipeline_e2e pins these strings, and an ad nothing scored is
+        # byte-identical to before.
+        score_line = self.price_score_summary
+        if score_line:
+            parts.append(score_line)
+        return '\n'.join(parts)
 
     @property
     def link(self):
@@ -688,6 +721,10 @@ class AdPriceScore(TimeStampedModel):
     discount_pct = models.FloatField(null=True, blank=True, help_text="(1 - actual/predicted) * 100. Positive = below prediction.")
     z_score = models.FloatField(null=True, blank=True, help_text="Residual over the seller's own residual spread. Comparable across seller types.")
     seller_prior_ads = models.IntegerField(null=True, blank=True, help_text="Other ads from this seller when scored; picks the sigma prior.")
+    # JSON rather than columns because the feature set differs per model and is the
+    # model's own vocabulary, not this table's. The numbers above stay typed on purpose:
+    # they are what you sort and filter a changelist by, and a JSON blob cannot do that.
+    features = models.JSONField(null=True, blank=True, help_text="Parsed inputs the prediction was computed from. Null when the model declined or does not expose them.")
     declined_reason = models.CharField(max_length=255, null=True, blank=True)
 
     class Meta:
