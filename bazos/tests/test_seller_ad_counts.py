@@ -188,12 +188,15 @@ def test_message_query_cost_is_bounded(link_ad, django_assert_num_queries):
     """`Ad.message` runs per ad in run_sender's batch — pin its cost so a future change to
     the identity walk can't quietly turn a 50-ad batch into thousands of queries.
 
-    5 = by_email + by_phone + one graph round (2) + the combined count. The walk settles on
-    the first round for the common single-pairing seller.
+    6 = five for the seller identity (by_email + by_phone + one graph round (2) + the
+    combined count; the walk settles on the first round for the common single-pairing
+    seller) + one for `price_score_summary`. That sixth is deliberate — the notification
+    carries what the price model thought — but it is why the warning against calling
+    `.message` in a loop over a large queryset now matters slightly more than it did.
     """
     email = EmailPublisher.objects.create(bazos_id=100)
     phone = PhonePublisher.objects.create(bazos_id=200)
     ad = link_ad(email, phone)
 
-    with django_assert_num_queries(5):
+    with django_assert_num_queries(6):
         ad.message

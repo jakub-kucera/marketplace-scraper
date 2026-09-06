@@ -97,6 +97,7 @@ class MacbookPriceModel:
             residual_log=residual_log,
             z_score=z,
             seller_prior_ads=prior_ads,
+            features=feats,
         )
 
     # -- helpers ----------------------------------------------------------

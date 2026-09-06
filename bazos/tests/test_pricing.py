@@ -389,3 +389,63 @@ def test_threshold_changes_are_audited(category):
 
     changes = query.config_history.order_by("-created").first().changes
     assert changes["filter_price_model_z"] == {"old": None, "new": -1.0}
+
+
+# ---------------------------------------------------------------------------
+# Surfacing the score — the feature vector, Discord, and the changelist
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_score_persists_the_feature_vector(model, monkeypatch):
+    """Extraction is the measured weak point, so "what did it think the specs were" is
+    the field you need when an alert looks wrong."""
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+
+    score = score_ad(_ad(price=40_000))
+
+    features = score.features
+    assert isinstance(features, dict)
+    assert features["chip_key"] is not None
+    assert features["ram_gb"] and features["ssd_gb"]
+
+
+@pytest.mark.django_db
+def test_declined_score_stores_no_features(model, monkeypatch):
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+
+    score = score_ad(_ad(name="MacBook Pro M3 Max"))  # incomplete specs -> declines
+
+    assert score.declined_reason is not None
+    assert score.features is None
+
+
+@pytest.mark.django_db
+def test_message_carries_the_score(model, monkeypatch):
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+    ad = _ad(price=25_000)
+    score_ad(ad)
+
+    line = ad.price_score_summary
+
+    assert "Kč predicted" in line and "z " in line and "macbook" in line
+    assert ad.message.endswith(line)
+
+
+@pytest.mark.django_db
+def test_message_is_unchanged_for_an_unscored_ad(model, monkeypatch):
+    """Appended, not interleaved — the e2e golden messages must keep their shape."""
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+    ad = _ad()
+
+    assert ad.price_score_summary == ""
+    assert ad.message.endswith(ad.seller_ad_counts().summary)
+
+
+@pytest.mark.django_db
+def test_message_ignores_a_declined_score(model, monkeypatch):
+    """"A model looked and had no opinion" is worth storing, not worth a notification line."""
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+    ad = _ad(name="MacBook Pro M3 Max")
+    score_ad(ad)
+
+    assert ad.price_score_summary == ""
