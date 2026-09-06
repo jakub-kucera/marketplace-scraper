@@ -495,7 +495,7 @@ class AdPriceScoreInline(admin.TabularInline):
     model = AdPriceScore
     extra = 0
     fields = ("model_name", "model_version", "predicted", "discount_pct", "z_score",
-              "seller_prior_ads", "declined_reason", "created")
+              "seller_prior_ads", "features", "declined_reason", "created")
     readonly_fields = fields
     can_delete = False
 
@@ -519,6 +519,8 @@ class AdAdmin(admin.ModelAdmin):
         "publish_date",
         "url",
         "query_count",
+        "price_discount",
+        "price_z",
         "created",
     )
     # Plain "-publish_date" would put every Vinted ad (publish_date is always null —
@@ -543,11 +545,36 @@ class AdAdmin(admin.ModelAdmin):
         # distinct=True: an Ad matching several queries has one delivery per query, and
         # without it the join would multiply rows the same way QueryAdmin.ad_count's
         # comment describes for the mirror-image annotation.
-        return super().get_queryset(request).annotate(query_count=Count('deliveries', distinct=True))
+        #
+        # The two score columns are correlated subqueries, NOT a second and third
+        # aggregate: adding Max('price_scores__...') alongside the Count above would join
+        # deliveries x price_scores and materialise the product per row, which is exactly
+        # what QueryAdmin.get_queryset was rewritten to avoid.
+        scores = (
+            AdPriceScore.objects
+            .filter(ad=OuterRef("pk"), predicted__isnull=False)
+            .order_by("-created")
+        )
+        return super().get_queryset(request).annotate(
+            query_count=Count('deliveries', distinct=True),
+            price_discount=Subquery(scores.values("discount_pct")[:1]),
+            price_z=Subquery(scores.values("z_score")[:1]),
+        )
 
     @admin.display(description="Queries", ordering="query_count")
     def query_count(self, obj):
         return obj.query_count
+
+    # nulls_last for the same reason as `ordering` above and QueryAdmin.last_run: most ads
+    # are never scored (no registered model claims them), and Postgres DESC is NULLS FIRST,
+    # so "biggest discount first" would open on a page of blanks.
+    @admin.display(description="Disc. %", ordering=models.F("price_discount").desc(nulls_last=True))
+    def price_discount(self, obj):
+        return "—" if obj.price_discount is None else f"{obj.price_discount:+.0f}%"
+
+    @admin.display(description="z", ordering=models.F("price_z").asc(nulls_last=True))
+    def price_z(self, obj):
+        return "—" if obj.price_z is None else f"{obj.price_z:+.2f}"
 
     @admin.display(description="Seller history")
     def seller_ad_counts(self, obj):
