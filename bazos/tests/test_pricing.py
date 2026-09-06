@@ -303,3 +303,89 @@ def test_rule_passes_when_scoring_raises(monkeypatch, settings):
     monkeypatch.setattr("bazos.pricing.scoring.score_ad", boom)
     result, _ = PriceModelRule().apply(_delivery(_ad()))
     assert result == FilterResult.PASS
+
+
+# ---------------------------------------------------------------------------
+# Per-query threshold overrides — start permissive, tighten later
+# ---------------------------------------------------------------------------
+
+def _delivery_with(ad, **query_kwargs):
+    q = Query.objects.create(text="macbook", price_lower=0, price_upper=0, **query_kwargs)
+    return AdDelivery.objects.create(ad=ad, query=q, status=AdStatus.PENDING)
+
+
+@pytest.mark.django_db
+def test_query_z_override_can_loosen_a_rejection(model, monkeypatch, settings):
+    """The whole point of the override: an ad the global threshold rejects is kept when
+    this query says it wants a wider net."""
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+    settings.PRICE_MODEL_SHADOW_MODE = False
+    ad = _ad(price=49_500)
+    assert PriceModelRule().apply(_delivery(ad))[0] == FilterResult.REJECT
+
+    loose = _delivery_with(ad, filter_price_model_z=99.0, filter_price_model_min_discount=-100.0)
+    assert PriceModelRule().apply(loose)[0] == FilterResult.PASS
+
+
+@pytest.mark.django_db
+def test_query_override_can_tighten_past_a_real_deal(model, monkeypatch, settings):
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+    settings.PRICE_MODEL_SHADOW_MODE = False
+    ad = _ad(price=25_000)  # passes at the shipped thresholds
+    assert PriceModelRule().apply(_delivery(ad))[0] == FilterResult.PASS
+
+    strict = _delivery_with(ad, filter_price_model_min_discount=99.0)
+    assert PriceModelRule().apply(strict)[0] == FilterResult.REJECT
+
+
+@pytest.mark.django_db
+def test_unset_query_fields_fall_back_to_settings(model, monkeypatch, settings):
+    """Null is "not tuned", not "tuned to the default" — an untouched query must behave
+    exactly as it did before these columns existed."""
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+    settings.PRICE_MODEL_SHADOW_MODE = False
+    settings.PRICE_MODEL_Z_THRESHOLD = 99.0
+    settings.PRICE_MODEL_MIN_DISCOUNT_PCT = -100.0
+
+    delivery = _delivery(_ad(price=49_500))
+    assert delivery.query.filter_price_model_z is None
+    assert PriceModelRule().apply(delivery)[0] == FilterResult.PASS
+
+
+@pytest.mark.django_db
+def test_query_override_beats_settings(model, monkeypatch, settings):
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+    settings.PRICE_MODEL_SHADOW_MODE = False
+    settings.PRICE_MODEL_Z_THRESHOLD = 99.0          # globally permissive
+    settings.PRICE_MODEL_MIN_DISCOUNT_PCT = -100.0
+
+    strict = _delivery_with(_ad(price=49_500), filter_price_model_z=-2.0,
+                            filter_price_model_min_discount=10.0)
+    assert PriceModelRule().apply(strict)[0] == FilterResult.REJECT
+
+
+@pytest.mark.django_db
+def test_rejection_reason_names_the_limits_in_force(model, monkeypatch, settings):
+    """While calibrating, "by how much did it miss, against what bar" is the whole
+    question, and filter_reason is the only place that survives."""
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+    settings.PRICE_MODEL_SHADOW_MODE = False
+    delivery = _delivery_with(_ad(price=49_500), filter_price_model_z=-1.5,
+                              filter_price_model_min_discount=5.0)
+
+    _, reason = PriceModelRule().apply(delivery)
+
+    assert reason is not None
+    assert "z<=-1.5" in reason and "discount>=5%" in reason
+    assert len(reason) <= 255  # AdDelivery.filter_reason is a CharField(255)
+
+
+@pytest.mark.django_db
+def test_threshold_changes_are_audited(category):
+    """Tuning by feel is only recoverable if "when did I loosen this" has an answer."""
+    query = Query.objects.create(text="macbook", category=category, location_radius=25)
+    query.filter_price_model_z = -1.0
+    query.save()
+
+    changes = query.config_history.order_by("-created").first().changes
+    assert changes["filter_price_model_z"] == {"old": None, "new": -1.0}
