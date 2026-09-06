@@ -24,6 +24,13 @@ class PricePrediction:
     residual_log: float
     z_score: float | None
     seller_prior_ads: int
+    #: The parsed inputs the prediction was computed from, JSON-serialisable, or None for
+    #: a model that does not expose them. Persisted verbatim so a wrong-looking alert can
+    #: be diagnosed: extraction is the measured weak point, not the model class -- two
+    #: extractor regexes were worth more R2 than the entire choice of estimator
+    #: (docs/research/PRICE_MODEL_BENCHMARK.md §3.1). Without this, "why did it think this
+    #: was cheap" is unanswerable after the fact.
+    features: dict | None = None
 
     @property
     def discount_pct(self) -> float:

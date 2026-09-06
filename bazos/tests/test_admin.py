@@ -578,3 +578,74 @@ def test_form_accepts_neither_field_set(query, valid_query_data):
     saved = form.save()
     assert (saved.filter_location_center, saved.filter_location_radius) == ("", None)
     
+
+# ---------------------------------------------------------------------------
+# AdAdmin — price-score columns
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def ad_admin():
+    from django.contrib.admin.sites import AdminSite
+    return AdAdmin(Ad, AdminSite())
+
+
+@pytest.mark.django_db
+def test_ad_changelist_does_not_join_price_scores(ad_admin, rf):
+    """Same performance guard as QueryAdmin's, narrowed to what is actually at stake here.
+
+    `AdAdmin` legitimately joins `bazos_addelivery` — that is `Count('deliveries',
+    distinct=True)`, and its own comment explains why. What must NOT happen is a *second*
+    reverse-FK join: deliveries x price_scores materialises the product per Ad row, which
+    is the exact shape QueryAdmin.get_queryset was rewritten to avoid. So the scores have
+    to arrive as a correlated subquery.
+    """
+    sql = str(ad_admin.get_queryset(rf.get("/")).query)
+
+    assert "bazos_adpricescore" in sql, "the score columns must still read the table"
+    assert 'JOIN "bazos_adpricescore"' not in sql, "scores must be a subquery, not a join"
+    assert sql.count("JOIN") == 1, f"exactly one join (deliveries) expected, got: {sql}"
+
+
+@pytest.mark.django_db
+def test_score_columns_render_a_dash_when_nothing_scored(ad_admin, query, make_ad, rf):
+    ad = make_ad(query, 1)
+    ad.save()
+
+    row = ad_admin.get_queryset(rf.get("/")).get(pk=ad.pk)
+
+    assert ad_admin.price_discount(row) == "—"
+    assert ad_admin.price_z(row) == "—"
+
+
+@pytest.mark.django_db
+def test_score_columns_show_the_newest_scored_row(ad_admin, query, make_ad, rf):
+    from bazos.models import AdPriceScore
+
+    ad = make_ad(query, 1)
+    ad.save()
+    AdPriceScore.objects.create(
+        ad=ad, model_name="macbook", model_version="1",
+        predicted=50_000, residual_log=-0.2, discount_pct=18.1, z_score=-2.4,
+    )
+
+    row = ad_admin.get_queryset(rf.get("/")).get(pk=ad.pk)
+
+    assert ad_admin.price_discount(row) == "+18%"
+    assert ad_admin.price_z(row) == "-2.40"
+
+
+@pytest.mark.django_db
+def test_score_columns_ignore_a_declined_score(ad_admin, query, make_ad, rf):
+    """A declined row has null numbers; it must not blank out a real score, nor render 0."""
+    from bazos.models import AdPriceScore
+
+    ad = make_ad(query, 1)
+    ad.save()
+    AdPriceScore.objects.create(
+        ad=ad, model_name="macbook", model_version="1",
+        predicted=None, discount_pct=None, z_score=None, declined_reason="incomplete specs",
+    )
+
+    row = ad_admin.get_queryset(rf.get("/")).get(pk=ad.pk)
+
+    assert ad_admin.price_discount(row) == "—"
