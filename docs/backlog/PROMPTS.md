@@ -148,6 +148,14 @@ the threshold and not before.
 ---
 
 #### P21a — The free 3×: API cutover + interval to ~10 min
+> **📋 Specced in [`API_CUTOVER.md`](API_CUTOVER.md) (2026-09-07) — read that, not this, before
+> starting.** The prompt below is still accurate about *what* to change; the spec is what is
+> actually true when you start. Two things it establishes that this prompt gets wrong: the
+> "~5 min median" target assumes pass duration is zero (measured cycle is 42 min against a
+> ~30 min sleep, so a pass costs ~12 min and the realistic landing zone is ~7 min), and step 6's
+> "confirm parity" hides **three fields the thin API payload does not carry** — each of which
+> turns a filter rule permissive without erroring.
+>
 > ⚠️ Do P20 first — you want failure visibility *before* you increase cadence.
 > No external dependency; nothing here costs money.
 >
