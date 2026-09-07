@@ -1,7 +1,7 @@
 ---
 title: Docs Index
 status: active
-updated: 2026-08-29
+updated: 2026-09-07
 verified: 2026-08-29
 ---
 
@@ -59,6 +59,7 @@ doc appears in the table below exactly once and that no relative link is broken.
 | Doc | Status | Verified | What it is |
 |---|---|---|---|
 | [`PROMPTS.md`](backlog/PROMPTS.md) | 🟢 active | 2026-08-23 | **The backlog.** Ready-to-run prompts for work that is *not* done, ordered by dependency; the order recommendation at the bottom is the sequence to actually work in. Numbers are stable, gapped, and never reused — shipped ones moved to `SHIPPED.md`. |
+| [`API_CUTOVER.md`](backlog/API_CUTOVER.md) | 🟢 active | 2026-09-07 | **The spec for [`PROMPTS.md`](backlog/PROMPTS.md) P21a Parts 1 + 4a.** §1 corrects the cadence model that every latency claim rests on — `PROXY_ROTATION.md` §5 omits pass duration, so the real cycle is **42 min measured, not 30**, and today's median latency is ~21 min. §2 is the reason to read it before cutting over: the API's thin payload drops `short_description`, the postcode and the publisher ids, and **all three degrade their filter rules to permissive, silently**. §7 makes "confirm parity" testable. |
 | [`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md) | 🟢 active | 2026-08-23 | Deeper analysis of ideas mined from the issue tracker that aren't numbered stages — async scraping, images, CV, interval tuning, `AdOutcome`, distance scoring. Not sequenced; the priority table at the top is. |
 
 ### `proposals/` — designed, not scheduled, not built
