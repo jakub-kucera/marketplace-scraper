@@ -29,6 +29,9 @@ python manage.py runserver
 python manage.py compare_bazos_scrapers   # HTML vs hidden-API scraper overlap; read-only, never writes Ads
 python manage.py geocode_postal_codes     # warm the PostalCode cache (zip.php) for the distance filter;
                                           # idempotent, nothing to do in steady state — the scraper geocodes as it goes
+python manage.py rescore_ads              # re-predict existing AdPriceScore rows after a persisted field is
+                                          # added; score_ad's freshness check keys on the ARTIFACT version, so
+                                          # new code-written columns never backfill on their own. CPU-only.
 python getyourguide/gyg_scraper.py        # standalone script: Caminito del Rey availability → Discord webhook
                                           # NOTE: untracked, not gitignored — see "Other apps"
 
