@@ -22,6 +22,17 @@ def score_ad(ad: Ad, *, refresh: bool = False) -> AdPriceScore | None:
     Idempotent: the score is a pure function of the ad and the model version, so two
     deliveries of the same ad racing here converge on the same value. `update_or_create`
     on the `(ad, model_name)` unique constraint makes the write safe either way.
+
+    ⚠️ **The freshness check below keys on the artifact version alone, which is the wrong
+    key for anything the *code* persists.** `features` is the first such field: a row
+    written before that code shipped matches on `model_version`, short-circuits here, and
+    keeps its null `features` forever — re-running the pipeline over the same ad will
+    never fix it, because the row is considered fresh. So when you add a persisted field
+    to `AdPriceScore`, follow it with `manage.py rescore_ads --missing-<field>`.
+
+    Do not "fix" this by bumping the artifact version. `model_version` records which
+    artifact produced a row and is what makes a bad model's output findable; falsifying it
+    to force recomputation destroys that, and needs repeating on every code change.
     """
     model = get_price_model(ad)
     if model is None:
