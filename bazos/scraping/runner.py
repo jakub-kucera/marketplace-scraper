@@ -39,7 +39,7 @@ class ScrapeRunner:
 
     def run(self):
         while True:
-            self.log(f"Waking up at {datetime.utcnow()} UTC")
+            self.log(f"Waking up at {datetime.now(timezone.utc)}")
             try:
                 if self.ip_changer.check_ip_local():
                     # Once per pass, not once per query: it is a property of the transport,

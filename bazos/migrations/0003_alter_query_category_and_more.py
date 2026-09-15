@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="query",
             constraint=models.CheckConstraint(
-                check=models.Q(("price_lower__lte", models.F("price_upper"))),
+                condition=models.Q(("price_lower__lte", models.F("price_upper"))),
                 name="price_lower_lte_price_upper",
             ),
         ),

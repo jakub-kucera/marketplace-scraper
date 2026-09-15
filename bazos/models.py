@@ -201,11 +201,11 @@ class Query(TimeStampedModel):
 
         constraints = [
             models.CheckConstraint(
-                check=models.Q(price_lower__lte=models.F("price_upper")),
+                condition=models.Q(price_lower__lte=models.F("price_upper")),
                 name="price_lower_lte_price_upper",
             ),
             models.CheckConstraint(
-                check=models.Q(section__isnull=True) | models.Q(category__isnull=True),
+                condition=models.Q(section__isnull=True) | models.Q(category__isnull=True),
                 name="not_section_or_not_category",
             ),
         ]
@@ -243,8 +243,8 @@ class Query(TimeStampedModel):
         instance._config_snapshot = instance._config_state(field_names)
         return instance
 
-    def refresh_from_db(self, using=None, fields=None):
-        super().refresh_from_db(using=using, fields=fields)
+    def refresh_from_db(self, using=None, fields=None, from_queryset=None):
+        super().refresh_from_db(using=using, fields=fields, from_queryset=from_queryset)
         # Re-baseline, or the snapshot still describes the pre-refresh row. Live case:
         # `_run_query_with_rotation` refreshes a query between blacklist retries.
         self._snapshot_config()
@@ -603,7 +603,7 @@ class Ad(TimeStampedModel):
     class Meta:
         verbose_name = "Ad"
         verbose_name_plural = "Ads"
-        constraints: List[models.BaseConstraint] = [
+        constraints = [
             models.UniqueConstraint(fields=["marketplace", "external_id"], name="unique_ad_per_marketplace"),
         ]
 

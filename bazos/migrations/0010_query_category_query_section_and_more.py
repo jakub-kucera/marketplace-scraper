@@ -34,7 +34,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="query",
             constraint=models.CheckConstraint(
-                check=models.Q(
+                condition=models.Q(
                     ("section__isnull", True),
                     ("category__isnull", True),
                     _connector="OR",
