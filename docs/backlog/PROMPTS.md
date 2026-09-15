@@ -630,8 +630,25 @@ Steps:
 > far, and storage lands at 39%. This prompt is the two things that would change that answer.
 > Neither is a modelling change; both are about seeing the machine.
 
-> ⏳ **Item 1 has a wait attached — do not start it before ~2026-11-01.** It needs corpus, not
-> work. Starting early just re-measures the same 166 rows.
+> ✅ **Item 1 is DONE, early — see [`PC_PRICE_MODEL.md`](../research/PC_PRICE_MODEL.md), re-measured
+> 2026-09-12 at 2 856 ads.** The corpus arrived ahead of the estimate (1 368 rows now carry a full
+> description, against 166 when the study was written), so the wait below no longer applies.
+> **The decision rule below is answered: storage PASSES on block B (66.1% ≥ 60%), GPU+CPU+RAM
+> still FAILS (58.4% vs ~70%).** Read three things before acting on the rest of this prompt:
+>
+> - **§5.2 is retracted.** The linear-vs-tree gap this prompt's closing note calls a serving
+>   blocker was an *encoding* artifact — `pcmodel.py` imports `Ridge` and never calls it, and its
+>   `make_X` hands categoricals to a linear model as ordinal integers. A correctly encoded ridge
+>   closes the gap. **So do not treat the JSON manifest path as the obstacle**; the obstacle is
+>   the completeness gate and a −25% threshold that is 0.97σ on this corpus against 2.92σ for a
+>   MacBook dealer.
+> - **`pcmodel.py` no longer runs as step 1 instructs.** `make_X` passes `cpu_model` at
+>   cardinality 275 to HistGradientBoosting and sklearn refuses a categorical above 255. Pool rare
+>   levels first, or use the shared harness at `experiments/price_model/common/ph.py`.
+> - **The corpus is not 273 days.** It is 46 collection days in two blocks with a 214-day gap, and
+>   the query's own price floor moved inside them. Decide on block B only.
+>
+> Item 2 (the external GPU performance scale) is untouched and still worth doing.
 
 ```
 Two independent experiments. Item 1 is nearly free and waits on data; item 2 is real work.
