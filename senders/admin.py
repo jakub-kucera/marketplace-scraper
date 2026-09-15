@@ -1,10 +1,11 @@
 from django.contrib import admin
+from unfold.admin import ModelAdmin
 
 from senders.models import Discord
 
 
 @admin.register(Discord)
-class SenderAdmin(admin.ModelAdmin):
+class SenderAdmin(ModelAdmin):
     list_display = (
         "channel_name",
         "notify",

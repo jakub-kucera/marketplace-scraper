@@ -8,17 +8,28 @@ from django.db import models
 from django.db.models import Count, IntegerField, Max, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpResponseRedirect
-from django.urls import path, reverse
+from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 from django.utils.http import urlencode
+from django_db_logger.admin import StatusLogAdmin
+from django_db_logger.models import StatusLog
+from unfold.admin import ModelAdmin, TabularInline
+from unfold.contrib.filters.admin import (
+    ChoicesDropdownFilter,
+    RangeDateTimeFilter,
+    RangeNumericFilter,
+    RelatedDropdownFilter,
+)
+from unfold.decorators import action as unfold_action
+from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget
 
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
 from bazos.models import AdPriceScore, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
-class CategoryInline(admin.TabularInline):
+class CategoryInline(TabularInline):
     model = Category
     extra = 0
     readonly_fields = [
@@ -46,7 +57,7 @@ class HasFullDescriptionFilter(admin.SimpleListFilter):
 
 
 @admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
+class CategoryAdmin(ModelAdmin):
     list_display = (
         "name",
         "section",
@@ -57,7 +68,7 @@ class CategoryAdmin(admin.ModelAdmin):
 
 
 @admin.register(Section)
-class SectionAdmin(admin.ModelAdmin):
+class SectionAdmin(ModelAdmin):
     list_display = (
         "name",
         "url",
@@ -146,7 +157,7 @@ def render_change_diff(obj):
     )
 
 
-class QueryChangeInline(admin.TabularInline):
+class QueryChangeInline(TabularInline):
     """Recent config edits, on the Query change form."""
 
     model = QueryChange
@@ -189,7 +200,10 @@ def query_change_changelist_url(query_pk) -> str:
 class QueryAdminForm(forms.ModelForm):
     filter_rule_names = forms.MultipleChoiceField(
         choices=[(name, name.replace("_", " ").title()) for name in RULE_REGISTRY],
-        widget=forms.CheckboxSelectMultiple,
+        # Unfold styles the widgets it maps from model fields, but this one is declared by
+        # hand, so it has to name the themed widget itself. It subclasses Django's
+        # CheckboxSelectMultiple, so nothing that checks the widget type has to change.
+        widget=UnfoldAdminCheckboxSelectMultipleWidget,
         required=False,
         help_text="Filter rules applied to this query. None checked = all rules (default).",
     )
@@ -237,7 +251,7 @@ class QueryAdminForm(forms.ModelForm):
 
 
 @admin.register(Query)
-class QueryAdmin(admin.ModelAdmin):
+class QueryAdmin(ModelAdmin):
     form = QueryAdminForm
     list_display = (
         "query_name",
@@ -256,14 +270,15 @@ class QueryAdmin(admin.ModelAdmin):
         "enabled",
         "load_full_description",
         "randomly_generated",
-        "marketplace",
-        "section",
-        "category",
+        ("marketplace", ChoicesDropdownFilter),
+        ("section", RelatedDropdownFilter),
+        ("category", RelatedDropdownFilter),
     )
     # str(Query) reads text/category/section, so without this the changelist does a
     # section+category lookup per row.
     list_select_related = ("category", "section", "sender")
     actions = ["enable_queries", "disable_queries"]
+    actions_list = ["force_run_now"]
     autocomplete_fields = ["category", "section", "sender"]
     inlines = (QueryChangeInline,)
     readonly_fields = ("config_history",)
@@ -367,19 +382,16 @@ class QueryAdmin(admin.ModelAdmin):
         updated = queryset.update(enabled=False)
         self.message_user(request, f"{updated} query(ies) disabled successfully.")
 
-    def get_urls(self):
-        urls = super().get_urls()
-        custom = [
-            path(
-                "force-run/",
-                self.admin_site.admin_view(self.force_run_now),
-                name="bazos_query_force_run",
-            )
-        ]
-        return custom + urls
-
+    @unfold_action(description="Force Run Now", icon="bolt", url_path="force-run")
     def force_run_now(self, request):
-        """Touch the sentinel flag file so the runner wakes from sleep immediately."""
+        """Touch the sentinel flag file so the runner wakes from sleep immediately.
+
+        `actions_list` puts this in the changelist header and registers the URL, which is
+        what replaced a `get_urls` override plus a `change_list.html` that hooked Django's
+        `object-tools-items` block to hand-draw the button. `url_path` keeps the address
+        it has always had (`force-run/`); only the URL *name* changed, to the
+        `bazos_query_force_run_now` that unfold derives from the method.
+        """
         flag_path = Path(settings.FORCE_RUN_FLAG_PATH)
         flag_path.touch()
         self.message_user(
@@ -389,14 +401,9 @@ class QueryAdmin(admin.ModelAdmin):
         )
         return HttpResponseRedirect(request.META.get("HTTP_REFERER", "../"))
 
-    def changelist_view(self, request, extra_context=None):
-        extra_context = extra_context or {}
-        extra_context["force_run_url"] = "force-run/"
-        return super().changelist_view(request, extra_context=extra_context)
-
 
 @admin.register(QueryRun)
-class QueryRunAdmin(admin.ModelAdmin):
+class QueryRunAdmin(ModelAdmin):
     list_display = (
         "query",
         "run_start",
@@ -409,7 +416,13 @@ class QueryRunAdmin(admin.ModelAdmin):
     )
     # query__marketplace as its own filter even though str(Query) now carries the
     # marketplace: reading it off every row is not the same as slicing the list by it.
-    list_filter = ("query", "query__marketplace", "success")
+    list_filter = (
+        ("query", RelatedDropdownFilter),
+        ("query__marketplace", ChoicesDropdownFilter),
+        "success",
+        ("run_start", RangeDateTimeFilter),
+    )
+    list_filter_submit = True
     list_select_related = ("query", "query__category", "query__section")
     # exit_ip only. `error` is an unindexed TextField holding stack traces, and admin
     # search is an unanchored icontains — on a table that now grows by one row per retry
@@ -440,11 +453,16 @@ class QueryRunAdmin(admin.ModelAdmin):
 
 
 @admin.register(QueryChange)
-class QueryChangeAdmin(admin.ModelAdmin):
+class QueryChangeAdmin(ModelAdmin):
     """Config edit log, across every query. Read-only — the rows are an audit trail."""
 
     list_display = ("created", "query_display", "fields_changed", "diff")
-    list_filter = ("query", "query__marketplace")
+    list_filter = (
+        ("query", RelatedDropdownFilter),
+        ("query__marketplace", ChoicesDropdownFilter),
+        ("created", RangeDateTimeFilter),
+    )
+    list_filter_submit = True
     list_select_related = ("query", "query__category", "query__section")
     # str(Query) is not a column, so the label snapshot is the only searchable text —
     # and it is also the only thing left once the query itself is deleted.
@@ -480,14 +498,14 @@ class QueryChangeAdmin(admin.ModelAdmin):
         return render_change_diff(obj)
 
 
-class PriceChangeInline(admin.TabularInline):
+class PriceChangeInline(TabularInline):
     model = PriceChange
     extra = 0
     readonly_fields = ("old_price", "new_price", "created")
     can_delete = False
 
 
-class AdPriceScoreInline(admin.TabularInline):
+class AdPriceScoreInline(TabularInline):
     """What the price model thought, on the ad's own page.
 
     P23 step 4's point: a rule that only returns APPROVE/REJECT/PASS throws away the
@@ -501,7 +519,7 @@ class AdPriceScoreInline(admin.TabularInline):
     can_delete = False
 
 
-class AdDeliveryInline(admin.TabularInline):
+class AdDeliveryInline(TabularInline):
     model = AdDelivery
     extra = 0
     fields = ("query", "status", "filter_reason", "sent_at", "send_attempts", "created")
@@ -510,7 +528,7 @@ class AdDeliveryInline(admin.TabularInline):
 
 
 @admin.register(Ad)
-class AdAdmin(admin.ModelAdmin):
+class AdAdmin(ModelAdmin):
     list_display = (
         "name",
         "marketplace",
@@ -528,7 +546,19 @@ class AdAdmin(admin.ModelAdmin):
     # see VINTED_SCRAPER.md §2.2) above the newest Bazos ads: Postgres's DESC
     # defaults to NULLS FIRST. nulls_last keeps "newest first" meaning what it says.
     ordering = (models.F("publish_date").desc(nulls_last=True),)  # type: ignore[assignment]  # django-stubs types ordering as Sequence[str]; F().desc() is valid at runtime
-    list_filter = ("marketplace", "deliveries__query", HasFullDescriptionFilter)
+    # A price range and a date window are the two questions this changelist could not
+    # answer before — both are field-backed, so they cost no custom queryset code. The
+    # query filter becomes a dropdown because the list of queries is unbounded and grows.
+    list_filter = (
+        "marketplace",
+        ("deliveries__query", RelatedDropdownFilter),
+        ("price", RangeNumericFilter),
+        ("price_type", ChoicesDropdownFilter),
+        ("created", RangeDateTimeFilter),
+        HasFullDescriptionFilter,
+    )
+    # Range filters collect two inputs, so they need something to submit them.
+    list_filter_submit = True
     search_fields = ("name", "external_id", "url")
     readonly_fields = (
         "external_id", "marketplace",
@@ -620,11 +650,16 @@ class AdAdmin(admin.ModelAdmin):
 
 
 @admin.register(AdDelivery)
-class AdDeliveryAdmin(admin.ModelAdmin):
+class AdDeliveryAdmin(ModelAdmin):
     """The pipeline view: one row per (ad, query), where `Ad.status` used to live."""
 
     list_display = ("ad", "query", "status", "filter_reason", "sent_at", "send_attempts", "created")
-    list_filter = ("status", "query")
+    list_filter = (
+        ("status", ChoicesDropdownFilter),
+        ("query", RelatedDropdownFilter),
+        ("created", RangeDateTimeFilter),
+    )
+    list_filter_submit = True
     search_fields = ("ad__name", "ad__external_id")
     ordering = ("-created",)
     readonly_fields = ("ad", "query", "status", "filter_reason", "sent_at", "send_attempts")
@@ -633,7 +668,7 @@ class AdDeliveryAdmin(admin.ModelAdmin):
 PARTNER_DISPLAY_LIMIT = 50
 
 
-class PublisherAdminBase(admin.ModelAdmin):
+class PublisherAdminBase(ModelAdmin):
     """Shared behaviour for the `EmailPublisher` / `PhonePublisher` admins.
 
     Both models are the same shape — an opaque Bazos id, an unpopulated contact field, and
@@ -743,7 +778,7 @@ class PhonePublisherAdmin(PublisherAdminBase):
 
 
 @admin.register(PostalCode)
-class PostalCodeAdmin(admin.ModelAdmin):
+class PostalCodeAdmin(ModelAdmin):
     """The geocode cache. Read-mostly — rows are written by the scraper and by
     `manage.py geocode_postal_codes`; editing one here is the escape hatch for a code
     zip.php places badly.
@@ -751,3 +786,21 @@ class PostalCodeAdmin(admin.ModelAdmin):
     list_display = ("code", "city", "latitude", "longitude", "created")
     search_fields = ("code", "city")
     ordering = ("code",)
+
+
+# django-db-logger registers StatusLog with a stock ModelAdmin. Under Unfold that still
+# renders — the chrome comes from the templates — but its filters and widgets stay
+# unthemed, and this is not an incidental third-party table: the app loggers write here
+# (see Observability in CLAUDE.md) and it sits in the sidebar. Re-registering on the
+# themed base is the documented way to adopt a third-party admin.
+admin.site.unregister(StatusLog)
+
+
+@admin.register(StatusLog)
+class ThemedStatusLogAdmin(StatusLogAdmin, ModelAdmin):
+    list_filter = (
+        ("level", ChoicesDropdownFilter),
+        ("create_datetime", RangeDateTimeFilter),
+    )
+    list_filter_submit = True
+    search_fields = ("msg", "logger_name")
