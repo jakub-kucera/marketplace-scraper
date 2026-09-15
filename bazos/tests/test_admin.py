@@ -7,6 +7,7 @@ import json
 from datetime import timedelta
 
 import pytest
+from bs4 import BeautifulSoup
 from django import forms as dj_forms
 from django.contrib.auth import get_user_model
 from django.forms import model_to_dict
@@ -200,14 +201,18 @@ def test_change_page_checks_existing_selection(admin_client_logged_in, query):
     query.save()
 
     response = admin_client_logged_in.get(f"/admin/bazos/query/{query.pk}/change/")
-    content = response.content.decode()
+    soup = BeautifulSoup(response.content.decode(), "html.parser")
 
-    def input_tag(rule_name):
-        start = content.index(f'value="{rule_name}"')
-        return content[start : content.index(">", start) + 1]
+    def checkbox(rule_name):
+        tag = soup.find("input", attrs={"name": "filter_rule_names", "value": rule_name})
+        assert tag is not None, f"no checkbox rendered for rule {rule_name!r}"
+        return tag
 
-    assert "checked" in input_tag("price_range")
-    assert "checked" not in input_tag("blocklist_keyword")
+    # Parsed, not substring-matched: the themed widget's class list contains Tailwind
+    # variants like `checked:bg-primary-600`, so `"checked" in tag` is true of every
+    # checkbox whether or not the attribute is set.
+    assert checkbox("price_range").has_attr("checked")
+    assert not checkbox("blocklist_keyword").has_attr("checked")
 
 
 @pytest.mark.django_db

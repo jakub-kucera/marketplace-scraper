@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Final
 
 import environ
+from django.urls import reverse_lazy
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -46,6 +47,12 @@ SITE_BASE_URL: Final[str] = env("SITE_BASE_URL", default="http://localhost:8000"
 # Application definition
 
 INSTALLED_APPS = [
+    # Unfold replaces django.contrib.admin's templates rather than extending them, and
+    # template lookup takes the first app that has the path — so these must stay above
+    # "django.contrib.admin" or the stock templates win and only the CSS changes.
+    "unfold",
+    "unfold.contrib.filters",
+    "unfold.contrib.forms",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -147,6 +154,68 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Unfold admin theme. The admin is this project's operational surface — the Discord
+# notification for every ad links straight into it (Ad.admin_url), which means the change
+# page is read on a phone far more often than on a desktop.
+UNFOLD = {
+    "SITE_TITLE": "Marketplace scraper",
+    "SITE_HEADER": "Marketplace scraper",
+    "SITE_SUBHEADER": "Bazos · Sbazar · Vinted",
+    "SITE_SYMBOL": "storefront",
+    # There is no public site — scraper/urls.py routes /admin/ and nothing else — so the
+    # header link goes back to the admin index rather than to a 404.
+    "SITE_URL": "/admin/",
+    "SHOW_HISTORY": True,
+    "SHOW_VIEW_ON_SITE": False,
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": True,
+        # Grouped by what the models are *for*, which is the pipeline, not by Django app:
+        # Query/Ad/AdDelivery all live in `bazos` but belong to different jobs, and the
+        # alphabetical default buries AdDelivery — the table every stage actually polls.
+        "navigation": [
+            {
+                "title": "Pipeline",
+                "separator": False,
+                "items": [
+                    {"title": "Queries", "icon": "search", "link": reverse_lazy("admin:bazos_query_changelist")},
+                    {"title": "Ads", "icon": "sell", "link": reverse_lazy("admin:bazos_ad_changelist")},
+                    {"title": "Deliveries", "icon": "send", "link": reverse_lazy("admin:bazos_addelivery_changelist")},
+                ],
+            },
+            {
+                "title": "History",
+                "separator": True,
+                "items": [
+                    {"title": "Query runs", "icon": "timeline", "link": reverse_lazy("admin:bazos_queryrun_changelist")},
+                    {"title": "Config changes", "icon": "history", "link": reverse_lazy("admin:bazos_querychange_changelist")},
+                    {"title": "Logs", "icon": "receipt_long", "link": reverse_lazy("admin:django_db_logger_statuslog_changelist")},
+                ],
+            },
+            {
+                "title": "Sellers",
+                "separator": True,
+                "items": [
+                    {"title": "Email publishers", "icon": "alternate_email", "link": reverse_lazy("admin:bazos_emailpublisher_changelist")},
+                    {"title": "Phone publishers", "icon": "call", "link": reverse_lazy("admin:bazos_phonepublisher_changelist")},
+                    {"title": "Facebook users", "icon": "badge", "link": reverse_lazy("admin:facebook_fbuser_changelist")},
+                ],
+            },
+            {
+                "title": "Configuration",
+                "separator": True,
+                "items": [
+                    {"title": "Discord channels", "icon": "forum", "link": reverse_lazy("admin:senders_discord_changelist")},
+                    {"title": "Sections", "icon": "category", "link": reverse_lazy("admin:bazos_section_changelist")},
+                    {"title": "Categories", "icon": "label", "link": reverse_lazy("admin:bazos_category_changelist")},
+                    {"title": "Postal codes", "icon": "location_on", "link": reverse_lazy("admin:bazos_postalcode_changelist")},
+                    {"title": "Users", "icon": "person", "link": reverse_lazy("admin:auth_user_changelist")},
+                ],
+            },
+        ],
+    },
+}
 
 # Transitional setting, removed in Django 6.0 where it becomes the default. Opting in
 # now is what silences the deprecation warning, and the behaviour it picks is the one
