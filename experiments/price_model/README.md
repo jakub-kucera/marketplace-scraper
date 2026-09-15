@@ -21,7 +21,9 @@ Most scripts read a corpus pickle (`mb/ds.pkl`) built by `build_ds.py` from a CS
 seller names and publisher ids. Re-export it with `xm/export.sql` against a read-only
 connection, or point `training_rows()` at the DB instead.
 
-Paths inside the scripts still assume the flat scratchpad they were written in; expect to
+**`common/ph.py` is the exception to everything above**: it takes a query id and reads the CSV
+path named at the top of the file, and it is the one module here meant to be imported rather
+than run. Paths inside the *other* scripts still assume the flat scratchpad they were written in; expect to
 fix a path or two before anything runs.
 
 ## What belongs to what
@@ -35,3 +37,5 @@ fix a path or two before anything runs.
 | `score_one.py` | scoring a single live ad against the corpus |
 | `bm_*.py` | `docs/research/PRICE_MODEL_BENCHMARK.md` — the 25-model ladder, nested CV, paired cluster bootstrap, diagnostics, coefficients, alert-funnel comparison. Entry point is `bm_run_ladder.py` |
 | `xm/` | `docs/research/CROSS_MARKETPLACE_MACBOOK.md` — Vinted/Sbazar coverage, the Vinted fee fit, spec-matched comparison, pooled models |
+| `common/ph.py` | `docs/research/CATEGORY_PRICE_MODELS.md` — **the shared feasibility harness, and the only file here written to be reused.** One validation protocol for every category, so the numbers are comparable across corpora instead of each script inventing its own split: `load`, `seller_key`, `design`/`design_ohe`, `grouped_cv`, `time_split`, `metrics`, `cluster_bootstrap_delta`, `alert_funnel`, `coverage`, `market_structure`. Its docstrings carry *why* each default is what it is |
+| `iphone/ipfeat.py`, `iphone/b0*.py`, `iphone/k0*.py` | `docs/research/IPHONE_PRICE_MODEL.md` — `ipfeat.py` is the extractor (570 lines, stdlib only: generation/tier/storage/battery and the condition flags); `b0*` are the ladder, segments, funnel, coefficients and bootstrap; `k0*` are the independent skeptic's re-derivation and the hand audit of the flagged tail. ⚠️ `ipfeat.py` ships with a **deliberately unfixed defect** at its `_NEG` definition — see the comment there and that doc's §7; it is left in so the published figures reproduce |
