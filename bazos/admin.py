@@ -10,6 +10,7 @@ from django.db.models.functions import Coalesce
 from django.http import HttpResponseRedirect
 from django.urls import path, reverse
 from django.utils.html import format_html, format_html_join
+from django.utils.safestring import mark_safe
 from django.utils.http import urlencode
 
 from bazos.filters import RULE_REGISTRY
@@ -614,7 +615,7 @@ class AdAdmin(admin.ModelAdmin):
             counts.combined,
             "" if counts.combined == 1 else "s",
             note,
-            format_html("".join(links)),
+            mark_safe("".join(links)),
         )
 
 
@@ -701,7 +702,7 @@ class PublisherAdminBase(admin.ModelAdmin):
                 )
             )
         suffix = format_html("<li>… more than {} — see the ad list</li>", PARTNER_DISPLAY_LIMIT) if overflow else ""
-        return format_html('<ul style="margin:0;padding-left:1.2em">{}{}</ul>', format_html("".join(items)), suffix)
+        return format_html('<ul style="margin:0;padding-left:1.2em">{}{}</ul>', mark_safe("".join(items)), suffix)
 
     def ads_changelist_url(self, obj) -> str:
         return ad_changelist_url(self.own_ad_field, obj.pk)

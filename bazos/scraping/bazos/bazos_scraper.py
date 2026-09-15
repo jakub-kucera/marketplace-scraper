@@ -11,7 +11,6 @@ from bs4 import BeautifulSoup
 from django.utils import timezone
 import requests
 from requests import Response
-from selenium.common.exceptions import TimeoutException
 
 from bazos.const import (
     BAZOS_BLACKLIST_CHECK_URL,
@@ -231,7 +230,11 @@ class BazosScraper:
             # before this a ConnectTimeout/ConnectionError skipped the retry loop entirely
             # and escaped into the caller. Adding the timeout above without this would
             # have made that strictly more common.
-            except (TimeoutException, URLError, requests.RequestException) as e:
+            #
+            # selenium's TimeoutException used to be caught here too, left over from the
+            # click-driven scraper. `self.session` is a requests.Session on every path
+            # (see __init__), so nothing in this loop could ever raise it.
+            except (URLError, requests.RequestException) as e:
                 logger.warning("Request to %s failed (attempt %d/%d): %s", url, attempt, MAX_ATTEMPTS, e)
         return response
 

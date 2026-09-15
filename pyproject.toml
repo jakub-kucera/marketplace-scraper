@@ -6,51 +6,56 @@ authors = ["Jakub Kucera <jakub.kucerja@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
-requests = "^2.28.2"
+python = "^3.12"
+# The `socks` extra is load-bearing: the Tor transport proxies through socks5h://
+# (ip_changer/tor.py), which requests cannot do without PySocks. It used to arrive
+# transitively via selenium's `urllib3[socks]`, so declaring it here is what keeps
+# Tor working now that selenium is gone.
+requests = {extras = ["socks"], version = "^2.32"}
 discord-notify = "^1.0.0"
-beautifulsoup4 = "^4.11.2"
-selenium = "^4.8.2"
-webdriver-manager = "^3.8.5"
+beautifulsoup4 = "^4.12"
 requests-random-user-agent = "^2023.2.15"
 python-dotenv = "^1.0.0"
-pydantic = "^1.10.6"
-validators = "^0.20.0"
-pytz = "^2022.7.1"
-pytest = "^7.2.2"
-stem = "^1.8.1"
-django = "^4.1.7"
-extensions = "^0.4"
-django-extensions = "^3.2.1"
-django-environ = "^0.10.0"
+pytz = "^2026.3"
+stem = "^1.8.2"
+django = "^5.2"
+django-extensions = "^4.1"
+django-environ = "^0.12"
 django-db-logger = "*"
 sentry-sdk = {extras = ["django"], version = "*"}
-psycopg2-binary = "^2.9.5"
+psycopg2-binary = "^2.9.10"
 vinted-scraper = "^4.0.0"
 
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.2.2"
-mypy = "^1.1.1"
-django-stubs = "^1.15.0"
-pytest-django = "^4.5.2"
-pytest-mock = "^3.10.0"
-model-bakery = "^1.10.1"
-django-stubs-ext = "^0.7.0"
-typing-extensions = "^4.5.0"
-types-requests = "^2.28.11.15"
+pytest = "^8.4"
+# mypy is held in the 1.18 line to match django-stubs 5.2.x's `compatible-mypy`
+# range (>=1.13,<1.19). The stubs ship a mypy plugin, and the plugin API is what
+# breaks across mypy minors — not the type checks themselves.
+mypy = "~1.18"
+django-stubs = "^5.2.7"
+django-stubs-ext = "^5.2.7"
+pytest-django = "^4.11"
+pytest-mock = "^3.14"
+model-bakery = "^1.20"
+typing-extensions = "^4.12"
+types-requests = "^2.32"
 ruff = "^0.15.22"
-# Pinned to 7.x on purpose: vcrpy 8.0 dropped urllib3 v1, and both requests
-# 2.28.2 (urllib3 <1.27) and selenium 4.8.2 (urllib3 <2.0) forbid urllib3 2.x.
-# Revisit when the HTTP stack is bumped. See
-# docs/archive/shipped/E2E_REPLAY_TESTING.md §4.1.
-vcrpy = "^7.0"
+# Was pinned to 7.x because vcrpy 8 dropped urllib3 v1, which requests 2.28 and
+# selenium 4.8 forbade us leaving. That inverted when those two went: 7.0's
+# `urllib3<2; platform_python_implementation == "PyPy"` marker is enough to make
+# Poetry resolve the whole graph to urllib3 v1, which no longer solves. 8.x is the
+# version that matches a urllib3 v2 stack. Cassette format is unchanged between the
+# two; bazos/tests/cassettes replay is the regression net.
+# See docs/archive/shipped/E2E_REPLAY_TESTING.md 4.1.
+vcrpy = "^8.0"
 pytest-recording = "^0.13"
 
 # Jupyter is only for the experiments/ notebooks — it is not needed to run the
 # tests, and it is by far the heaviest thing in the lock. Split into its own group
 # so short-lived environments can skip it with `--without notebooks`; a plain
 # `poetry install` still installs it, so local dev is unchanged.
+types-pytz = "^2026"
 [tool.poetry.group.notebooks.dependencies]
 jupyter = "^1.0.0"
 

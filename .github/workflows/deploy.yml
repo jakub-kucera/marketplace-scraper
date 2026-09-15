@@ -27,6 +27,18 @@ jobs:
       - name: Build images
         run: docker compose --profile backup build
 
+      # Dependencies live in the image: the build above is this deploy's `poetry install`,
+      # and every step below runs inside it. What was missing is proof that the image can
+      # import the code it is about to migrate. Without this, a bad build is discovered by
+      # `migrate` — after `down` has stopped the site, against the production database,
+      # with only the pre-migration dump standing between it and a manual restore.
+      # Deliberately before `down`, so a broken build costs no downtime at all.
+      - name: Verify the built image
+        run: |
+          docker compose run --rm --no-deps marketplace_scraper python -c \
+            "import sys, django; print(sys.version); print('Django', django.get_version())"
+          docker compose run --rm --no-deps marketplace_scraper python manage.py check
+
       - name: Stop services
         run: docker compose down
 
