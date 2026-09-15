@@ -10,6 +10,7 @@ import pytest
 from django import forms as dj_forms
 from django.contrib.auth import get_user_model
 from django.forms import model_to_dict
+from django.urls import reverse
 from django.utils import timezone
 
 from bazos.admin import AdAdmin, QueryAdmin, QueryAdminForm, QueryRunAdmin
@@ -649,3 +650,35 @@ def test_score_columns_ignore_a_declined_score(ad_admin, query, make_ad, rf):
     row = ad_admin.get_queryset(rf.get("/")).get(pk=ad.pk)
 
     assert ad_admin.price_discount(row) == "—"
+
+
+# ---------------------------------------------------------------------------
+# Whole-surface smoke — the admin is an operational tool, not scaffolding
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_every_registered_changelist_renders(admin_client_logged_in):
+    """Every registered ModelAdmin's changelist returns 200, third-party ones included.
+
+    The targeted tests above cover Query and Ad. This is the net for the rest: a Django
+    upgrade, or a theme that replaces the admin templates, breaks a changelist somewhere
+    other than the two that happen to have assertions.
+    """
+    from django.contrib import admin as dj_admin
+
+    for model in dj_admin.site._registry:
+        opts = model._meta
+        url = reverse(f"admin:{opts.app_label}_{opts.model_name}_changelist")
+        response = admin_client_logged_in.get(url)
+        assert response.status_code == 200, f"{url} returned {response.status_code}"
+
+
+@pytest.mark.django_db
+def test_query_changelist_renders_the_force_run_button(admin_client_logged_in):
+    """The button lives in a template override (templates/admin/bazos/query/change_list.html)
+    that hooks Django's `object-tools-items` block. Nothing else notices if that block is
+    renamed upstream — the view tests in test_force_run.py call the handler directly.
+    """
+    response = admin_client_logged_in.get(reverse("admin:bazos_query_changelist"))
+
+    assert "Force Run Now" in response.content.decode()
