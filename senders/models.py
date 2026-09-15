@@ -16,5 +16,11 @@ class Discord(TimeStampedModel):
         ),
     )
 
+    class Meta:
+        # "Discords" is what Django pluralises the model name into, and the sidebar and
+        # app list both show it. These are webhook targets, so name them that.
+        verbose_name = "Discord channel"
+        verbose_name_plural = "Discord channels"
+
     def __str__(self):
         return f"{self.channel_name} | notify={self.notify}"
