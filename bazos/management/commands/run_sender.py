@@ -49,25 +49,40 @@ class Command(BaseCommand):
                 .order_by("created")[:SENDER_BATCH_SIZE]
             )
             for delivery in deliveries:
-                try:
-                    sender = DiscordSender.from_model(delivery.query.sender)
-                    sender.send_sendable([delivery.ad])
-                    delivery.status = AdStatus.SENT
-                    delivery.sent_at = now()
-                    logger.info("Sent delivery %d (ad %d)", delivery.pk, delivery.ad_id)
-                except RateLimitError:
-                    delivery.send_attempts += 1
-                    if delivery.send_attempts >= MAX_SEND_ATTEMPTS:
-                        delivery.status = AdStatus.FAILED
-                        logger.error(
-                            "Delivery %d permanently FAILED after %d attempts",
-                            delivery.pk, delivery.send_attempts,
-                        )
-                    else:
-                        logger.warning(
-                            "Delivery %d rate-limited (attempt %d/%d), will retry",
-                            delivery.pk, delivery.send_attempts, MAX_SEND_ATTEMPTS,
-                        )
+                # `Query.sender` is SET_NULL, so deleting a Discord row leaves its queries
+                # pointing at nothing and their deliveries unsendable. This used to raise
+                # AttributeError inside the atomic block: the batch rolled back with the
+                # rows still APPROVED, the next poll picked the same ones up, and the
+                # daemon crash-looped with every later delivery stuck behind them. FAILED
+                # is the terminal state an exhausted retry budget already gets, and it is
+                # what lets the queue drain past them.
+                config = delivery.query.sender
+                if config is None:
+                    delivery.status = AdStatus.FAILED
+                    logger.error(
+                        "Delivery %d permanently FAILED: query %d has no sender configured",
+                        delivery.pk, delivery.query_id,
+                    )
+                else:
+                    try:
+                        sender = DiscordSender.from_model(config)
+                        sender.send_sendable([delivery.ad])
+                        delivery.status = AdStatus.SENT
+                        delivery.sent_at = now()
+                        logger.info("Sent delivery %d (ad %d)", delivery.pk, delivery.ad_id)
+                    except RateLimitError:
+                        delivery.send_attempts += 1
+                        if delivery.send_attempts >= MAX_SEND_ATTEMPTS:
+                            delivery.status = AdStatus.FAILED
+                            logger.error(
+                                "Delivery %d permanently FAILED after %d attempts",
+                                delivery.pk, delivery.send_attempts,
+                            )
+                        else:
+                            logger.warning(
+                                "Delivery %d rate-limited (attempt %d/%d), will retry",
+                                delivery.pk, delivery.send_attempts, MAX_SEND_ATTEMPTS,
+                            )
                 delivery.save(update_fields=["status", "sent_at", "send_attempts"])
         return len(deliveries)
 
