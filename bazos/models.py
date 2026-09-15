@@ -33,6 +33,10 @@ class Category(models.Model):  # type: ignore[django-manager-missing]
     url = models.CharField(max_length=50, unique=False)
     section = models.ForeignKey(Section, on_delete=models.PROTECT)
 
+    class Meta:
+        verbose_name = "Category"
+        verbose_name_plural = "Categories"
+
     def __str__(self):
         return f"{self.name} | {self.section}"
 
@@ -801,6 +805,12 @@ class PhonePublisher(PublisherMixin, TimeStampedModel):
     fb_user = models.ForeignKey('facebook.FBUser', on_delete=models.PROTECT, related_name='phone_publishers', null=True, blank=True)
     blocked = models.BooleanField(default=False)
 
+    def __str__(self):
+        # Without this every FK dropdown and inline row reads "PhonePublisher object (12)",
+        # which names the row but not the seller. bazos_id is the identity; the number is
+        # what the partner tables and the Ad change page are keyed on.
+        return f"{self.phone} | {self.bazos_id}" if self.phone else f"phone id {self.bazos_id}"
+
 
 class EmailPublisher(PublisherMixin, TimeStampedModel):
     partner_ad_field = "phone_publisher"
@@ -809,3 +819,6 @@ class EmailPublisher(PublisherMixin, TimeStampedModel):
     # Todo use email field
     email = models.CharField(max_length=30, null=True, blank=True)  # Is really unique?
     blocked = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.email} | {self.bazos_id}" if self.email else f"email id {self.bazos_id}"
