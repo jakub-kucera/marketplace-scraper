@@ -27,6 +27,18 @@ from senders.services.discord_sender import DiscordSender
 # Helpers
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def query_has_a_sender(query):
+    """The shared `query` fixture leaves `sender` null, which every other test can
+    ignore — this module cannot. run_once now fails a delivery whose query has no
+    webhook (Query.sender is SET_NULL), so without this the tests below would assert
+    against that path instead of the one they are about.
+    """
+    query.sender = Discord.objects.create(channel_name="fixture", url="https://discord.test/fixture")
+    query.save()
+    return query
+
+
 def run_sender_once(send_side_effect=None):
     """Run one real run_sender batch. Returns the stand-in sender for assertions.
 
@@ -231,3 +243,52 @@ def test_one_batch_sends_at_most_batch_size(query, make_ad, make_delivery, monke
 def test_once_returns_on_an_empty_queue(query):
     """--once must exit even with nothing to do, rather than sleeping forever."""
     run_sender_once()   # no deliveries exist; must not hang
+
+
+# ---------------------------------------------------------------------------
+# Missing sender — Query.sender is SET_NULL
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_delivery_without_a_sender_fails_instead_of_crashing(query, make_ad, make_delivery):
+    """Deleting a Discord row must not wedge the sender.
+
+    `Query.sender` is SET_NULL, so the query survives its webhook. Before the guard
+    this raised AttributeError inside the atomic block — the batch rolled back with
+    the rows still APPROVED, and the next poll crashed on the same ones.
+    """
+    query.sender = None
+    query.save()
+    ad = make_ad(query, bazos_id=200)
+    ad.save()
+    delivery = make_delivery(ad, query, status=AdStatus.APPROVED)
+
+    fake_sender = run_sender_once()
+
+    delivery.refresh_from_db()
+    assert delivery.status == AdStatus.FAILED
+    fake_sender.send_sendable.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_a_senderless_delivery_does_not_block_the_rest_of_the_batch(make_ad, make_delivery, category):
+    """The unsendable row is terminal, so later deliveries still go out this pass."""
+    from bazos.models import Query
+
+    orphaned = Query.objects.create(text="orphan", category=category, sender=None)
+    discord = Discord.objects.create(channel_name="deals", url="https://discord.test/hook")
+    wired = Query.objects.create(text="wired", category=category, sender=discord)
+
+    bad_ad = make_ad(orphaned, bazos_id=201)
+    bad_ad.save()
+    good_ad = make_ad(wired, bazos_id=202)
+    good_ad.save()
+    bad = make_delivery(bad_ad, orphaned, status=AdStatus.APPROVED)
+    good = make_delivery(good_ad, wired, status=AdStatus.APPROVED)
+
+    run_sender_once()
+
+    bad.refresh_from_db()
+    good.refresh_from_db()
+    assert bad.status == AdStatus.FAILED
+    assert good.status == AdStatus.SENT
