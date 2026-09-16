@@ -213,6 +213,7 @@ UNFOLD = {
                     {"title": "Sections", "icon": "category", "link": reverse_lazy("admin:bazos_section_changelist")},
                     {"title": "Categories", "icon": "label", "link": reverse_lazy("admin:bazos_category_changelist")},
                     {"title": "Postal codes", "icon": "location_on", "link": reverse_lazy("admin:bazos_postalcode_changelist")},
+                    {"title": "Reference products", "icon": "price_check", "link": reverse_lazy("admin:refprice_refproduct_changelist")},
                     {"title": "Users", "icon": "person", "link": reverse_lazy("admin:auth_user_changelist")},
                 ],
             },

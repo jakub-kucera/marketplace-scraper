@@ -1,0 +1,165 @@
+"""The admin surface — which is this feature's actual UI.
+
+Explicit invocation is the posture, and the admin is where it happens: CLAUDE.md calls
+the admin "a real operational surface, not scaffolding", and the force-run button is the
+precedent for an operator-triggered action.
+
+**The wiring onto `AdAdmin` happens here, not in `bazos/admin.py`.** The dependency has
+to point inward — deleting this app must break nothing in the pipeline — so this module
+appends its inline and action to `AdAdmin` rather than `bazos` importing `refprice`.
+Admin modules are loaded in `INSTALLED_APPS` order, and `refprice` sits after `bazos`.
+"""
+import logging
+
+from django.contrib import admin, messages
+from django.utils.html import format_html
+from unfold.admin import ModelAdmin, TabularInline
+
+from bazos.admin import AdAdmin
+from bazos.models import Ad
+from refprice.models import LookupStatus, RefLookup, RefPricePoint, RefProduct, RefProductLink
+from refprice.results import ReferenceRequest
+from refprice.services import lookup_reference_price
+
+logger = logging.getLogger(__name__)
+
+STATUS_COLOURS = {
+    LookupStatus.MATCHED.value: "#1a7f37",
+    LookupStatus.AMBIGUOUS.value: "#8a5a06",
+    LookupStatus.NO_MARKET.value: "#8a5a06",
+    LookupStatus.NO_MATCH.value: "#69737d",
+    LookupStatus.DECLINED.value: "#69737d",
+    LookupStatus.ERROR.value: "#b42318",
+}
+
+
+def _money(value: int | None) -> str:
+    return f"{value:,} Kč".replace(",", " ") if value else "—"
+
+
+class RefPricePointInline(TabularInline):
+    model = RefPricePoint
+    extra = 0
+    can_delete = False
+    fields = ("date", "min_czk", "median_czk", "max_czk")
+    readonly_fields = fields
+    #: A change form renders every inline row with no pagination, and a product carries
+    #: ~100 points. Same cap as QueryChangeInline, for the same reason.
+    max_num = 30
+    ordering = ("-date",)
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.register(RefProduct)
+class RefProductAdmin(ModelAdmin):
+    list_display = ("name", "brand", "provider", "median_display", "range_display",
+                    "shop_count", "availability", "product_no", "fetched_at")
+    list_filter = ("provider", "availability", "brand")
+    search_fields = ("name", "slug", "product_no", "product_id")
+    ordering = ("name",)
+    inlines = (RefPricePointInline,)
+
+    @admin.display(description="Median", ordering="median_czk")
+    def median_display(self, obj: RefProduct) -> str:
+        return _money(obj.median_czk)
+
+    @admin.display(description="Range")
+    def range_display(self, obj: RefProduct) -> str:
+        if obj.shop_count < 2:
+            # One merchant is not a market; saying so on the row stops the number being
+            # read as a price.
+            return format_html('<span style="color:#8a5a06">thin — {} shop</span>',
+                               obj.shop_count)
+        return f"{_money(obj.min_czk)} – {_money(obj.max_czk)}"
+
+
+@admin.register(RefProductLink)
+class RefProductLinkAdmin(ModelAdmin):
+    list_display = ("ad_title", "product", "confidence", "method", "confirmed_by_human",
+                    "phrase_used", "created")
+    #: Deliberately editable: confirming a match is the point of the whole feature, and
+    #: every confirmation is one labelled row of the corpus that would justify automation.
+    list_editable = ("confirmed_by_human",)
+    list_filter = ("provider", "method", "confirmed_by_human")
+    search_fields = ("ad_title", "phrase_used", "product__name")
+    readonly_fields = ("ad", "ad_title", "phrase_used", "evidence", "created", "modified")
+    ordering = ("-created",)
+
+
+@admin.register(RefLookup)
+class RefLookupAdmin(ModelAdmin):
+    list_display = ("created", "phrase_used", "status_badge", "provider",
+                    "http_requests", "llm_calls", "duration_ms")
+    list_filter = ("status", "provider")
+    search_fields = ("phrase_used", "detail")
+    date_hierarchy = "created"
+    ordering = ("-created",)
+
+    @admin.display(description="Status", ordering="status")
+    def status_badge(self, obj: RefLookup) -> str:
+        return format_html('<b style="color:{}">{}</b>',
+                           STATUS_COLOURS.get(obj.status, "#69737d"),
+                           obj.get_status_display())
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# wiring onto the Ad admin
+# ---------------------------------------------------------------------------
+
+class ReferenceLinkInline(TabularInline):
+    """What this ad was matched to, and the price behind it."""
+    model = RefProductLink
+    fk_name = "ad"
+    extra = 0
+    max_num = 4
+    fields = ("product", "reference_price", "confidence", "method",
+              "confirmed_by_human", "phrase_used")
+    readonly_fields = ("product", "reference_price", "confidence", "method", "phrase_used")
+    verbose_name_plural = "Reference prices"
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+    @admin.display(description="New price (median)")
+    def reference_price(self, obj: RefProductLink) -> str:
+        if obj.product is None:
+            return "— no match"
+        if not obj.product.has_market:
+            return format_html(
+                '<span style="color:#8a5a06">{} · thin ({} shop)</span>',
+                _money(obj.product.median_czk), obj.product.shop_count,
+            )
+        return format_html("{} · {} shops", _money(obj.product.median_czk),
+                           obj.product.shop_count)
+
+
+@admin.action(description="Look up reference price (Zboží)")
+def look_up_reference_price(modeladmin, request, queryset):
+    """Explicit, operator-triggered. Never runs on the scrape or filter path."""
+    counts: dict[str, int] = {}
+    for ad in queryset:
+        result = lookup_reference_price(
+            ReferenceRequest(title=ad.name, description=ad.short_description or ""),
+            ad=ad,
+        )
+        counts[result.status] = counts.get(result.status, 0) + 1
+
+    summary = ", ".join(f"{n} {status.lower()}" for status, n in sorted(counts.items()))
+    level = messages.SUCCESS if counts.get(LookupStatus.MATCHED) else messages.WARNING
+    modeladmin.message_user(request, f"Reference lookup: {summary or 'nothing to do'}", level)
+
+
+# Appended rather than imported by bazos: see the module docstring. mypy infers the
+# original tuple's exact member types from the literal, so widening it needs the ignore.
+AdAdmin.inlines = (*AdAdmin.inlines, ReferenceLinkInline)  # type: ignore[assignment]
+AdAdmin.actions = (*(AdAdmin.actions or ()), look_up_reference_price)
+admin.site.unregister(Ad)
+admin.site.register(Ad, AdAdmin)

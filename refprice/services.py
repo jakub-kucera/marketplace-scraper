@@ -53,9 +53,15 @@ def lookup_reference_price(
     provider: ReferenceProvider | None = None,
     provider_name: str = "zbozi",
     use_cache: bool = True,
+    persist: bool = True,
     ttl: dt.timedelta = DEFAULT_TTL,
 ) -> ReferenceResult:
-    """Resolve one listing to a reference price. Never raises."""
+    """Resolve one listing to a reference price. Never raises.
+
+    `persist=False` makes the whole call read-only — no product, no series, no link, no
+    audit row. That is the separation `PRICE_REFERENCE_SERVICE.md` §1 asks for: the
+    resolution itself is pure, and storing it is the caller's decision.
+    """
     started = time.monotonic()
     impl = provider if provider is not None else get_provider(provider_name)
     name = getattr(impl, "name", provider_name)
@@ -69,6 +75,7 @@ def lookup_reference_price(
 
     if not phrase:
         return _finish(
+            persist=persist,
             ad=ad, provider=name, phrase="", status=LookupStatus.DECLINED,
             evidence=MatchEvidence(method=MatchMethod.RULE, confidence=0.0, phrase_used=""),
             cost=LookupCost(), started=started,
@@ -82,6 +89,7 @@ def lookup_reference_price(
     except Exception as exc:  # noqa: BLE001 — a broken transport is not the caller's problem
         logger.exception("Reference lookup failed for %r", phrase)
         return _finish(
+            persist=persist,
             ad=ad, provider=name, phrase=phrase, status=LookupStatus.ERROR,
             evidence=MatchEvidence(method=MatchMethod.RULE, confidence=0.0,
                                    phrase_used=phrase),
@@ -94,21 +102,23 @@ def lookup_reference_price(
     )
 
     if resolution.facts is None:
-        return _finish(ad=ad, provider=name, phrase=phrase, status=LookupStatus.NO_MATCH,
-                       evidence=evidence, cost=LookupCost(http_requests=http_requests),
-                       started=started)
+        return _finish(persist=persist, ad=ad, provider=name, phrase=phrase,
+                       status=LookupStatus.NO_MATCH, evidence=evidence,
+                       cost=LookupCost(http_requests=http_requests), started=started)
 
     facts = resolution.facts
     points = impl.history(facts.product_id, request.months_back)
     http_requests += 1
 
-    stored = _persist(facts, points)
     status = LookupStatus.NO_MARKET if resolution.no_market else LookupStatus.MATCHED
-    if ad is not None:
-        _link(ad, name, stored if not resolution.no_market else stored,
-              resolution.confidence, MatchMethod.RULE, phrase, evidence)
+    if persist:
+        stored = _persist(facts, points)
+        if ad is not None:
+            _link(ad, name, stored, resolution.confidence, MatchMethod.RULE, phrase,
+                  evidence)
 
     return _finish(
+        persist=persist,
         ad=ad, provider=name, phrase=phrase, status=status, evidence=evidence,
         cost=LookupCost(http_requests=http_requests), started=started,
         product=ladder.to_matched_product(facts),
@@ -211,14 +221,15 @@ def _link(ad, provider: str, product: RefProduct, confidence: float, method: str
 
 
 def _finish(*, ad, provider, phrase, status, evidence, cost, started, product=None,
-            pricing=None, history=None, detail="") -> ReferenceResult:
+            pricing=None, history=None, detail="", persist=True) -> ReferenceResult:
     duration_ms = int((time.monotonic() - started) * 1000)
-    RefLookup.objects.create(
-        ad=ad, provider=provider, phrase_used=phrase, status=status, detail=detail,
-        http_requests=cost.http_requests, llm_calls=cost.llm_calls,
-        llm_tokens_in=cost.llm_tokens_in, llm_tokens_out=cost.llm_tokens_out,
-        cost_usd=cost.usd, duration_ms=duration_ms,
-    )
+    if persist:
+        RefLookup.objects.create(
+            ad=ad, provider=provider, phrase_used=phrase, status=status, detail=detail,
+            http_requests=cost.http_requests, llm_calls=cost.llm_calls,
+            llm_tokens_in=cost.llm_tokens_in, llm_tokens_out=cost.llm_tokens_out,
+            cost_usd=cost.usd, duration_ms=duration_ms,
+        )
     return ReferenceResult(
         status=status, match=evidence, cost=cost, fetched_at=timezone.now(),
         product=product, pricing=pricing, history=history, detail=detail,
