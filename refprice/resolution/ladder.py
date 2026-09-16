@@ -31,11 +31,15 @@ FALLING_PCT = 10.0
 class Resolution:
     """The outcome of rungs 1-2, before anything is persisted."""
 
-    def __init__(self, facts=None, traces=None, confidence=0.0, no_market=False):
+    def __init__(self, facts=None, traces=None, confidence=0.0, no_market=False,
+                 considered=None):
         self.facts: RefProductFacts | None = facts
         self.traces: list[CandidateTrace] = traces or []
         self.confidence = confidence
         self.no_market = no_market
+        #: Every candidate that was successfully fetched, in suggest order. Kept so rung 4
+        #: can adjudicate over the real catalogue rows without fetching them again.
+        self.considered: list[RefProductFacts] = considered or []
 
 
 def resolve(
@@ -53,6 +57,7 @@ def resolve(
         return Resolution(), requests_made
 
     traces: list[CandidateTrace] = []
+    considered: list[RefProductFacts] = []
     near_miss: RefProductFacts | None = None
 
     for candidate in candidates[:max_candidates]:
@@ -62,12 +67,13 @@ def resolve(
             traces.append(CandidateTrace(candidate.slug, candidate.name, False,
                                          "could not be fetched"))
             continue
+        considered.append(facts)
 
         verdict = validate(facts, spec)
         traces.append(CandidateTrace(candidate.slug, facts.name, verdict.accepted,
                                      verdict.reason))
         if verdict.accepted:
-            return Resolution(facts=facts, traces=traces,
+            return Resolution(facts=facts, traces=traces, considered=considered,
                               confidence=verdict.confidence), requests_made
         if verdict.no_market and near_miss is None:
             # The right product with too few merchants. Remembered so the caller can say
@@ -75,8 +81,9 @@ def resolve(
             near_miss = facts
 
     if near_miss is not None:
-        return Resolution(facts=near_miss, traces=traces, no_market=True), requests_made
-    return Resolution(traces=traces), requests_made
+        return Resolution(facts=near_miss, traces=traces, considered=considered,
+                          no_market=True), requests_made
+    return Resolution(traces=traces, considered=considered), requests_made
 
 
 def to_matched_product(facts: RefProductFacts) -> MatchedProduct:

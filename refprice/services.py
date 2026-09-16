@@ -25,6 +25,7 @@ from refprice.models import (
 )
 from refprice.providers.base import ReferenceProvider, get_provider
 from refprice.resolution import ladder
+from refprice.resolution.llm_rungs import adjudicate, suggest_phrase
 from refprice.results import (
     DealAssessment,
     LookupCost,
@@ -73,6 +74,13 @@ def lookup_reference_price(
         if cached is not None:
             return cached
 
+    llm_cost = LookupCost()
+    if not phrase and request.use_llm:
+        # Rung 3. The rule normaliser found nothing searchable; ask for a phrase before
+        # giving up. Inert under the shipped LLM_PROVIDER=NULL.
+        suggestion = suggest_phrase(request.title, request.description)
+        phrase = suggestion.phrase
+
     if not phrase:
         return _finish(
             persist=persist,
@@ -101,26 +109,54 @@ def lookup_reference_price(
         candidates_considered=resolution.traces, robots_allowed_path=True,
     )
 
+    method = MatchMethod.RULE
+    if resolution.facts is None and request.use_llm and resolution.considered:
+        # Rung 4. The rules rejected everything, but the right answer is often *in* the
+        # list — measured: the Samsung S10 at rank 3, a real MacBook at rank 6. Closed-set
+        # adjudication over what the catalogue actually returned, with an explicit decline.
+        choice = adjudicate(request.title, resolution.considered)
+        llm_cost = LookupCost(llm_calls=1 if choice.called else 0,
+                              llm_tokens_in=choice.tokens_in,
+                              llm_tokens_out=choice.tokens_out, usd=choice.cost_usd)
+        if choice.facts is not None:
+            resolution.facts = choice.facts
+            resolution.confidence = choice.confidence
+            resolution.no_market = not choice.facts.shop_count >= 2
+            method = MatchMethod.LLM
+            evidence = MatchEvidence(
+                method=method, confidence=choice.confidence, phrase_used=phrase,
+                candidates_considered=resolution.traces, robots_allowed_path=True,
+            )
+
+    cost = LookupCost(
+        http_requests=http_requests, llm_calls=llm_cost.llm_calls,
+        llm_tokens_in=llm_cost.llm_tokens_in, llm_tokens_out=llm_cost.llm_tokens_out,
+        usd=llm_cost.usd,
+    )
+
     if resolution.facts is None:
         return _finish(persist=persist, ad=ad, provider=name, phrase=phrase,
                        status=LookupStatus.NO_MATCH, evidence=evidence,
-                       cost=LookupCost(http_requests=http_requests), started=started)
+                       cost=cost, started=started)
 
     facts = resolution.facts
     points = impl.history(facts.product_id, request.months_back)
-    http_requests += 1
 
+    cost = LookupCost(
+        http_requests=http_requests + 1, llm_calls=cost.llm_calls,
+        llm_tokens_in=cost.llm_tokens_in, llm_tokens_out=cost.llm_tokens_out,
+        usd=cost.usd,
+    )
     status = LookupStatus.NO_MARKET if resolution.no_market else LookupStatus.MATCHED
     if persist:
         stored = _persist(facts, points)
         if ad is not None:
-            _link(ad, name, stored, resolution.confidence, MatchMethod.RULE, phrase,
-                  evidence)
+            _link(ad, name, stored, resolution.confidence, method, phrase, evidence)
 
     return _finish(
         persist=persist,
         ad=ad, provider=name, phrase=phrase, status=status, evidence=evidence,
-        cost=LookupCost(http_requests=http_requests), started=started,
+        cost=cost, started=started,
         product=ladder.to_matched_product(facts),
         pricing=ladder.to_snapshot(facts),
         history=ladder.summarise_history(points),
