@@ -315,8 +315,23 @@ The `/catalog/<id>-<slug>` URL form means an operator can read an id straight ou
 bar, so a seeded lookup table is a convenience, not a prerequisite.
 
 Brand and model ids are **not** in the page — the brand/model filter option lists are lazy-loaded
-(`isLazy: true`, `options: []`). Read them off an item page instead: the `brand` attribute carries
+(`isLazy: true`, `options: []`), and a catalog page contains no `/brand/` link at all (re-checked
+2026-09-16: zero occurrences). Read them off an **item** page instead: the `brand` attribute carries
 `id` + `/brand/54661-apple`, and `model_nav` carries `brand_collection_ids=8565`.
+
+Harvested that way from four electronics catalogs, 2026-09-16 — enough to convert a query without
+hunting:
+
+| `brand_ids[]` | brand | | `brand_ids[]` | brand |
+|---|---|---|---|---|
+| `54661` | Apple | | `472684` | MSI |
+| `109048` | Samsung | | `229494` | Dell |
+| `201078` | Xiaomi | | `314542` | Lenovo |
+| `441470` | OPPO | | `19553` | Amazon |
+| `520598` | Doogee | | `431006` | Bowers & Wilkins |
+
+⚠️ `1` is `emptybrand` — the sentinel for a listing with no brand set, not a real brand. Filtering
+on it selects unbranded listings, which is almost never what is wanted.
 
 ## 10. Anti-bot, rate limits, robots
 

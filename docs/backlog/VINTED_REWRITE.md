@@ -16,6 +16,21 @@ verified: 2026-09-16
 >
 > The failure is contained to Vinted queries by the runner's per-query guard, which is why it ran
 > for eight days unnoticed. Nothing else in the pipeline is affected.
+>
+> ## ✅ Status, 2026-09-16 — PRs 1-5 are written and green; **PR 6 is not done**
+>
+> | PR | Branch | State |
+> |---|---|---|
+> | 1 | `vinted/pr1-schema` | ✅ merged into the branch chain |
+> | 2 | `vinted/pr2-catalogs` | ✅ seeds 2,920 nodes, verified live |
+> | 3 | `vinted/pr3-scraper` | ✅ verified end to end against live vinted.cz |
+> | 4 | `vinted/pr4-catalog-picker` | ✅ |
+> | 5 | `vinted/pr5-fieldsets` | ✅ |
+> | 6 | — | ⏳ **needs a deploy and production access — §7** |
+>
+> Nothing is pushed and **no production config has been changed**. Vinted is still broken in
+> production until §7 is worked through. Coverage of the Vinted modules is 100% of statements,
+> 99% of branches.
 
 ---
 
@@ -461,23 +476,91 @@ Update `VINTED_PAGE_SIZE`'s comment: it is no longer a `per_page` request parame
 `pyproject.toml`: **remove `vinted-scraper = "^4.0.0"`**. Check whether `httpx` disappears from the
 lock as a result. Nothing else depends on it (`grep -rn vinted_scraper --include=*.py`).
 
-## 7. Rollout
+## 7. Rollout — PR 6, the part that is not done
 
-1. Land PR 3. Convert the existing Vinted `Query` rows from `search_text` to
-   `catalog[]` + `brand_ids[]` (§3.3) — this is the fix for the long-standing irrelevant-results
-   complaint, and it is a config change, not code.
-2. Set `new_query=True` **and** `ignore_first_run=True` on one query first. Eight days of missed
-   listings plus a 96-row first page is a Discord flood otherwise.
-3. Verify in the admin: ads created, `topped` populated on some rows, `price_raw` an integer string,
-   `price` ex-fee, `short_description` non-empty (**the regression check for §3.5.1**),
-   `publish_date` and `view_count` null.
-4. Flip `ignore_first_run=False`, watch one real notification.
-5. Watch `QueryRun.success` and `PriceChange` volume for that query specifically for a few passes.
+Everything above is code on local branches. None of it is deployed, and **Vinted is still
+failing in production**. This section is the hand-off; it needs production access and a
+deploy, neither of which happens from a development checkout.
 
-⚠️ The P19 zero-rows canary counts rows across *all* queries in a pass, so a broken Vinted scraper
-will not trip it while Bazos queries return rows. That is exactly how this outage lasted eight days.
-Consider a per-query failure-rate alert as a follow-up — it is the real fix and it is not in this
-plan's scope.
+### 7.1 Deploy
+
+`deploy.yml` fires on a **`v*` tag** and that is the only deploy path:
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+Before tagging, merge the branch chain (`vinted/pr1-schema` → … → `vinted/pr5-fieldsets`) into
+`main`. Two migrations ride along, `0043` (MarketplaceCategory + Ad.attributes) and `0044`
+(the extra_params help text); both are additive and neither rewrites a row.
+
+⚠️ `deploy.yml` checks out **before** it stops the containers, so a dependency change briefly
+runs new code on the old image. This deploy *removes* `vinted-scraper`, so expect one spurious
+import error in the logs during the window — it is the known behaviour of that ordering, not a
+failed deploy.
+
+### 7.2 Seed the taxonomy (once, after deploying)
+
+```bash
+docker compose exec marketplace_server python manage.py create_vinted_catalogs
+```
+
+~2,920 rows in one request. Idempotent, so re-run whenever the tree looks stale. Nothing else
+depends on it — PR 3 reads `extra_params`, not this table — so a failure here delays only the
+admin picker.
+
+### 7.3 Convert the queries from text search to structured filters
+
+This is the fix for the long-standing irrelevant-results complaint, and it is **config, not
+code**. In the admin, for each Vinted query: pick the category under "Where to search" (or set
+`extra_params` directly), add `brand_ids`, and keep `filter_required` as a backstop.
+
+```json
+{"catalog_ids": [3580], "brand_ids": [54661]}
+```
+
+Category ids: §9 of [`VINTED.md`](../research/marketplaces/VINTED.md), or read them straight out
+of a `/catalog/<id>-<slug>` URL. Brand ids: the table in that same section.
+
+Measured difference on `macbook`: text search returned 22 unrelated rows in 96 (Nike jackets, a
+handbag); `catalog[]=3580&brand_ids[]=54661` returned 96/96 correct.
+
+⚠️ Do **not** convert every query at once. Change one, watch a pass, then do the rest.
+
+### 7.4 Backfill the first query quietly
+
+Eight days of missed listings plus a 96-row first page is a Discord flood. On the **first**
+query only, set `new_query=True` **and** `ignore_first_run=True`, let one pass run, then set
+`ignore_first_run=False`.
+
+### 7.5 Verify, in this order
+
+In the admin, on ads from the new pass:
+
+- [ ] ads are being created at all, and `QueryRun.success` is true for the Vinted query
+- [ ] `price_raw` is an integer string and `price` is the **ex-fee** figure (cross-check one
+      against the listing page: the site shows the ex-fee price in large type)
+- [ ] **`short_description` is non-empty** — the regression check for §3.5.1; empty means
+      `itemBox` changed shape and both keyword rules are silently disabled again
+- [ ] `topped` is set on some rows
+- [ ] `publish_date` and `view_count` are null (they must stay null — never synthesised)
+- [ ] with `load_full_description=True`, `attributes` carries real specs
+
+Then watch for a few passes:
+
+- [ ] `QueryRun` failure rate for the Vinted query — an occasional failure is normal
+- [ ] **`PriceChange` volume on Vinted.** 78% of `.cz` prices are FX-converted, and a re-quote
+      wave would write a PriceChange per affected ad and flip every delivery to
+      `PRICE_CHANGED`. Measured 0/91 drift over an hour, so this should stay quiet; a burst is
+      the FX rate moving, not a bug in the walk.
+
+### 7.6 The gap this leaves open
+
+⚠️ The zero-rows canary counts rows across **all** queries in a pass, so a broken Vinted scraper
+does not trip it while Bazos queries keep returning rows. That is precisely how this outage
+lasted eight days. `contract-check.yml` now covers Vinted weekly, which shortens the blind
+window but does not close it. **A per-query failure rate is the real fix and is not built** —
+see §10.
 
 ## 8. Tests
 
@@ -545,4 +628,6 @@ Do not fold this into the rewrite. It needs its own measurement.
 - Images, though `photos[]` and `thumbnailUrls` are free in the listing row.
 - Any change to `parse_price`; §3.5 works within its current behaviour deliberately.
 - Migrating Bazos `Section`/`Category` into `MarketplaceCategory` — explicitly rejected, §2.1.
-- Per-query failure-rate alerting (§7) — needed, but separate.
+- Per-query failure-rate alerting (§7.6) — **needed, and the actual lesson of this outage**.
+  The canary is pass-wide, so one dead marketplace hides behind the others. Wants a threshold on
+  consecutive `QueryRun.success=False` per query, alerting to the `for_logging` channel.
