@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 from django import forms
 from django.conf import settings
@@ -346,6 +347,44 @@ class QueryAdminForm(forms.ModelForm):
         cleaned["extra_params"] = extra_params
 
 
+#: Fields that only mean something on some marketplaces. Everything not listed here
+#: applies everywhere. Used by QueryAdmin.get_fieldsets to fold the irrelevant ones into
+#: a collapsed group rather than leaving a Bazos query showing `vinted_catalogs` and a
+#: Vinted query showing `section`, `category` and two unusable location filters.
+MARKETPLACE_ONLY_FIELDS: dict[str, set[str]] = {
+    # Bazos addresses its taxonomy through Section/Category FKs and builds URLs from them;
+    # the other marketplaces have no equivalent and leave both null.
+    "section": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "category": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    # Search-time location params: only Bazos accepts them.
+    "location_center": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "location_radius": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    # Filter-time distance: needs a postal code on the ad, which only Bazos publishes.
+    # `location_distance` PASSes unconditionally for every Vinted and Sbazar ad.
+    "filter_location_center": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "filter_location_radius": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "vinted_catalogs": {Marketplace.VINTED},
+    # Both Bazos scrapers ignore extra_params entirely.
+    "extra_params": {Marketplace.VINTED, Marketplace.SBAZAR},
+}
+
+#: Field groups for the Query change form, in render order. The catch-all group in
+#: get_fieldsets picks up anything not named here, so adding a field to `Query` can never
+#: silently drop it off the form.
+QUERY_FIELD_GROUPS: tuple[tuple[str | None, tuple[str, ...]], ...] = (
+    (None, ("text", "marketplace", "enabled", "sender")),
+    ("Where to search", ("section", "category", "vinted_catalogs", "extra_params",
+                         "location_center", "location_radius")),
+    ("Price range", ("price_lower", "price_upper")),
+    ("Behaviour", ("new_query", "ignore_first_run", "load_full_description",
+                   "randomly_generated")),
+    ("Filtering", ("filter_rule_names", "filter_blocklist", "filter_required",
+                   "filter_location_center", "filter_location_radius",
+                   "filter_price_model_z", "filter_price_model_min_discount")),
+    ("History", ("config_history",)),
+)
+
+
 @admin.register(Query)
 class QueryAdmin(ModelAdmin):
     form = QueryAdminForm
@@ -379,6 +418,56 @@ class QueryAdmin(ModelAdmin):
     inlines = (QueryChangeInline,)
     readonly_fields = ("config_history",)
     ordering = ("-enabled", "marketplace", "text")
+
+    def get_fieldsets(self, request, obj=None):
+        """Group the form, and collapse whatever this marketplace does not use.
+
+        ⚠️ Nothing is ever *dropped*. A field left out of the fieldsets is left out of the
+        form, so it is not submitted — and while `construct_instance` then leaves the
+        stored value alone, the operator also loses any way to see or clear it after
+        switching marketplace. Irrelevant fields move into a collapsed group instead.
+
+        An unsaved Query (`obj is None`) shows everything: `marketplace` has not been
+        chosen yet, so there is nothing to tailor to.
+        """
+        groups: list[tuple[str | None, dict[str, Any]]] = []
+        placed = {name for _title, names in QUERY_FIELD_GROUPS for name in names}
+        form_fields = list(self.get_form(request, obj, fields=None).base_fields)
+        # Anything not named in QUERY_FIELD_GROUPS — a field added to Query later — still
+        # renders, rather than silently disappearing from the admin.
+        leftovers = tuple(name for name in form_fields if name not in placed)
+
+        marketplace = getattr(obj, "marketplace", None)
+        hidden: list[str] = []
+        for title, names in QUERY_FIELD_GROUPS:
+            visible = []
+            for name in names:
+                if name not in form_fields and name not in self.readonly_fields:
+                    continue
+                allowed = MARKETPLACE_ONLY_FIELDS.get(name)
+                if marketplace and allowed and marketplace not in allowed:
+                    hidden.append(name)
+                else:
+                    visible.append(name)
+            if title is None:
+                visible = list(visible) + list(leftovers)
+            if visible:
+                groups.append((title, {"fields": visible}))
+
+        if hidden:
+            groups.append((
+                "Not used by this marketplace",
+                {
+                    "fields": hidden,
+                    "classes": ("collapse",),
+                    "description": (
+                        f"These do nothing for a {obj.get_marketplace_display()} query. "
+                        "Shown so stored values stay visible and editable — change "
+                        "Marketplace above to bring them back."
+                    ),
+                },
+            ))
+        return groups
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
