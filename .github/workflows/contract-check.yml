@@ -1,11 +1,20 @@
-# Weekly drift check against the live bazos.cz.
+# Weekly drift check against the live marketplaces — bazos.cz and vinted.cz.
 #
-# The committed cassettes prove the scraper still handles the HTML recorded on
-# the day they were made — not that it handles Bazos today. This job re-parses
-# the live site and compares which fields still come back against the cassette,
-# so partial drift (e.g. view_count quietly disappearing) surfaces here instead
-# of in production. The zero-results canary in BazosRunner already covers the
-# catastrophic case.
+# The committed cassettes and fixtures prove the scrapers still handle the
+# payloads recorded on the day they were made — not that they handle the sites
+# today. This job re-parses the live sites, so partial drift (e.g. view_count
+# quietly disappearing) surfaces here instead of in production. The zero-results
+# canary in ScrapeRunner already covers the catastrophic case for Bazos.
+#
+# Vinted is here because the catastrophic case was NOT covered for it: when
+# /api/v2/catalog/items was withdrawn (~2026-09-08) every Vinted query failed for
+# eight days unnoticed. The runner's per-query guard contained the error, and the
+# canary counts rows across all queries in a pass, so Bazos returning rows masked
+# Vinted returning none. This job shortens that blind window to a week; a
+# per-query failure rate is the real fix and is not built yet.
+#
+# `pytest -m live` selects every test marked live, so a new marketplace's contract
+# tests are picked up here with no change to this file.
 #
 # Runs on the self-hosted Pi runner, not a GitHub-hosted one: Bazos refuses
 # GitHub runner IPs. See docs/research/marketplaces/RECOMMENDATION.md §6 on vantage points.
@@ -13,7 +22,7 @@
 # Deps are installed in a throwaway container rather than on the Pi host, since
 # the app image is built with `poetry install --only main` and has no pytest,
 # and the host is not assumed to carry poetry at all. `--without notebooks` keeps
-# jupyter and its tree out of a slim ARM image that only needs to run six tests.
+# jupyter and its tree out of a slim ARM image that only needs to run the live tests.
 #
 # NOTE: trigger this once manually (workflow_dispatch) after merging to confirm
 # it works on the runner before relying on the schedule.

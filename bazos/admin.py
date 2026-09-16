@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 from django import forms
 from django.conf import settings
@@ -22,11 +23,14 @@ from unfold.contrib.filters.admin import (
     RelatedDropdownFilter,
 )
 from unfold.decorators import action as unfold_action
-from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget
+from unfold.widgets import (
+    UnfoldAdminCheckboxSelectMultipleWidget,
+    UnfoldAdminSelect2MultipleWidget,
+)
 
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
-from bazos.models import AdPriceScore, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
+from bazos.models import AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
 class CategoryInline(TabularInline):
@@ -197,7 +201,45 @@ def query_change_changelist_url(query_pk) -> str:
     )
 
 
+class CatalogChoiceField(forms.ModelMultipleChoiceField):
+    """A `MarketplaceCategory` picker labelled by breadcrumb rather than by name.
+
+    The breadcrumb is not decoration: 205 of Vinted's node titles are shared by more than
+    one node — 575 of 2,920 are ambiguous on their own and "Ostatní" appears 35 times — so
+    a list of bare names cannot be used to pick anything.
+
+    Labels come from one bulk `path_map` query, memoised on the field. Reading
+    `MarketplaceCategory.path` per choice would walk parents per row, i.e. thousands of
+    queries to render one form.
+    """
+
+    def __init__(self, *args, marketplace: str, **kwargs):
+        self.marketplace = marketplace
+        self._paths: dict[int, str] | None = None
+        super().__init__(*args, **kwargs)
+
+    def label_from_instance(self, obj: MarketplaceCategory) -> str:
+        if self._paths is None:
+            self._paths = MarketplaceCategory.path_map(self.marketplace)
+        return self._paths.get(obj.pk) or obj.name
+
+
 class QueryAdminForm(forms.ModelForm):
+    vinted_catalogs = CatalogChoiceField(
+        marketplace=Marketplace.VINTED,
+        queryset=MarketplaceCategory.objects.filter(marketplace=Marketplace.VINTED),
+        # Select2 so 2,920 options stay searchable. Named explicitly because Unfold only
+        # themes widgets it maps from a model field, and this field has no model behind it.
+        widget=UnfoldAdminSelect2MultipleWidget,
+        required=False,
+        label="Vinted categories",
+        help_text=(
+            "Writes to extra_params['catalog_ids']. Far more precise than text search — a "
+            "'macbook' search returned 22 unrelated items in 96, while catalog + brand "
+            "returned 96/96 correct. Seed this list with manage.py create_vinted_catalogs."
+        ),
+    )
+
     filter_rule_names = forms.MultipleChoiceField(
         choices=[(name, name.replace("_", " ").title()) for name in RULE_REGISTRY],
         # Unfold styles the widgets it maps from model fields, but this one is declared by
@@ -211,6 +253,22 @@ class QueryAdminForm(forms.ModelForm):
     class Meta:
         model = Query
         fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Seed the picker from extra_params. The ids stored there are Vinted's own
+        # (external_id), not this table's primary keys, so they have to be looked up.
+        catalog_ids = self._stored_catalog_ids()
+        if catalog_ids:
+            self.fields["vinted_catalogs"].initial = MarketplaceCategory.objects.filter(
+                marketplace=Marketplace.VINTED,
+                external_id__in=[str(value) for value in catalog_ids],
+            )
+
+    def _stored_catalog_ids(self) -> list:
+        extra_params = getattr(self.instance, "extra_params", None) or {}
+        stored = extra_params.get("catalog_ids")
+        return list(stored) if isinstance(stored, list) else []
 
     def clean_extra_params(self):
         # `{}` is one of Django's JSONField "empty values" (like `[]` for
@@ -237,6 +295,7 @@ class QueryAdminForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+        self._apply_catalog_picker(cleaned)
         center = cleaned.get("filter_location_center")
         radius = cleaned.get("filter_location_radius")
         # Half a distance filter is not a weaker filter, it is no filter — and it looks
@@ -248,6 +307,82 @@ class QueryAdminForm(forms.ModelForm):
                 "one alone does nothing."
             )
         return cleaned
+
+    def _apply_catalog_picker(self, cleaned: dict | None) -> None:
+        """Fold the picker's selection back into `extra_params["catalog_ids"]`.
+
+        Runs from `clean()`, so `clean_extra_params` has already coerced None to {}.
+
+        ⚠️ Ids the picker cannot see are preserved, not dropped. A category Vinted has
+        retired — or one added to a query before the table was seeded — has no row to
+        select, so rebuilding the list from the selection alone would silently delete it
+        on the next unrelated save. That is exactly the stranding this taxonomy was kept
+        out of a ForeignKey to avoid (see MarketplaceCategory's docstring).
+
+        Only touches Vinted queries: extra_params is shared with other marketplaces, and a
+        field the form does not apply to must not rewrite their config.
+        """
+        # `super().clean()` returns None when a subclass has not set cleaned_data;
+        # Django's own forms tolerate that, so this has to as well.
+        if not cleaned or cleaned.get("marketplace") != Marketplace.VINTED:
+            return
+        if "extra_params" not in cleaned or "vinted_catalogs" not in cleaned:
+            return          # one of them failed validation; leave the stored value alone
+
+        selected = [int(row.external_id) for row in cleaned["vinted_catalogs"]
+                    if row.external_id.isdigit()]
+        known = set(
+            MarketplaceCategory.objects
+            .filter(marketplace=Marketplace.VINTED)
+            .values_list("external_id", flat=True)
+        )
+        unknown = [value for value in self._stored_catalog_ids() if str(value) not in known]
+
+        extra_params = dict(cleaned["extra_params"])
+        catalog_ids = unknown + selected
+        if catalog_ids:
+            extra_params["catalog_ids"] = catalog_ids
+        else:
+            extra_params.pop("catalog_ids", None)
+        cleaned["extra_params"] = extra_params
+
+
+#: Fields that only mean something on some marketplaces. Everything not listed here
+#: applies everywhere. Used by QueryAdmin.get_fieldsets to fold the irrelevant ones into
+#: a collapsed group rather than leaving a Bazos query showing `vinted_catalogs` and a
+#: Vinted query showing `section`, `category` and two unusable location filters.
+MARKETPLACE_ONLY_FIELDS: dict[str, set[str]] = {
+    # Bazos addresses its taxonomy through Section/Category FKs and builds URLs from them;
+    # the other marketplaces have no equivalent and leave both null.
+    "section": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "category": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    # Search-time location params: only Bazos accepts them.
+    "location_center": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "location_radius": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    # Filter-time distance: needs a postal code on the ad, which only Bazos publishes.
+    # `location_distance` PASSes unconditionally for every Vinted and Sbazar ad.
+    "filter_location_center": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "filter_location_radius": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "vinted_catalogs": {Marketplace.VINTED},
+    # Both Bazos scrapers ignore extra_params entirely.
+    "extra_params": {Marketplace.VINTED, Marketplace.SBAZAR},
+}
+
+#: Field groups for the Query change form, in render order. The catch-all group in
+#: get_fieldsets picks up anything not named here, so adding a field to `Query` can never
+#: silently drop it off the form.
+QUERY_FIELD_GROUPS: tuple[tuple[str | None, tuple[str, ...]], ...] = (
+    (None, ("text", "marketplace", "enabled", "sender")),
+    ("Where to search", ("section", "category", "vinted_catalogs", "extra_params",
+                         "location_center", "location_radius")),
+    ("Price range", ("price_lower", "price_upper")),
+    ("Behaviour", ("new_query", "ignore_first_run", "load_full_description",
+                   "randomly_generated")),
+    ("Filtering", ("filter_rule_names", "filter_blocklist", "filter_required",
+                   "filter_location_center", "filter_location_radius",
+                   "filter_price_model_z", "filter_price_model_min_discount")),
+    ("History", ("config_history",)),
+)
 
 
 @admin.register(Query)
@@ -283,6 +418,56 @@ class QueryAdmin(ModelAdmin):
     inlines = (QueryChangeInline,)
     readonly_fields = ("config_history",)
     ordering = ("-enabled", "marketplace", "text")
+
+    def get_fieldsets(self, request, obj=None):
+        """Group the form, and collapse whatever this marketplace does not use.
+
+        ⚠️ Nothing is ever *dropped*. A field left out of the fieldsets is left out of the
+        form, so it is not submitted — and while `construct_instance` then leaves the
+        stored value alone, the operator also loses any way to see or clear it after
+        switching marketplace. Irrelevant fields move into a collapsed group instead.
+
+        An unsaved Query (`obj is None`) shows everything: `marketplace` has not been
+        chosen yet, so there is nothing to tailor to.
+        """
+        groups: list[tuple[str | None, dict[str, Any]]] = []
+        placed = {name for _title, names in QUERY_FIELD_GROUPS for name in names}
+        form_fields = list(self.get_form(request, obj, fields=None).base_fields)
+        # Anything not named in QUERY_FIELD_GROUPS — a field added to Query later — still
+        # renders, rather than silently disappearing from the admin.
+        leftovers = tuple(name for name in form_fields if name not in placed)
+
+        marketplace = getattr(obj, "marketplace", None)
+        hidden: list[str] = []
+        for title, names in QUERY_FIELD_GROUPS:
+            visible = []
+            for name in names:
+                if name not in form_fields and name not in self.readonly_fields:
+                    continue
+                allowed = MARKETPLACE_ONLY_FIELDS.get(name)
+                if marketplace and allowed and marketplace not in allowed:
+                    hidden.append(name)
+                else:
+                    visible.append(name)
+            if title is None:
+                visible = list(visible) + list(leftovers)
+            if visible:
+                groups.append((title, {"fields": visible}))
+
+        if hidden:
+            groups.append((
+                "Not used by this marketplace",
+                {
+                    "fields": hidden,
+                    "classes": ("collapse",),
+                    "description": (
+                        f"These do nothing for a {obj.get_marketplace_display()} query. "
+                        "Shown so stored values stay visible and editable — change "
+                        "Marketplace above to bring them back."
+                    ),
+                },
+            ))
+        return groups
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -786,6 +971,42 @@ class PostalCodeAdmin(ModelAdmin):
     list_display = ("code", "city", "latitude", "longitude", "created")
     search_fields = ("code", "city")
     ordering = ("code",)
+
+
+@admin.register(MarketplaceCategory)
+class MarketplaceCategoryAdmin(ModelAdmin):
+    """Taxonomy lookup, seeded by `manage.py create_vinted_catalogs`.
+
+    Read-mostly and deliberately not referenced by any `Query` FK — the ids live in
+    `Query.extra_params`. See the model docstring for why.
+    """
+    list_display = ("name", "marketplace", "external_id", "breadcrumb")
+    list_filter = (("marketplace", ChoicesDropdownFilter),)
+    search_fields = ("name", "external_id", "slug")
+    ordering = ("marketplace", "name")
+    list_select_related = ("parent",)
+
+    @admin.display(description="Path")
+    def breadcrumb(self, obj: MarketplaceCategory) -> str:
+        """Uses the bulk path map, not `obj.path`.
+
+        `path` walks `parent` one query per level, which on a full changelist page would
+        be hundreds of queries. The map is built once per marketplace and memoised on the
+        admin instance — which Django keeps for the life of the registry, not per request,
+        so `changelist_view` clears it on the way in. Without that a re-seed would not show
+        up until the process restarted.
+        """
+        cache = getattr(self, "_path_cache", None)
+        if cache is None or obj.marketplace not in cache:
+            cache = cache or {}
+            cache[obj.marketplace] = MarketplaceCategory.path_map(obj.marketplace)
+            self._path_cache = cache
+        return cache[obj.marketplace].get(obj.pk) or obj.name
+
+    def changelist_view(self, request, extra_context=None):
+        # Drop the memo per request so a re-seed is visible without a restart.
+        self._path_cache = None
+        return super().changelist_view(request, extra_context)
 
 
 # django-db-logger registers StatusLog with a stock ModelAdmin. Under Unfold that still

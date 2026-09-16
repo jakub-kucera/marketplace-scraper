@@ -29,13 +29,31 @@ NEW_PRODUCT_LOAD_MAX: Final[int] = 50
 MAX_ATTEMPTS = 5
 
 VINTED_BASE_URL: Final[str] = "https://www.vinted.cz"
-# Server-enforced hard cap on the search `per_page` param, confirmed live —
-# see docs/archive/shipped/VINTED_SCRAPER.md §3. Requesting more (e.g. 200) is
-# silently clamped back down to this value.
+# Rows per catalog page. No longer a request parameter: `per_page` was retired with the
+# v2 API and the server-rendered page is fixed at 96 (measured 2026-09-16). Kept only as
+# the "short page means the last page" sentinel in the pagination loop.
 VINTED_PAGE_SIZE: Final[int] = 96
-# Safety bound on run_query's page loop, so a misbehaving response (e.g. one
-# that never returns a short page) cannot page forever.
-VINTED_MAX_PAGES: Final[int] = 20
+# Vinted serves at most 10 pages for any query — `total_entries` is capped at 960 for a
+# broad search, while a narrow one reports its true count (measured: 151 over 2 pages).
+# So this is the server's own ceiling, not an arbitrary safety bound.
+VINTED_MAX_PAGES: Final[int] = 10
+# A browser User-Agent is mandatory, not cosmetic: without one the request is served a
+# DataDome interstitial instead of the page. With one, 10 back-to-back catalog fetches
+# measured clean (VINTED.md §10). Deliberately a fixed string rather than
+# requests-random-user-agent — Vinted fingerprints, and a UA that changes per request
+# while the session cookie does not is a worse signal than a boring constant one.
+VINTED_USER_AGENT: Final[str] = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
+# (connect, read). Generous on read because a catalog page is ~800 KB gzipped that
+# decompresses to ~7 MB; connect stays short because, unlike Bazos, this never goes
+# through Tor and so never pays for circuit construction.
+VINTED_REQUEST_TIMEOUT: Final[tuple[float, float]] = (10.0, 30.0)
+# Currency for the price_from/price_to bounds. Must accompany them or they are ignored.
+# Follows the domain — .cz/CZK, .sk/EUR, .pl/PLN — so a Query with a non-.cz `base_url`
+# in extra_params needs this overridden there too.
+VINTED_CURRENCY: Final[str] = "CZK"
 # A new_query backfill can fire up to NEW_PRODUCT_LOAD_MAX unpaced item() detail
 # requests in a row — the exact kind of burst VINTED_SCRAPER_DESIGN.md §1a measured
 # tripping the Cloudflare/DataDome session-cookie bootstrap. Search itself doesn't need

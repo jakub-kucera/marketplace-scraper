@@ -1,7 +1,7 @@
 ---
 title: Ready-to-Run Prompts
 status: active
-updated: 2026-08-30
+updated: 2026-09-16
 verified: 2026-08-30
 ---
 
@@ -816,6 +816,146 @@ substance (see `docs/archive/shipped/AD_DELIVERY_SPLIT.md` §7's note on why `00
 
 ---
 
+## 🧩 Reference prices (new apps, 2026-09-16)
+
+> Design: [`PRICE_REFERENCE_SERVICE.md`](../proposals/PRICE_REFERENCE_SERVICE.md).
+> Measurements: [`ZBOZI_API.md`](../research/marketplaces/ZBOZI_API.md).
+>
+> **P28 and P29 are independent.** P28 ships on its own and has three other consumers waiting
+> (P27's extraction re-measurement, `LLM_AD_REVIEW.md`, filter-term suggestion). P29 stages a–d
+> need **no LLM, no API key and no money** — the feature is fully usable before P28 is wired in,
+> which is the whole reason the ladder is staged this way. Do not start P29e before P28b.
+
+### P28 — `llm/`: a provider-agnostic LLM layer
+
+**P28a — the skeleton, no provider, no cost** (~half a day)
+```
+Create a new Django app `llm/` per docs/proposals/PRICE_REFERENCE_SERVICE.md §2.
+
+1. `llm/base.py` — `LLMProvider` Protocol (`complete(prompt, system, schema,
+   max_output_tokens, temperature) -> LLMResult`), plus the `LLMResult` dataclass
+   (`value`, `raw`, `tokens_in`, `tokens_out`, `cost_usd`, `latency_ms`, `model`,
+   `declined_reason`, `cached`).
+2. `llm/registry.py` — `PROVIDER_REGISTRY` + `get_provider()`, keyed by an
+   `LLMProviderName(TextChoices)`. Same shape as `Marketplace` and `_build_scrapers`.
+3. `llm/providers/null.py` — `NullProvider`, always declines, never touches the network.
+   This is `DummyIPChanger`'s role and it is the DEFAULT.
+4. `llm/models.py` + migration `0001` — `LLMCall`: prompt name/version, provider, model,
+   tokens in/out, cost_usd, latency_ms, cached, outcome, declined_reason, created.
+   Written on EVERY call including failures — `QueryRun`'s rule.
+5. Settings: `LLM_PROVIDER` (default `"NULL"`), `LLM_MODEL`, `LLM_API_KEY` (default ""),
+   `LLM_MONTHLY_BUDGET_USD` (default 5.0), `LLM_TIMEOUT = (10, 60)`. Add to `.env.sample`.
+6. `llm/services.py::complete()` — resolves the provider, enforces the budget ceiling BEFORE
+   calling, writes the `LLMCall` row, returns `LLMResult`. Declining is never an exception.
+7. Add `"llm"` to INSTALLED_APPS below the third-party block.
+8. Tests: NullProvider declines; a fake provider records an LLMCall on success AND on
+   failure; the budget ceiling declines without calling the provider; a schema mismatch
+   declines rather than raising.
+```
+
+**P28b — a real provider, versioned prompts, caching** (~half a day)
+```
+1. `llm/providers/anthropic.py` — the Messages API, JSON output validated against the
+   dataclass in `schema`. A parse failure is a DECLINE, not an exception. Bounded retry on
+   429/5xx only, never on a refusal. Record real token counts and cost.
+2. `llm/prompts/__init__.py` — `load(name, version)` reading `llm/prompts/<name>/v<N>.md`.
+   The resolved version goes on every `LLMCall`. Editing a shipped prompt in place is a bug;
+   adding v2 is the change.
+3. Response cache keyed on sha256(provider, model, prompt_name, prompt_version,
+   normalized_input). Cached hits still write an `LLMCall` with `cached=True`.
+4. `llm/admin.py` — read-only `LLMCall` changelist on `unfold.admin.ModelAdmin`, with a
+   month-to-date cost total. Add a sidebar entry (UNFOLD navigation is hand-maintained).
+5. Tests use a stubbed transport — no live calls in the suite.
+```
+
+---
+
+### P29 — `refprice/`: explicit reference-price lookup
+
+**P29a — the Zboží provider, pure functions** (~1 day)
+```
+Create `refprice/providers/`. No Django models in this stage.
+
+1. `base.py` — `ReferenceProvider` Protocol: `suggest()`, `fetch()`, `history()`, and
+   `search()` kept SEPARATE because search is the robots-disallowed route (ZBOZI_API.md §4).
+2. `zbozi.py` — the three endpoints from ZBOZI_API.md §3. Own `requests.Session`, own
+   timeouts, NOT the Tor session (VintedScraper precedent). `filterFields` trimmed to the
+   named list — 261 B, not 29 KB.
+3. Convert hundredths→whole CZK exactly once, here. Both spellings: `minPrice` and
+   `minPriceHa`. This is the ×100 trap and it is the single likeliest bug in this app.
+4. Record cassettes; unit-test parsing offline.
+5. Add a `live`-marked contract test asserting all three endpoints still parse, and wire it
+   into `contract-check.yml` alongside the Bazos one. This is an UNSUPPORTED private API —
+   the contract test is the mitigation, not optimism.
+```
+
+**P29b — persistence** (~2 hours)
+```
+`refprice/models.py` + migration `0001`, per PRICE_REFERENCE_SERVICE.md §6:
+`RefProduct` (provider, product_id, slug, name, brand, category_id, product_no, median/min/max
+CZK, shop_count, availability, release_date, fetched_at) unique on (provider, product_id);
+`RefPricePoint` (product FK, date, min/median/max CZK) unique on (product, date), append-only,
+merged on re-fetch; `RefProductLink` (ad FK SET_NULL + ad_title snapshot, provider, product FK,
+confidence, method, phrase_used, evidence JSON, confirmed_by_human, created);
+`RefLookup` (one row per ATTEMPT including failures — status, cost fields, error).
+```
+
+**P29c — resolution, rungs 0–2, no LLM** (~1 day — the real work)
+```
+1. `resolution/normalize.py` — reduce a title to brand + line + model code. Strip
+   \d+\s?(GB|TB), colours, `stav [A-C]`, `zánovní`, warranty/packaging phrases.
+   Measured necessity: `Apple iPhone 13` → 15 candidates, `Apple iPhone 13 128GB` → 0.
+2. `resolution/validate.py` — over ALL candidates, not rank 0 (8 of 17 archetypes had a wrong
+   or empty top-1; the right answer sat at rank 1/3/6). Gates: brand ∈ vendorName;
+   model tokens PREFIX-tolerant (DHP484 must match DHP484Z — exact equality was measured
+   rejecting the correct Makita); reject Czech bundle words (`sada`, `set`, `+`) — measured
+   selecting a 7 785 Kč two-tool kit for `DeWalt DCD796`; reject contrast tokens
+   (Tab/mini/Pro/Max/Plus/FE); categoryId sanity; require shop_count >= 2 else `no_market`.
+3. `resolution/ladder.py` + `services.py::lookup_reference_price()` returning the
+   six-status `ReferenceResult` of §4. Plain dataclasses in and out — no `Ad` crosses the
+   boundary, so the extraction seam stays intact.
+4. History summary: depreciation_pct_per_year, change_90d/365d, min_ever, trend.
+5. Tests against the P29a cassettes, INCLUDING the six measured failure archetypes as
+   regression cases. Those are the spec.
+```
+
+**P29d — the UI, i.e. the actual ask** (~half a day)
+```
+1. `AdAdmin` / `AdDeliveryAdmin` — an Unfold `actions_list` "Look up reference price"
+   (force-run button precedent), plus an inline showing the cached link, the snapshot and the
+   price series. Confirm / Reject-match buttons that set `confirmed_by_human` — that flag is
+   the labelled corpus, and it is why manual invocation is a feature.
+2. `manage.py lookup_reference_price --ad N | --query N --limit N | --refresh-stale`,
+   with `--dry-run`.
+3. Sidebar entries for the new models (UNFOLD navigation is hand-maintained — a registered
+   model does NOT appear on its own).
+```
+
+**P29e — LLM rungs 3–4** (~half a day, needs P28b)
+```
+Two versioned prompts:
+- `refprice_query_phrase/v1.md` — title+description → canonical phrase + {brand, line,
+  model_code, variant, capacity, year}. Fires only when rung 1 produced nothing searchable.
+- `refprice_adjudicate/v1.md` — ad title + N real candidates → chosen index or NULL + reason.
+  Closed-set, explicit decline. ~340 tokens. THIS is the rung that earns the LLM layer;
+  it is not the blind extraction HEUREKA_ZBOZI.md §4d costed and rejected.
+Both must degrade to the rung-2 result on decline. Cache hits should be common because
+rung 1 already normalised the input.
+```
+
+**P29f — escalation and the unwired rule** (~2 hours)
+```
+1. `allow_disallowed_search=True` per-call flag enabling rung 5 (the `?q=` route). Off by
+   default. Sets `MatchEvidence.robots_allowed_path = False` so how a number was obtained
+   always travels with it.
+2. Register `reference_price` in `RULE_REGISTRY` and DELIBERATELY EXCLUDE it from
+   `DEFAULT_RULE_NAMES` — exactly how `price_model` ships, for the same reason.
+   It may ONLY read existing `RefProductLink` rows. It must never call Zboží:
+   network I/O inside `run_filter`'s transaction stays forbidden.
+```
+
+---
+
 ## Order recommendation
 
 > **Revised 2026-08-30.** Earlier revisions optimised for "cheapest independent win"; that
@@ -892,6 +1032,16 @@ worth building alongside whichever of these touches the notification path.
 - **P14** (interval tuning) — ⚠️ **blocked**: `extract_date` discards the time component, so
   `ExtractHour("publish_date")` returns 0 for every row. P21a unblocks it by supplying the API's
   second-resolution `from` field. See [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6.
+- **P28** (`llm/` layer) — ~1 day, and the only item here with **three other consumers already
+  waiting**: P27's extraction re-measurement (`PRICE_MODEL_BENCHMARK.md` §3.1 measured extraction,
+  not model class, as the bottleneck), `LLM_AD_REVIEW.md`, and filter-term suggestion for
+  `QUERY_COMPOSITION.md` §3.2's traps. Defaults to `NULL`, so it ships inert and costs nothing
+  until something opts in. Worth doing ahead of P29 on those grounds alone.
+- **P29** (`refprice/` reference prices) — ~3 days for stages a–d, which is the whole usable
+  feature with **no LLM and no API key**. Honestly **below P21a/P24** on the project's own stated
+  priority (latency → failure visibility → data usability → features): this is a manual research
+  tool, not something on the detection path. Its one time-sensitive argument is that it is an
+  unsupported private API that could close — the contract test in P29a is the hedge.
 - **P2** (Stage 5 query priority) and **P11** (multi-marketplace `Ad.message`) — feature work.
   **P11 is no longer cosmetic**: Vinted and Sbazar are both live, and every one of their ads
   renders a "0 ads seen" seller summary because both publisher FKs are null.

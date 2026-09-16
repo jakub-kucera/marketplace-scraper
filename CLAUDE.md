@@ -27,6 +27,10 @@ python manage.py runserver
 
 # One-off tools
 python manage.py compare_bazos_scrapers   # HTML vs hidden-API scraper overlap; read-only, never writes Ads
+python manage.py create_vinted_catalogs    # seed MarketplaceCategory from Vinted's live tree (~2,920 nodes
+                                          # in ONE request). Idempotent; never deletes — a node Vinted has
+                                          # retired is reported, along with any Query whose extra_params
+                                          # still reference it, because those ids are not an FK.
 python manage.py geocode_postal_codes     # warm the PostalCode cache (zip.php) for the distance filter;
                                           # idempotent, nothing to do in steady state — the scraper geocodes as it goes
 python manage.py rescore_ads              # re-predict existing AdPriceScore rows after a persisted field is
