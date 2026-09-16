@@ -67,6 +67,8 @@ INSTALLED_APPS = [
     "facebook",
     "ip_changer",
     "senders",
+    "llm",
+    "refprice",
 ]
 
 MIDDLEWARE = [
@@ -190,6 +192,7 @@ UNFOLD = {
                 "items": [
                     {"title": "Query runs", "icon": "timeline", "link": reverse_lazy("admin:bazos_queryrun_changelist")},
                     {"title": "Config changes", "icon": "history", "link": reverse_lazy("admin:bazos_querychange_changelist")},
+                    {"title": "LLM calls", "icon": "smart_toy", "link": reverse_lazy("admin:llm_llmcall_changelist")},
                     {"title": "Logs", "icon": "receipt_long", "link": reverse_lazy("admin:django_db_logger_statuslog_changelist")},
                 ],
             },
@@ -211,6 +214,7 @@ UNFOLD = {
                     {"title": "Categories", "icon": "label", "link": reverse_lazy("admin:bazos_category_changelist")},
                     {"title": "Marketplace categories", "icon": "account_tree", "link": reverse_lazy("admin:bazos_marketplacecategory_changelist")},
                     {"title": "Postal codes", "icon": "location_on", "link": reverse_lazy("admin:bazos_postalcode_changelist")},
+                    {"title": "Reference products", "icon": "price_check", "link": reverse_lazy("admin:refprice_refproduct_changelist")},
                     {"title": "Users", "icon": "person", "link": reverse_lazy("admin:auth_user_changelist")},
                 ],
             },
@@ -301,6 +305,31 @@ LOGGING = {
 PRICE_MODEL_VERSION: str = env("PRICE_MODEL_VERSION", default="latest")
 # Overrides bazos.const.PRICE_MODEL_SHADOW_MODE without a code change.
 PRICE_MODEL_SHADOW_MODE: bool = env.bool("PRICE_MODEL_SHADOW_MODE", default=True)
+
+# --- LLM layer (llm/) -------------------------------------------------------
+# Defaults to NULL: a provider that declines every call and touches no network, so the
+# suite and a fresh checkout need no API key and no egress. This is DummyIPChanger's
+# role, and it is why nothing has to opt *out* of LLM calls.
+LLM_PROVIDER: str = env("LLM_PROVIDER", default="NULL")
+# Empty means "whatever the selected provider considers its default" — each provider
+# carries its own DEFAULT_MODEL. A shared default would be one provider's model name
+# handed to another, which is a 404 that looks like a broken key.
+LLM_MODEL: str = env("LLM_MODEL", default="")
+LLM_API_KEY: str = env("LLM_API_KEY", default="")
+# Provider-specific keys win over LLM_API_KEY, so more than one backend can be
+# configured at once and switching is a one-line LLM_PROVIDER change.
+GEMINI_API_KEY: str = env("GEMINI_API_KEY", default="")
+# A hard stop, not a warning: `llm.services.complete` declines once month-to-date spend
+# reaches this, *before* calling the provider. A runaway loop against a metered API is
+# the one failure mode in this app that costs real money.
+LLM_MONTHLY_BUDGET_USD: float = env.float("LLM_MONTHLY_BUDGET_USD", default=5.0)
+# connect/read. The read half has to cover a model thinking, not just a socket.
+LLM_TIMEOUT: tuple[int, int] = (10, 60)
+# Response cache TTL. Django's default locmem cache is per-process and dies with it, so
+# this dedupes within a run rather than across restarts — which is where the repeats are:
+# refprice normalises many scruffy ad titles down to the same brand+model before asking.
+# Durable amortisation comes from persisting the match, not from this. 0 disables.
+LLM_CACHE_SECONDS: int = env.int("LLM_CACHE_SECONDS", default=60 * 60 * 24)
 
 SENTRY_DSN: str = env("SENTRY_DSN", default="")
 

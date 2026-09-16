@@ -63,8 +63,18 @@ def valid_query_data(query):
 # ---------------------------------------------------------------------------
 
 def test_filter_rule_names_choices_match_registry():
+    """Choices are a callable, so a rule another app registers at AppConfig.ready() --
+    after this form class is defined -- is still selectable here."""
     choices = QueryAdminForm.base_fields["filter_rule_names"].choices
     assert [value for value, _label in choices] == list(RULE_REGISTRY)
+
+
+def test_an_opt_in_rule_from_another_app_is_still_selectable():
+    from bazos.filters import OPT_IN_RULE_NAMES
+
+    choices = dict(QueryAdminForm.base_fields["filter_rule_names"].choices)
+    for name in OPT_IN_RULE_NAMES:
+        assert name in choices
 
 
 def test_filter_rule_names_uses_checkboxes():
