@@ -261,10 +261,17 @@ class Query(TimeStampedModel):
         default=dict,
         blank=True,
         help_text=(
-            "Marketplace-specific search params. Ignored by Bazos. Vinted: "
-            '{"base_url": "https://www.vinted.sk", "catalog_ids": [1194]}. '
-            "Vinted text search is fuzzy — a 'macbook' search returns unrelated items — so "
-            "setting filter_required is strongly recommended on Vinted queries."
+            "Marketplace-specific search params. Ignored by Bazos. "
+            'Vinted: {"catalog_ids": [3580], "brand_ids": [54661], "status_ids": [2], '
+            '"base_url": "https://www.vinted.sk"}. '
+            "⚠️ Vinted text search is fuzzy — a 'macbook' search returned 22 unrelated "
+            "items in 96, including clothing — so prefer catalog_ids + brand_ids over "
+            "text, and keep filter_required as a backstop. Category ids are in "
+            "Marketplace categories (seed with manage.py create_vinted_catalogs); brand "
+            "ids come from an item page's /brand/<id>-<slug> link. status_ids: "
+            "1=new without tags, 2=very good, 3=good, 4=satisfactory, 6=new with tags, "
+            "7=limited functionality — NOT the condition id shown on an item page. "
+            'Sbazar: {"category_id": 123}.'
         ),
     )
 
