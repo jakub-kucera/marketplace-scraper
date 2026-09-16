@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     "facebook",
     "ip_changer",
     "senders",
+    "llm",
 ]
 
 MIDDLEWARE = [
@@ -300,6 +301,20 @@ LOGGING = {
 PRICE_MODEL_VERSION: str = env("PRICE_MODEL_VERSION", default="latest")
 # Overrides bazos.const.PRICE_MODEL_SHADOW_MODE without a code change.
 PRICE_MODEL_SHADOW_MODE: bool = env.bool("PRICE_MODEL_SHADOW_MODE", default=True)
+
+# --- LLM layer (llm/) -------------------------------------------------------
+# Defaults to NULL: a provider that declines every call and touches no network, so the
+# suite and a fresh checkout need no API key and no egress. This is DummyIPChanger's
+# role, and it is why nothing has to opt *out* of LLM calls.
+LLM_PROVIDER: str = env("LLM_PROVIDER", default="NULL")
+LLM_MODEL: str = env("LLM_MODEL", default="claude-haiku-4-5-20251001")
+LLM_API_KEY: str = env("LLM_API_KEY", default="")
+# A hard stop, not a warning: `llm.services.complete` declines once month-to-date spend
+# reaches this, *before* calling the provider. A runaway loop against a metered API is
+# the one failure mode in this app that costs real money.
+LLM_MONTHLY_BUDGET_USD: float = env.float("LLM_MONTHLY_BUDGET_USD", default=5.0)
+# connect/read. The read half has to cover a model thinking, not just a socket.
+LLM_TIMEOUT: tuple[int, int] = (10, 60)
 
 SENTRY_DSN: str = env("SENTRY_DSN", default="")
 
