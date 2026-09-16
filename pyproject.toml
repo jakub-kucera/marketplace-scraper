@@ -24,7 +24,6 @@ django-environ = "^0.12"
 django-db-logger = "*"
 sentry-sdk = {extras = ["django"], version = "*"}
 psycopg2-binary = "^2.9.10"
-vinted-scraper = "^4.0.0"
 django-unfold = "^0.106"
 
 

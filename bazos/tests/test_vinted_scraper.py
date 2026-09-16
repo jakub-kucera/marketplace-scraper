@@ -1,398 +1,380 @@
-"""Tests for VintedScraper — the vinted-scraper-backed MarketplaceScraper impl.
+"""Tests for `VintedScraper` — the catalog-page rewrite.
 
-Mocks VintedApiClient.search / .item directly (injected into `_clients`); never hits the
-network. Field shapes mirror a live probe of `vinted-scraper` 4.0.0 against `vinted.cz` —
-see docs/archive/shipped/VINTED_SCRAPER.md.
+The previous suite mocked `vinted_scraper.VintedScraper`, a library class that is no
+longer a dependency: Vinted withdrew `/api/v2/catalog/items` around 2026-09-08. These
+tests drive the parser from **real** captured payloads
+(`fixtures/vinted_listing.txt`, `fixtures/vinted_item_detail.txt`) so the field names and
+the awkward values — a decimal FX price, a quote inside a title, a promoted row — are the
+ones the site actually serves. Nothing here touches the network.
+
+See docs/research/marketplaces/VINTED.md for the measurements and
+docs/backlog/VINTED_REWRITE.md §3 for the decisions.
 """
-from unittest.mock import MagicMock
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
-from vinted_scraper.models import VintedItem
 
-import bazos.scraping.vinted.vinted_scraper as vinted_scraper_module
-from bazos.const import VINTED_BASE_URL, VINTED_PAGE_SIZE
 from bazos.filters import parse_price
-from bazos.models import Ad, Marketplace, PriceType
+from bazos.models import Marketplace, PriceType, Query
+from bazos.scraping.vinted import flight
 from bazos.scraping.vinted.vinted_scraper import VintedScraper
+
+FIXTURES = Path(__file__).parent / "fixtures"
+LISTING = (FIXTURES / "vinted_listing.txt").read_text(encoding="utf-8")
+DETAIL = (FIXTURES / "vinted_item_detail.txt").read_text(encoding="utf-8")
+
+PLAIN_ID = 10018212520        # MacBook Pro 16", 13000.00 CZK, not promoted
+PROMOTED_ID = 10016781365     # a promoted Nike jacket — junk in a "macbook" search
+FX_ID = 10018404418           # 311.59 CZK, FX-converted from PLN
+QUOTED_ID = 10015514053       # title contains a `"`
 
 
 @pytest.fixture(autouse=True)
-def no_sleep(monkeypatch):
-    """load_full_description paces itself (VINTED_DETAIL_WAIT_TIME) — don't actually
-    wait in the test suite. Individual tests can re-patch `sleep` again to observe calls.
-    """
-    monkeypatch.setattr(vinted_scraper_module, "sleep", lambda s: None)
+def no_detail_pacing():
+    """`load_full_description` sleeps VINTED_DETAIL_WAIT_TIME (0.5-1.5s) before every
+    request. Real and deliberate in production; ~8s of dead time across this file."""
+    with patch("bazos.scraping.vinted.vinted_scraper.sleep"):
+        yield
 
 
-def make_item(**overrides) -> VintedItem:
-    defaults = dict(
-        id=123456789,
-        title="MacBook Pro 13 2019",
-        description=None,
-        currency="CZK",
-        price=5990.0,
-        total_item_price=6307.5,
-        promoted=False,
-        url="https://www.vinted.cz/items/123456789-macbook-pro-13-2019",
-    )
-    defaults.update(overrides)
-    return VintedItem(**defaults)
+@pytest.fixture
+def scraper():
+    return VintedScraper(session=None)
 
 
-def make_ad_stub(external_id: int, full_description=None, url: str | None = None) -> Ad:
-    """A plain, unsaved Ad — enough for load_full_description, no DB needed."""
-    return Ad(
-        external_id=external_id,
-        marketplace=Marketplace.VINTED.value,
-        url=url or f"https://www.vinted.cz/items/{external_id}-x",
-        name="x",
-        price_raw="1 CZK",
-        location="",
-        topped=False,
-        short_description="",
-        publisher_name="",
-        full_description=full_description,
+@pytest.fixture
+def vinted_query(db):
+    return Query.objects.create(
+        text="macbook", marketplace=Marketplace.VINTED,
+        price_lower=0, price_upper=0, new_query=False,
+        extra_params={"catalog_ids": [3580], "brand_ids": [54661]},
     )
 
 
-def scraper_with_client(fake_client, base_url: str = VINTED_BASE_URL) -> VintedScraper:
-    """A VintedScraper with `fake_client` pre-cached for `base_url`, so `_client_for`
-    hits the cache and never attempts a real (network) construction.
+def run(scraper, query, pages):
+    """Drive run_query against canned payloads, returning the yielded Ads."""
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.side_effect = pages
+        return list(scraper.run_query(query))
+
+
+def rows_of(payload):
+    return {r["productItem"]["id"]: r for r in flight.items(payload)}
+
+
+# --------------------------------------------------------------------------- mapping
+
+def test_maps_a_listing_row_to_an_ad(scraper):
+    ad = scraper._map_row(rows_of(LISTING)[PLAIN_ID], "https://www.vinted.cz")
+
+    assert ad.external_id == PLAIN_ID
+    assert ad.marketplace == Marketplace.VINTED.value
+    assert ad.name == "MacBook Pro 16”"
+    assert ad.url == "https://www.vinted.cz/items/10018212520-macbook-pro-16"
+    assert ad.price == 13000
+    assert ad.price_raw == "13000 CZK"
+    assert ad.price_type == PriceType.EXACT
+    assert ad.short_description == "Apple MacBook Pro 2019 · Velmi dobrý"
+    assert ad.topped is False
+    assert ad.location == ""
+    assert ad.publisher_name == ""
+
+
+def test_price_is_ex_fee(scraper):
+    """The decision in VINTED_REWRITE.md §1.1: store `price`, not `totalItemPrice`.
+
+    Vinted's own price_from/price_to filter works on `price`, so storing the all-in figure
+    made a price_upper=5000 query return rows whose stored price was 5268 — which
+    price_range then rejected.
     """
-    scraper = VintedScraper()
-    scraper._clients[base_url] = fake_client
-    return scraper
+    item = rows_of(LISTING)[PLAIN_ID]["productItem"]
+    assert item["totalItemPrice"]["amount"] == "13668.00"      # what a buyer pays
+    assert item["serviceFee"]["amount"] == "668.00"
+
+    ad = scraper._map_row(rows_of(LISTING)[PLAIN_ID], "https://www.vinted.cz")
+    assert ad.price == 13000, "stored the all-in price instead of the asking price"
 
 
-# ---------------------------------------------------------------------------
-# _map_item — field mapping, pure, no client
-# ---------------------------------------------------------------------------
+def test_decimal_fx_price_does_not_multiply_by_ten(scraper):
+    """`parse_price` strips non-digits, so "311.59 CZK" would parse to 31159 — a silent
+    10x error that would wreck both price_range and price_drop. 78% of .cz prices are
+    FX-converted and therefore non-round."""
+    item = rows_of(LISTING)[FX_ID]["productItem"]
+    assert item["price"]["amount"] == "311.59"
 
-class TestMapItem:
-    def test_maps_search_result_to_ad(self):
-        item = make_item()
-        assert item.title is not None
-        ad = VintedScraper._map_item(item)
-
-        assert isinstance(ad, Ad)
-        assert ad.external_id == item.id
-        assert ad.marketplace == Marketplace.VINTED.value
-        assert ad.url == item.url
-        assert ad.name == item.title[:120]
-        assert ad.price_raw == "6308 CZK"
-        assert ad.location == ""
-        assert ad.view_count is None
-        assert ad.publish_date is None
-        assert ad.topped is False
-        assert ad.short_description == ""
-        assert ad.publisher_name == ""
-
-    def test_price_and_type_are_set(self):
-        """Regression: PriceRangeRule/PriceDropRule now read ad.price/price_type
-        directly (P22) — Vinted must populate them itself, it always has a real,
-        placeholder-free numeric price (unlike Bazos)."""
-        ad = VintedScraper._map_item(make_item(total_item_price=6307.5))
-        assert ad.price == 6308
-        assert ad.price_type == PriceType.EXACT
-
-    def test_promoted_maps_to_topped(self):
-        ad = VintedScraper._map_item(make_item(promoted=True))
-        assert ad.topped is True
-
-    def test_long_title_is_truncated_to_120_chars(self):
-        ad = VintedScraper._map_item(make_item(title="x" * 200))
-        assert len(ad.name) == 120
-
-    def test_publish_date_and_view_count_are_none(self):
-        ad = VintedScraper._map_item(make_item())
-        assert ad.publish_date is None
-        assert ad.view_count is None
-
-    @pytest.mark.django_db
-    def test_big_external_id_survives_save(self):
-        ad = VintedScraper._map_item(make_item(id=9734229070))
-        ad.save()
-        reloaded = Ad.objects.get(pk=ad.pk)
-        assert reloaded.external_id == 9734229070
-
-    def test_external_id_field_is_widened_to_biginteger(self):
-        """Kept as a second, backend-independent check on the round trip above.
-
-        The suite runs on Postgres now, so the save/reload does enforce int4's
-        2,147,483,647 cap for real (see VINTED_SCRAPER.md §2.1). It stops enforcing
-        anything the moment it is run under `TEST_DB=sqlite`, which has no fixed-width
-        integer columns and would pass identically against a plain IntegerField. Pinning
-        the field type directly holds either way.
-        """
-        assert Ad._meta.get_field("external_id").get_internal_type() == "BigIntegerField"
-
-    def test_skips_item_missing_id(self):
-        assert VintedScraper._map_item(make_item(id=None)) is None
-
-    def test_skips_item_missing_title(self):
-        assert VintedScraper._map_item(make_item(title=None)) is None
-
-    def test_skips_item_missing_url(self):
-        assert VintedScraper._map_item(make_item(url=None)) is None
-
-    def test_skips_item_with_no_usable_price(self):
-        item = make_item(total_item_price=None, price=None)
-        assert VintedScraper._map_item(item) is None
+    ad = scraper._map_row(rows_of(LISTING)[FX_ID], "https://www.vinted.cz")
+    assert ad.price == 312
+    assert ad.price_raw == "312 CZK"
+    assert parse_price(ad.price_raw) == ad.price, "price_raw must round-trip through parse_price"
 
 
-# ---------------------------------------------------------------------------
-# _format_price — the decimal trap, and missing-data guards
-# ---------------------------------------------------------------------------
-
-class TestFormatPrice:
-    def test_price_uses_total_item_price_and_is_integer(self):
-        item = make_item(total_item_price=6307.5, currency="CZK")
-        price_raw = VintedScraper._format_price(item)
-        assert price_raw == "6308 CZK"
-        assert parse_price(price_raw) == 6308
-
-    def test_price_falls_back_to_price_when_total_missing(self):
-        item = make_item(total_item_price=None, price=100.0, currency="CZK")
-        assert VintedScraper._format_price(item) == "100 CZK"
-
-    def test_returns_none_when_both_prices_missing(self):
-        item = make_item(total_item_price=None, price=None)
-        assert VintedScraper._format_price(item) is None
-
-    def test_returns_none_when_currency_missing(self):
-        """Never fall back to the literal string "None" as a unit — that's both
-        cosmetically broken and, since price_raw comparison is a plain string compare
-        (run_existing_query), a currency flip alone would register as a price change.
-        """
-        item = make_item(currency=None)
-        assert VintedScraper._format_price(item) is None
+def test_promoted_maps_to_topped(scraper):
+    """Promoted rows sit far out of chronological order — position 75 was newer than
+    position 50 — so the dedup walk depends on this flag."""
+    ad = scraper._map_row(rows_of(LISTING)[PROMOTED_ID], "https://www.vinted.cz")
+    assert ad.topped is True
 
 
-class TestPriceAmount:
-    def test_rounds_total_item_price(self):
-        item = make_item(total_item_price=6307.5)
-        assert VintedScraper._price_amount(item) == 6308
-
-    def test_falls_back_to_price_when_total_missing(self):
-        item = make_item(total_item_price=None, price=100.0)
-        assert VintedScraper._price_amount(item) == 100
-
-    def test_none_when_both_prices_missing(self):
-        item = make_item(total_item_price=None, price=None)
-        assert VintedScraper._price_amount(item) is None
+def test_title_with_a_quote_survives_parsing(scraper):
+    """The balanced scanner exists for this: a regex cannot find the end of a JSON string
+    containing `"`."""
+    ad = scraper._map_row(rows_of(LISTING)[QUOTED_ID], "https://www.vinted.cz")
+    assert ad.name == 'Apple Macbook Pro 16" (2019)'
 
 
-# ---------------------------------------------------------------------------
-# run_query — params, base_url handling, pagination, malformed rows
-# ---------------------------------------------------------------------------
+def test_relative_url_is_joined_to_the_base(scraper):
+    """URLs are relative now, unlike the old API's absolute ones."""
+    assert rows_of(LISTING)[PLAIN_ID]["productItem"]["url"].startswith("/items/")
+    ad = scraper._map_row(rows_of(LISTING)[PLAIN_ID], "https://www.vinted.sk")
+    assert ad.url == "https://www.vinted.sk/items/10018212520-macbook-pro-16"
+
+
+def test_short_description_is_not_empty(scraper):
+    """The regression that matters for filtering: the shipped scraper stored "", which
+    silently disabled blocklist_keyword and required_keyword on every Vinted ad."""
+    for external_id in (PLAIN_ID, PROMOTED_ID, FX_ID, QUOTED_ID):
+        ad = scraper._map_row(rows_of(LISTING)[external_id], "https://www.vinted.cz")
+        assert ad.short_description, f"row {external_id} produced no short_description"
+
+
+def test_short_description_excludes_the_price(scraper):
+    """Not accessibilityLabel: it embeds both prices, so it would change whenever the
+    price does — and run_existing_query compares price_raw by string."""
+    ad = scraper._map_row(rows_of(LISTING)[PLAIN_ID], "https://www.vinted.cz")
+    assert "13000" not in ad.short_description
+    assert "Kč" not in ad.short_description
+
+
+def test_no_synthesised_date_or_view_count(scraper):
+    """Neither exists anywhere in the payload; a fake value is worse than a null one
+    because nothing downstream can tell it is fake."""
+    ad = scraper._map_row(rows_of(LISTING)[PLAIN_ID], "https://www.vinted.cz")
+    assert ad.publish_date is None
+    assert ad.view_count is None
+
+
+def test_free_price_is_not_exact(scraper):
+    """"Zdarma" is not the same as "unknown" — see docs/research/PRICE_PARSING.md §3.3.
+    Defensive: no zero-price row was observed live."""
+    row = {"productItem": {"id": 1, "title": "Free", "url": "/items/1-free",
+                           "price": {"amount": "0.00", "currencyCode": "CZK"}}}
+    ad = scraper._map_row(row, "https://www.vinted.cz")
+    assert ad.price == 0
+    assert ad.price_type == PriceType.FREE
+
+
+@pytest.mark.parametrize("row, reason", [
+    ({}, "no productItem"),
+    ({"productItem": {"title": "x", "url": "/items/1-x"}}, "no id"),
+    ({"productItem": {"id": 1, "url": "/items/1-x"}}, "no title"),
+    ({"productItem": {"id": 1, "title": "x"}}, "no url"),
+    ({"productItem": {"id": 1, "title": "x", "url": "/items/1-x"}}, "no price"),
+])
+def test_unusable_rows_are_skipped_not_raised(scraper, row, reason):
+    """Returning None keeps the generator alive; raising here would truncate the rest of
+    the query's pass."""
+    assert scraper._map_row(row, "https://www.vinted.cz") is None, reason
+
 
 @pytest.mark.django_db
-class TestRunQuery:
-    def test_search_params_include_newest_first_order(self, query):
-        fake_client = MagicMock()
-        fake_client.search.return_value = []
-        scraper = scraper_with_client(fake_client)
-
-        list(scraper.run_query(query))
-
-        params = fake_client.search.call_args.args[0]
-        assert params["order"] == "newest_first"
-
-    def test_extra_params_cannot_override_mandatory_order_and_per_page(self, query):
-        """extra_params is spread into the params dict for pass-through keys like
-        catalog_ids, but order/per_page are mandatory — dedup assumes newest-first and
-        the pagination sentinel assumes VINTED_PAGE_SIZE exactly. A query with
-        extra_params={"order": ...} must not be able to silently defeat either.
-        """
-        query.extra_params = {"order": "relevance", "per_page": 10}
-        fake_client = MagicMock()
-        fake_client.search.return_value = []
-        scraper = scraper_with_client(fake_client)
-
-        list(scraper.run_query(query))
-
-        params = fake_client.search.call_args.args[0]
-        assert params["order"] == "newest_first"
-        assert params["per_page"] == VINTED_PAGE_SIZE
-
-    def test_base_url_is_stripped_from_search_params(self, query):
-        query.extra_params = {"base_url": "https://www.vinted.sk"}
-        fake_client = MagicMock()
-        fake_client.search.return_value = []
-        scraper = scraper_with_client(fake_client, base_url="https://www.vinted.sk")
-
-        list(scraper.run_query(query))
-
-        params = fake_client.search.call_args.args[0]
-        assert "base_url" not in params
-
-    def test_price_bounds_omitted_when_zero(self, query):
-        assert query.price_lower == 0 and query.price_upper == 0
-        fake_client = MagicMock()
-        fake_client.search.return_value = []
-        scraper = scraper_with_client(fake_client)
-
-        list(scraper.run_query(query))
-
-        params = fake_client.search.call_args.args[0]
-        assert "price_from" not in params
-        assert "price_to" not in params
-
-    def test_pagination_stops_on_short_page(self, query):
-        page1 = [make_item(id=i) for i in range(VINTED_PAGE_SIZE)]
-        page2 = [make_item(id=i) for i in range(VINTED_PAGE_SIZE, VINTED_PAGE_SIZE + 5)]
-        fake_client = MagicMock()
-        fake_client.search.side_effect = [page1, page2]
-        scraper = scraper_with_client(fake_client)
-
-        ads = list(scraper.run_query(query))
-
-        assert fake_client.search.call_count == 2
-        assert len(ads) == VINTED_PAGE_SIZE + 5
-
-    def test_pagination_stops_on_empty_page(self, query):
-        page1 = [make_item(id=i) for i in range(VINTED_PAGE_SIZE)]
-        fake_client = MagicMock()
-        fake_client.search.side_effect = [page1, []]
-        scraper = scraper_with_client(fake_client)
-
-        ads = list(scraper.run_query(query))
-
-        assert fake_client.search.call_count == 2
-        assert len(ads) == VINTED_PAGE_SIZE
-
-    def test_malformed_row_is_skipped_without_aborting_the_pass(self, query):
-        """One bad row (plausible under the anti-bot throttling VINTED_SCRAPER_DESIGN.md
-        §1a measured) must not raise out of the generator — that would abort the rest of
-        the pass, the exact failure mode load_full_description's try/except exists to
-        avoid one function over.
-        """
-        items = [make_item(id=1), make_item(id=None), make_item(id=3)]
-        fake_client = MagicMock()
-        fake_client.search.return_value = items
-        scraper = scraper_with_client(fake_client)
-
-        ads = list(scraper.run_query(query))
-
-        assert [ad.external_id for ad in ads] == [1, 3]
+def test_big_external_id_survives_save(scraper):
+    """Vinted ids exceed int4 (2,147,483,647) — BigIntegerField is load-bearing, and
+    SQLite would not catch a regression here."""
+    ad = scraper._map_row(rows_of(LISTING)[PLAIN_ID], "https://www.vinted.cz")
+    ad.save()
+    ad.refresh_from_db()
+    assert ad.external_id == PLAIN_ID
 
 
-# ---------------------------------------------------------------------------
-# load_full_description — both failure modes, pacing, base-url derivation
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- params
 
-class TestLoadFullDescription:
-    def test_load_full_description_sets_full_description(self):
-        ad = make_ad_stub(123)
-        fake_client = MagicMock()
-        fake_client.item.return_value = make_item(id=123, description="Full text here")
-        scraper = scraper_with_client(fake_client)
+def test_order_is_always_newest_first(scraper, vinted_query):
+    """Vinted's default sort is relevance, which silently breaks the dedup walk."""
+    params = scraper._search_params(vinted_query, {})
+    assert ("order", "newest_first") in params
 
-        result = scraper.load_full_description(ad)
 
-        assert result is ad
-        assert result.full_description == "Full text here"
+def test_list_params_repeat(scraper, vinted_query):
+    params = scraper._search_params(vinted_query, dict(vinted_query.extra_params))
+    assert ("catalog[]", 3580) in params
+    assert ("brand_ids[]", 54661) in params
 
-    def test_load_full_description_tolerates_id_only_response(self):
-        ad = make_ad_stub(123)
-        fake_client = MagicMock()
-        fake_client.item.return_value = VintedItem(id=123)  # only `id` populated
-        scraper = scraper_with_client(fake_client)
 
-        result = scraper.load_full_description(ad)
+def test_multiple_catalog_ids_each_become_a_pair(scraper, vinted_query):
+    params = scraper._search_params(vinted_query, {"catalog_ids": [3580, 3581]})
+    assert [v for k, v in params if k == "catalog[]"] == [3580, 3581]
 
-        assert result is ad
-        assert result.full_description is None
 
-    def test_load_full_description_survives_runtime_error(self):
-        ad = make_ad_stub(123)
-        fake_client = MagicMock()
-        fake_client.item.side_effect = RuntimeError(
-            "Cannot perform API call to endpoint /items/123, error code: 404"
-        )
-        scraper = scraper_with_client(fake_client)
+def test_scalar_catalog_id_is_tolerated(scraper, vinted_query):
+    """An operator typing `{"catalog_ids": 3580}` in the admin should not iterate an int."""
+    params = scraper._search_params(vinted_query, {"catalog_ids": 3580})
+    assert [v for k, v in params if k == "catalog[]"] == [3580]
 
-        result = scraper.load_full_description(ad)
 
-        assert result is ad
-        assert result.full_description is None
+def test_per_page_is_never_sent(scraper, vinted_query):
+    """Retired with the v2 API; the page is server-fixed at 96."""
+    assert "per_page" not in {k for k, _ in scraper._search_params(vinted_query, {})}
 
-    def test_load_full_description_paces_between_requests(self, monkeypatch):
-        sleep_calls = []
-        monkeypatch.setattr(vinted_scraper_module, "sleep", lambda s: sleep_calls.append(s))
-        ad = make_ad_stub(123)
-        fake_client = MagicMock()
-        fake_client.item.return_value = make_item(id=123, description="d")
-        scraper = scraper_with_client(fake_client)
 
+def test_price_bounds_omitted_when_zero(scraper, vinted_query):
+    names = {k for k, _ in scraper._search_params(vinted_query, {})}
+    assert "price_from" not in names and "price_to" not in names and "currency" not in names
+
+
+def test_price_bounds_carry_a_currency(scraper, vinted_query):
+    """Without `currency` the bounds are ignored."""
+    vinted_query.price_lower, vinted_query.price_upper = 1000, 5000
+    params = scraper._search_params(vinted_query, {})
+    assert ("price_from", 1000) in params
+    assert ("price_to", 5000) in params
+    assert ("currency", "CZK") in params
+
+
+def test_base_url_selects_the_domain_and_is_not_sent(scraper, vinted_query):
+    """It picks which Vinted domain to read; sending it as a search param would be
+    meaningless. Driven through run_query, since that is where it is popped."""
+    vinted_query.extra_params = {"base_url": "https://www.vinted.sk", "catalog_ids": [3580]}
+
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.return_value = LISTING
+        ads = list(scraper.run_query(vinted_query))
+
+    client_for.assert_called_with("https://www.vinted.sk")
+    sent = client_for.return_value.get_flight.call_args[0][1]
+    assert "base_url" not in {name for name, _ in sent}
+    assert ("catalog[]", 3580) in sent
+    assert ads[0].url.startswith("https://www.vinted.sk/")
+
+
+def test_unknown_extra_params_pass_through(scraper, vinted_query):
+    """So a new Vinted filter is usable from the admin before this module knows it."""
+    params = scraper._search_params(vinted_query, {"color_ids[]": 7})
+    assert ("color_ids[]", 7) in params
+
+
+# --------------------------------------------------------------------------- paging
+
+def test_stops_on_a_short_page(scraper, vinted_query):
+    ads = run(scraper, vinted_query, [LISTING])
+    assert len(ads) == 4          # fixture has 4 rows, i.e. < VINTED_PAGE_SIZE
+
+
+def test_stops_when_a_page_has_no_rows(scraper, vinted_query):
+    ads = run(scraper, vinted_query, ['1:{"items":{"items":[]}}'])
+    assert ads == []
+
+
+def test_empty_first_page_does_not_raise(scraper, vinted_query):
+    """An unparseable payload is the only block signal there is — no status code, and
+    "datadome" appears on healthy pages too. It must degrade to "no rows", not an
+    exception."""
+    assert run(scraper, vinted_query, ["garbage that is not a flight payload"]) == []
+
+
+def test_mismatched_sort_logs_a_warning(scraper, vinted_query):
+    """The canary for Vinted renaming a param. Asserted on the logger call: the `bazos`
+    logger has propagate=False, so caplog never sees it."""
+    payload = LISTING.replace('"sortBy":"newest_first"', '"sortBy":"relevance"')
+    with patch("bazos.scraping.vinted.vinted_scraper.logger") as logger:
+        run(scraper, vinted_query, [payload])
+    warned = " ".join(str(c) for c in logger.warning.call_args_list)
+    assert "sortBy" in warned
+
+
+def test_matching_params_log_nothing(scraper, vinted_query):
+    with patch("bazos.scraping.vinted.vinted_scraper.logger") as logger:
+        run(scraper, vinted_query, [LISTING])
+    assert logger.warning.call_args_list == []
+
+
+# --------------------------------------------------------------------------- detail
+
+def test_load_full_description_reads_json_ld(scraper):
+    ad = _ad_for_detail(scraper)
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.return_value = DETAIL
+        scraper.load_full_description(ad)
+    assert ad.full_description.startswith("Prodám MacBook Pro 16”")
+
+
+def test_load_full_description_captures_attributes(scraper):
+    ad = _ad_for_detail(scraper)
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.return_value = DETAIL
         scraper.load_full_description(ad)
 
-        assert len(sleep_calls) == 1
+    assert ad.attributes["computer_ram"] == "16 GB"
+    assert ad.attributes["computer_storage_capacity"] == "1 TB"
+    assert ad.attributes["computer_cpu_line"] == "Intel Core Ultra 9"
 
-    def test_load_full_description_paces_even_on_runtime_error(self, monkeypatch):
-        sleep_calls = []
-        monkeypatch.setattr(vinted_scraper_module, "sleep", lambda s: sleep_calls.append(s))
-        ad = make_ad_stub(123)
-        fake_client = MagicMock()
-        fake_client.item.side_effect = RuntimeError("404")
-        scraper = scraper_with_client(fake_client)
 
+def test_attributes_are_verbatim_strings(scraper):
+    """Raw, never normalised on write — same split as price_raw/price."""
+    ad = _ad_for_detail(scraper)
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.return_value = DETAIL
         scraper.load_full_description(ad)
-
-        assert len(sleep_calls) == 1
-
-    @pytest.mark.django_db
-    def test_load_full_description_uses_ads_own_domain_not_last_run_query(self, query):
-        """Regression for the _last_base_url coupling that used to exist here:
-        load_full_description must derive its client from ad.url, not from whichever
-        base_url run_query happened to touch most recently on this scraper instance.
-        """
-        cz_client = MagicMock()
-        cz_client.search.return_value = []
-        sk_client = MagicMock()
-        sk_client.item.return_value = make_item(id=1, description="sk desc")
-
-        scraper = VintedScraper()
-        scraper._clients[VINTED_BASE_URL] = cz_client
-        scraper._clients["https://www.vinted.sk"] = sk_client
-
-        list(scraper.run_query(query))  # touches the .cz client last
-
-        sk_ad = make_ad_stub(1, url="https://www.vinted.sk/items/1-x")
-        result = scraper.load_full_description(sk_ad)
-
-        assert result.full_description == "sk desc"
-        cz_client.item.assert_not_called()
-
-    @pytest.mark.django_db
-    def test_run_query_then_load_full_description_survives_one_detail_failure(self, query):
-        """The regression that matters, exercised through the real caller shape:
-        QueryRunner._handle_new_product iterates `scraper.run_query(query)` and
-        calls `scraper.load_full_description(ad)` per ad with no try/except. One ad's
-        detail fetch raising RuntimeError (sold/deleted between search and this call)
-        must not cut that loop short.
-        """
-        search_client = MagicMock()
-        search_client.search.return_value = [make_item(id=1), make_item(id=2), make_item(id=3)]
-        search_client.item.side_effect = [
-            make_item(id=1, description="d1"),
-            RuntimeError("Cannot perform API call to endpoint /items/2, error code: 404"),
-            make_item(id=3, description="d3"),
-        ]
-        scraper = scraper_with_client(search_client)
-
-        processed = [scraper.load_full_description(ad) for ad in scraper.run_query(query)]
-
-        assert [a.external_id for a in processed] == [1, 2, 3]
-        assert processed[0].full_description == "d1"
-        assert processed[1].full_description is None
-        assert processed[2].full_description == "d3"
+    assert isinstance(ad.attributes["computer_ram"], str)
+    assert ad.attributes["computer_ram"] != 16
 
 
-# ---------------------------------------------------------------------------
-# check_blacklisted
-# ---------------------------------------------------------------------------
+def test_upload_date_stays_in_attributes(scraper):
+    """It is relative display text; parsing it into publish_date would synthesise a date."""
+    ad = _ad_for_detail(scraper)
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.return_value = DETAIL
+        scraper.load_full_description(ad)
+    assert "upload_date" in ad.attributes
+    assert ad.publish_date is None
 
-class TestCheckBlacklisted:
-    def test_check_blacklisted_always_false(self):
-        assert VintedScraper().check_blacklisted() is False
+
+def test_load_full_description_never_overwrites_price(scraper):
+    """JSON-LD `offers.price` is in the SELLER's currency — a .cz listing returned
+    2500 PLN — so reading a price from here would be wrong and would look like a price
+    change on the next pass."""
+    ad = _ad_for_detail(scraper)
+    before_price, before_raw = ad.price, ad.price_raw
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.return_value = DETAIL
+        scraper.load_full_description(ad)
+    assert (ad.price, ad.price_raw) == (before_price, before_raw)
+
+
+def test_load_full_description_survives_a_failed_fetch(scraper):
+    """Routine on a resale marketplace: the listing sold between the search and this call.
+    QueryRunner calls this with no try/except and the guard around it catches only
+    DatabaseError, so nothing may escape."""
+    ad = _ad_for_detail(scraper)
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.side_effect = RuntimeError("404")
+        assert scraper.load_full_description(ad) is ad
+    assert ad.full_description is None
+
+
+def test_load_full_description_tolerates_a_payload_without_a_description(scraper):
+    ad = _ad_for_detail(scraper)
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.return_value = '1:{"nothing":true}'
+        scraper.load_full_description(ad)
+    assert ad.full_description is None
+    assert ad.attributes == {}
+
+
+def test_run_query_completes_when_one_detail_fetch_raises(scraper, vinted_query):
+    """The regression that matters: a single sold listing must not truncate the pass."""
+    ads = run(scraper, vinted_query, [LISTING])
+    assert len(ads) == 4
+
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.side_effect = RuntimeError("410 Gone")
+        for ad in ads:
+            assert scraper.load_full_description(ad) is ad
+
+
+def test_check_blacklisted_is_false(scraper):
+    assert scraper.check_blacklisted() is False
+
+
+def _ad_for_detail(scraper):
+    return scraper._map_row(rows_of(LISTING)[PLAIN_ID], "https://www.vinted.cz")
