@@ -378,3 +378,200 @@ def test_check_blacklisted_is_false(scraper):
 
 def _ad_for_detail(scraper):
     return scraper._map_row(rows_of(LISTING)[PLAIN_ID], "https://www.vinted.cz")
+
+
+# --------------------------------------------------------------------------- multi-page
+#
+# The fixture is a short page, so every test above exits the loop on the first
+# iteration. These drive the paths that only a full page reaches.
+
+def _page(rows: int, first_id: int = 1, total_pages: int = 3) -> str:
+    """A payload with `rows` rows — enough to look like a full page to the paginator."""
+    import json
+
+    items = [{
+        "productItem": {
+            "id": first_id + n,
+            "title": f"Item {first_id + n}",
+            "url": f"/items/{first_id + n}-item",
+            "price": {"amount": "100.00", "currencyCode": "CZK"},
+            "isPromoted": False,
+            "itemBox": {"firstLine": "Apple", "secondLine": "Dobrý"},
+        }
+    } for n in range(rows)]
+    return (
+        '2:{"initialCatalogState":{"filters":{"sortBy":"newest_first","query":"macbook",'
+        '"catalogIds":[3580]}}}\n'
+        '3:{"items":{"items":' + json.dumps(items) +
+        ',"pagination":{"current_page":1,"per_page":96,"total_entries":960,'
+        f'"total_pages":{total_pages}' + '}}}\n'
+    )
+
+
+def test_walks_on_to_the_next_page_when_a_page_is_full(scraper, vinted_query):
+    """A full page is not the end — without this the scraper would only ever see 96 ads."""
+    ads = run(scraper, vinted_query, [_page(96, 1), _page(4, 200)])
+    assert len(ads) == 100
+    assert ads[0].external_id == 1 and ads[-1].external_id == 203
+
+
+def test_stops_at_total_pages_even_when_pages_stay_full(scraper, vinted_query):
+    """Vinted caps any query at 10 pages. Without the total_pages check a query whose
+    last page happens to be exactly full would keep asking past the end."""
+    pages = [_page(96, 1 + n * 96, total_pages=2) for n in range(5)]
+    ads = run(scraper, vinted_query, pages)
+    assert len(ads) == 192, "did not stop at total_pages"
+
+
+def test_never_exceeds_the_max_page_cap(scraper, vinted_query):
+    """Belt and braces: if total_pages is missing or absurd, VINTED_MAX_PAGES still stops
+    the loop rather than paging forever."""
+    from bazos.const import VINTED_MAX_PAGES
+
+    pages = [_page(96, 1 + n * 96, total_pages=999) for n in range(VINTED_MAX_PAGES + 3)]
+    ads = run(scraper, vinted_query, pages)
+    assert len(ads) == 96 * VINTED_MAX_PAGES
+
+
+def test_page_number_increments(scraper, vinted_query):
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.side_effect = [_page(96, 1), _page(1, 500)]
+        list(scraper.run_query(vinted_query))
+
+    pages_asked = [
+        dict(call[0][1])["page"]
+        for call in client_for.return_value.get_flight.call_args_list
+    ]
+    assert pages_asked == [1, 2]
+
+
+def test_param_echo_is_checked_once_not_per_page(scraper, vinted_query):
+    """It is a canary, not a per-row assertion; warning once per page would be noise."""
+    bad = _page(96, 1).replace('"sortBy":"newest_first"', '"sortBy":"relevance"')
+    with patch("bazos.scraping.vinted.vinted_scraper.logger") as logger:
+        run(scraper, vinted_query, [bad, bad.replace('"total_pages":3', '"total_pages":1')])
+    sort_warnings = [c for c in logger.warning.call_args_list if "sortBy" in str(c)]
+    assert len(sort_warnings) == 1
+
+
+# --------------------------------------------------------------------------- warnings
+
+def test_warns_when_the_payload_has_no_catalog_state(scraper, vinted_query):
+    payload = '3:{"items":{"items":[]}}'
+    with patch("bazos.scraping.vinted.vinted_scraper.logger") as logger:
+        scraper._warn_on_param_mismatch(payload, vinted_query, [])
+    assert "initialCatalogState" in " ".join(str(c) for c in logger.warning.call_args_list)
+
+
+def test_warns_when_catalog_ids_come_back_different(scraper, vinted_query):
+    """The canary for Vinted renaming `catalog[]`: the page would quietly search
+    everything instead of the category asked for."""
+    payload = _page(4, 1).replace('"catalogIds":[3580]', '"catalogIds":[]')
+    with patch("bazos.scraping.vinted.vinted_scraper.logger") as logger:
+        scraper._warn_on_param_mismatch(payload, vinted_query, [("catalog[]", 3580)])
+    assert "catalog ids" in " ".join(str(c) for c in logger.warning.call_args_list)
+
+
+def test_warns_when_search_text_comes_back_different(scraper, vinted_query):
+    payload = _page(4, 1).replace('"query":"macbook"', '"query":"something else"')
+    with patch("bazos.scraping.vinted.vinted_scraper.logger") as logger:
+        scraper._warn_on_param_mismatch(payload, vinted_query, [])
+    assert "search_text" in " ".join(str(c) for c in logger.warning.call_args_list)
+
+
+# --------------------------------------------------------------------------- client reuse
+
+def test_one_client_per_base_url(scraper):
+    """The client bootstraps a session on first use, so rebuilding it per request would
+    double the request count."""
+    with patch("bazos.scraping.vinted.vinted_scraper.VintedClient") as VintedClientMock:
+        VintedClientMock.side_effect = lambda base_url: f"client:{base_url}"
+        first = scraper._client_for("https://www.vinted.cz")
+        again = scraper._client_for("https://www.vinted.cz")
+        other = scraper._client_for("https://www.vinted.sk")
+
+    assert first is again, "rebuilt the client for a base_url it already had"
+    assert other != first
+    assert VintedClientMock.call_count == 2
+
+
+def test_detail_client_is_chosen_from_the_ads_own_url(scraper):
+    """Not "whichever base_url run_query last used" — that is only correct while a scraper
+    instance never outlives one query."""
+    ad = scraper._map_row(rows_of(LISTING)[PLAIN_ID], "https://www.vinted.sk")
+    assert VintedScraper._base_url_from_ad(ad) == "https://www.vinted.sk"
+
+
+# --------------------------------------------------------------------------- price edges
+
+@pytest.mark.parametrize("amount", ["not a number", "", "NaN"])
+def test_unparseable_price_is_skipped_not_raised(scraper, amount):
+    row = {"productItem": {"id": 1, "title": "x", "url": "/items/1-x",
+                           "price": {"amount": amount, "currencyCode": "CZK"}}}
+    assert scraper._map_row(row, "https://www.vinted.cz") is None
+
+
+def test_price_without_a_currency_is_skipped(scraper):
+    row = {"productItem": {"id": 1, "title": "x", "url": "/items/1-x",
+                           "price": {"amount": "100.00"}}}
+    assert scraper._map_row(row, "https://www.vinted.cz") is None
+
+
+def test_price_that_is_not_an_object_is_skipped(scraper):
+    row = {"productItem": {"id": 1, "title": "x", "url": "/items/1-x", "price": "100 CZK"}}
+    assert scraper._map_row(row, "https://www.vinted.cz") is None
+
+
+def test_missing_item_box_yields_an_empty_short_description(scraper):
+    """Degrades rather than raises — the keyword rules simply match on the title, as they
+    did before itemBox was mapped."""
+    row = {"productItem": {"id": 1, "title": "x", "url": "/items/1-x",
+                           "price": {"amount": "100.00", "currencyCode": "CZK"}}}
+    assert scraper._map_row(row, "https://www.vinted.cz").short_description == ""
+
+
+def test_undefined_item_box_lines_are_dropped(scraper):
+    """RSC serialises absent values as the string "$undefined"; it must not reach a field."""
+    row = {"productItem": {"id": 1, "title": "x", "url": "/items/1-x",
+                           "price": {"amount": "100.00", "currencyCode": "CZK"},
+                           "itemBox": {"firstLine": "Apple", "secondLine": "$undefined"}}}
+    assert scraper._map_row(row, "https://www.vinted.cz").short_description == "Apple"
+
+
+# --------------------------------------------------------------------------- attributes
+
+def test_malformed_attribute_blocks_are_ignored(scraper):
+    ad = _ad_for_detail(scraper)
+    payload = (
+        '1:{"attributes":"not a list"}\n'
+        '2:{"attributes":[null,"x",{"no_code":1},{"code":"a","data":"not a dict"},'
+        '{"code":"b","data":{"value":"$undefined"}},{"code":"c","data":{"value":""}},'
+        '{"code":"good","data":{"value":"kept"}}]}\n'
+    )
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.return_value = payload
+        scraper.load_full_description(ad)
+    assert ad.attributes == {"good": "kept"}
+
+
+def test_attribute_values_are_stringified(scraper):
+    ad = _ad_for_detail(scraper)
+    payload = '1:{"attributes":[{"code":"n","data":{"value":16}}]}'
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.return_value = payload
+        scraper.load_full_description(ad)
+    assert ad.attributes == {"n": "16"}
+
+
+def test_attributes_occurrence_that_is_an_object_is_ignored(scraper):
+    """`"attributes"` is a common key name; an occurrence that decodes to an object
+    rather than the typed list must be stepped over, not treated as one."""
+    ad = _ad_for_detail(scraper)
+    payload = (
+        '1:{"attributes":{"some":"object"}}\n'
+        '2:{"attributes":[{"code":"computer_ram","data":{"value":"16 GB"}}]}\n'
+    )
+    with patch.object(VintedScraper, "_client_for") as client_for:
+        client_for.return_value.get_flight.return_value = payload
+        scraper.load_full_description(ad)
+    assert ad.attributes == {"computer_ram": "16 GB"}

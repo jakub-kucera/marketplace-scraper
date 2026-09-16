@@ -75,3 +75,8 @@ verify_ip_changer.py
 *.backup
 old_tests/
 /bazos_app_decomplied/
+
+# pytest-cov artifacts
+.coverage
+.coverage.*
+htmlcov/
