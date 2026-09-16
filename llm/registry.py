@@ -9,6 +9,7 @@ from django.db import models
 
 from llm.base import LLMProvider
 from llm.providers.anthropic import AnthropicProvider
+from llm.providers.gemini import GeminiProvider
 from llm.providers.null import NullProvider
 
 
@@ -16,6 +17,7 @@ class LLMProviderName(models.TextChoices):
     NULL = "NULL", "None (declines every call)"
     ANTHROPIC = "ANTHROPIC", "Anthropic"
     OPENAI = "OPENAI", "OpenAI"
+    GEMINI = "GEMINI", "Google Gemini"
     OPENROUTER = "OPENROUTER", "OpenRouter"
     OLLAMA = "OLLAMA", "Ollama (local)"
 
@@ -25,6 +27,7 @@ class LLMProviderName(models.TextChoices):
 PROVIDER_REGISTRY: dict[str, type] = {
     LLMProviderName.NULL: NullProvider,
     LLMProviderName.ANTHROPIC: AnthropicProvider,
+    LLMProviderName.GEMINI: GeminiProvider,
 }
 
 

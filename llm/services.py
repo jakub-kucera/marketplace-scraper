@@ -85,6 +85,9 @@ def complete(
     """
     impl = provider if provider is not None else get_provider()
     result: LLMResult
+    # The provider resolves the model, not settings: LLM_MODEL may be blank and
+    # each provider has its own default.
+    model_name = getattr(impl, "model", settings.LLM_MODEL) or settings.LLM_MODEL
 
     budget = Decimal(str(settings.LLM_MONTHLY_BUDGET_USD))
     spent = month_to_date_cost()
@@ -95,7 +98,7 @@ def complete(
         logger.warning("LLM call declined — %s", reason)
         result = LLMResult(
             value=None, raw="", provider=getattr(impl, "name", "?"),
-            model=settings.LLM_MODEL, tokens_in=0, tokens_out=0,
+            model=model_name, tokens_in=0, tokens_out=0,
             cost_usd=0.0, latency_ms=0, declined_reason=reason,
         )
         _record(result, prompt_name=prompt_name, prompt_version=prompt_version,
@@ -104,7 +107,7 @@ def complete(
 
     ttl = int(getattr(settings, "LLM_CACHE_SECONDS", 0) or 0)
     key = cache_key(
-        provider=getattr(impl, "name", "?"), model=settings.LLM_MODEL,
+        provider=getattr(impl, "name", "?"), model=model_name,
         prompt_name=prompt_name, prompt_version=prompt_version,
         prompt=prompt, system=system, schema=schema,
     )
@@ -134,7 +137,7 @@ def complete(
         logger.exception("LLM provider raised — %s", reason)
         result = LLMResult(
             value=None, raw="", provider=getattr(impl, "name", "?"),
-            model=settings.LLM_MODEL, tokens_in=0, tokens_out=0,
+            model=model_name, tokens_in=0, tokens_out=0,
             cost_usd=0.0, latency_ms=elapsed, declined_reason=reason,
         )
         _record(result, prompt_name=prompt_name, prompt_version=prompt_version,

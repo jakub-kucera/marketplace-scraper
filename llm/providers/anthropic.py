@@ -29,6 +29,8 @@ PRICING: dict[str, tuple[float, float]] = {
     "claude-opus-5": (5.0, 25.0),
 }
 
+DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+
 MAX_ATTEMPTS = 4
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 BACKOFF_SECONDS = 2.0
@@ -39,7 +41,7 @@ class AnthropicProvider:
 
     def __init__(self) -> None:
         self.api_key = settings.LLM_API_KEY
-        self.model = settings.LLM_MODEL
+        self.model = settings.LLM_MODEL or DEFAULT_MODEL
 
     def _cost(self, tokens_in: int, tokens_out: int) -> float:
         rates = PRICING.get(self.model)

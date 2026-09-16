@@ -310,8 +310,14 @@ PRICE_MODEL_SHADOW_MODE: bool = env.bool("PRICE_MODEL_SHADOW_MODE", default=True
 # suite and a fresh checkout need no API key and no egress. This is DummyIPChanger's
 # role, and it is why nothing has to opt *out* of LLM calls.
 LLM_PROVIDER: str = env("LLM_PROVIDER", default="NULL")
-LLM_MODEL: str = env("LLM_MODEL", default="claude-haiku-4-5-20251001")
+# Empty means "whatever the selected provider considers its default" — each provider
+# carries its own DEFAULT_MODEL. A shared default would be one provider's model name
+# handed to another, which is a 404 that looks like a broken key.
+LLM_MODEL: str = env("LLM_MODEL", default="")
 LLM_API_KEY: str = env("LLM_API_KEY", default="")
+# Provider-specific keys win over LLM_API_KEY, so more than one backend can be
+# configured at once and switching is a one-line LLM_PROVIDER change.
+GEMINI_API_KEY: str = env("GEMINI_API_KEY", default="")
 # A hard stop, not a warning: `llm.services.complete` declines once month-to-date spend
 # reaches this, *before* calling the provider. A runaway loop against a metered API is
 # the one failure mode in this app that costs real money.
