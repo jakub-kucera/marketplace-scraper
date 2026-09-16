@@ -1,15 +1,19 @@
-"""Tests for bazos/comparables.py and the comparables line on a notification.
+"""Tests for bazos/comparables.py, the notification line, and `manage.py appraise`.
 
 The bucket an ad belongs to is read off `AdPriceScore.features`, so these build scores
 directly rather than running a model — the model's job is covered in test_pricing.py, and
 coupling these to a trained artifact would make them fail for the wrong reason.
 """
 from datetime import timedelta
+from io import StringIO
 
 import pytest
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.utils import timezone
 
 from bazos.comparables import find_comparables
+from bazos.management.commands.appraise import parse_target
 from bazos.models import Ad, AdPriceScore, PriceType
 from bazos.pricing.estimators.macbook import MacbookPriceModel
 
@@ -219,3 +223,54 @@ def test_scored_message_reuses_one_score_lookup(scored, django_assert_num_querie
 ])
 def test_describe_features(bucket, expected):
     assert MacbookPriceModel.describe_features(bucket) == expected
+
+
+# ---------------------------------------------------------------------------
+# manage.py appraise
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value,expected", [
+    ("https://pc.bazos.cz/inzerat/223724249/macbook-14-m4-max.php", 223724249),
+    ("pc.bazos.cz/inzerat/223724249/x.php", 223724249),
+    ("223724249", 223724249),
+])
+def test_parse_target(value, expected):
+    assert parse_target(value) == expected
+
+
+@pytest.mark.parametrize("value", ["", "not-an-ad", "https://pc.bazos.cz/"])
+def test_parse_target_rejects_junk(value):
+    with pytest.raises(CommandError):
+        parse_target(value)
+
+
+@pytest.mark.django_db
+def test_appraise_reports_the_ad_and_its_comparables(scored):
+    subject = scored(61000, name="MacBook 14 M4 Max")
+    scored(65000, name="MacBook Pro 14 M4 Max")
+
+    out = StringIO()
+    call_command("appraise", str(subject.external_id), stdout=out)
+    report = out.getvalue()
+
+    assert "MacBook 14 M4 Max" in report
+    assert 'M4 Max 36GB/1TB 14"' in report
+    assert "65000" in report
+    assert "rank 1 of 2" in report
+    assert "asking prices, not sold" in report
+
+
+@pytest.mark.django_db
+def test_appraise_errors_on_an_unknown_ad(db):
+    with pytest.raises(CommandError, match="No ad with external_id"):
+        call_command("appraise", "999999999", stdout=StringIO())
+
+
+@pytest.mark.django_db
+def test_appraise_reports_a_decline_reason(scored):
+    subject = scored(61000, declined=True)
+
+    out = StringIO()
+    call_command("appraise", str(subject.external_id), stdout=out)
+
+    assert "DECLINED" in out.getvalue()
