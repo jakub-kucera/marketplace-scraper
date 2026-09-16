@@ -54,7 +54,7 @@ under the radar), not by order of appearance below.
 | 6 | Posting-time-of-day → interval tuning | **S** (~half day) *once unblocked* | ⚠️ **blocked** — needs second-resolution timestamps (see §6) | **Blocked, and superseded in value by the latency chain** |
 | 2 | asyncio scraping | **M/L**, but only as part of a scraper you haven't built yet | the API cutover | **Still not independently actionable** — and *less* attractive after P21a (see §2 note) |
 | 3b | Self-host image mirror | **L** (storage + serving + retention) | 3a | **Defer** |
-| 4 | External price cross-referencing (Heureka / Zboží) | **L**, high uncertainty | ❌ **researched and rejected** | **Don't** — see §4 and [`HEUREKA_ZBOZI.md`](../research/marketplaces/HEUREKA_ZBOZI.md). The blocker is on *our* side: `Ad` has no brand/model field to join from. |
+| 4 | External price cross-referencing (Heureka / Zboží) | **M** for an explicit, admin-triggered lookup | re-probed ✅ 2026-09-16 | **Reconsider** — §4's REJECT is superseded. Robots-allowed join + `productNo` + ~24 months of price history ([`ZBOZI_API.md`](../research/marketplaces/ZBOZI_API.md)); design in [`PRICE_REFERENCE_SERVICE.md`](../proposals/PRICE_REFERENCE_SERVICE.md). |
 | 5 | Computer-vision item recognition | **L**, speculative | idea #3 (images) + vendor pick | **Defer, lowest** |
 
 **Why this order:**
@@ -81,11 +81,11 @@ under the radar), not by order of appearance below.
   pass** (a `limit≈10` dedup probe), so there is very little left to parallelise in the common
   case; the remaining fan-out candidates are `load_full_description` batches on first discovery
   and the bulk enrichment workflows. Re-read §2 with that in mind before spending effort here.
-- **#4 is now a "don't", not a "defer"** — the research it was waiting on was done
-  (`HEUREKA_ZBOZI.md`, 2026-08-22) and it failed on the near side, not the far side: Zboží.cz is
-  wide open and its payload is genuinely rich, but `Ad` carries no brand/model/EAN field to join
-  *from*, so every route requires per-ad LLM extraction first. Revisit only if such a field
-  appears for other reasons.
+- **#4 moved back from "don't" to "reconsider"** — the 2026-08-22 research that downgraded it was
+  re-probed on 2026-09-16 and three of its four blocking findings did not survive: the join path is
+  robots-allowed, `productNo` is a real identifier, and there is a price-history endpoint. The
+  remaining honest limit is coverage (current-production goods yes, discontinued electronics no),
+  not access. See §4 and [`PRICE_REFERENCE_SERVICE.md`](../proposals/PRICE_REFERENCE_SERVICE.md).
 - **#3b and #5 remain speculative** — each has either an unconfirmed benefit (#3b's
   click-tracking risk isn't observed to be a real problem) or an unresolved vendor choice (#5).
   Neither blocks anything else — lowest urgency by construction.
@@ -234,7 +234,7 @@ product/SKU before any reference-price lookup means anything. Options, roughly c
   variance, but a real per-ad cost and a new external dependency; naturally a category-gated
   Stage-9-style filter rule, not something run for every scraped ad.
 
-### The price source was researched — ✅ 2026-08-22, and the answer is no
+### The price source was researched — ✅ 2026-08-22, re-probed 2026-09-16
 
 The spike this section used to call for **was run**:
 [`HEUREKA_ZBOZI.md`](../research/marketplaces/HEUREKA_ZBOZI.md) assessed
@@ -254,11 +254,27 @@ REJECT**, and it fails on the near side rather than the far side:
   2025-02-05 and the Insights API is invitation-only. Its 90-day history window would also be too
   short for this project's thesis.
 
-**Recommendation: don't build this.** Revisit only if a structured brand/model field appears on
-`Ad` for some other reason — at which point the near-side blocker is gone and Zboží becomes
-cheap. Until then, the *internal* rolling price baseline (`PROMPTS.md` P23's `PriceAnomalyRule`,
-now possible because P22 gave `Ad` a real integer price) is the version of this idea that is
-actually reachable.
+**⚠️ The 2026-08-22 REJECT above is superseded on three of its four points.** A re-probe on
+2026-09-16 ([`ZBOZI_API.md`](../research/marketplaces/ZBOZI_API.md)) found a documented JSON API the
+first pass never located:
+
+- **The join is robots-*allowed*.** `/suggestV2?phrase=` → `/api/v3/product/<slug>/` — verified with a
+  real `RobotFileParser`. Only the `?q=` search the first pass happened to find is disallowed.
+- **There is an identifier**: `productNo` carries the manufacturer part number. The first pass
+  grepped for `mpn`/`partNumber`/`sku` and missed it on spelling.
+- **There is price history**: `POST /api/v3/pricetrend/product-v3/<id>` returns ~24 months of
+  min/median/max, unauthenticated.
+- **The "per-ad LLM extraction" blocker does not apply.** The LLM's job is *closed-set adjudication*
+  over candidates the catalogue already returned (~340 tokens), not blind extraction of an identity
+  from free text. That is the argument §4d rejected, and it is not this one.
+
+What survives: eBay is still unavailable, Heureka.cz is still Cloudflare-blocked, and coverage is
+still uneven — current-production goods resolve well (tools best), discontinued electronics do not.
+
+**Recommendation: build it explicitly, not automatically** — design in
+[`PRICE_REFERENCE_SERVICE.md`](../proposals/PRICE_REFERENCE_SERVICE.md). The *internal* rolling price
+baseline (`PROMPTS.md` P23's `PriceAnomalyRule`, now possible because P22 gave `Ad` a real integer
+price) is still the cheaper win and should not be displaced by this.
 
 ---
 

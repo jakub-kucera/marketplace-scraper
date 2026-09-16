@@ -247,6 +247,27 @@ def test_parse_price_and_type_strips_whitespace():
 # PriceRangeRule
 # ---------------------------------------------------------------------------
 
+
+def vinted_row(price: str, external_id: int = 1, promoted: bool = False) -> dict:
+    """A minimal but real-shaped Vinted catalog row.
+
+    Mirrors the live payload (camelCase, decimal price STRINGS) rather than the old
+    `vinted_scraper.VintedItem` dataclass, which went away with the library when Vinted
+    withdrew /api/v2/catalog/items. See bazos/tests/fixtures/vinted_listing.txt for a
+    captured row and docs/research/marketplaces/VINTED.md §5 for the field list.
+    """
+    return {
+        "productItem": {
+            "id": external_id,
+            "title": "Item",
+            "url": f"/items/{external_id}-x",
+            "price": {"amount": price, "currencyCode": "CZK"},
+            "isPromoted": promoted,
+            "itemBox": {"firstLine": "Apple", "secondLine": "Velmi dobrý"},
+        }
+    }
+
+
 @pytest.mark.django_db
 def test_price_range_rule_passes_when_no_range_set(query, make_ad):
     query.price_lower = 0
@@ -311,18 +332,11 @@ def test_price_range_rule_rejects_out_of_range_vinted_ad(query):
     directly. If a marketplace scraper doesn't populate ad.price, this rule silently PASSes
     everything from it regardless of range — verify Vinted's own price population (not a
     Bazos-vocabulary re-parse) actually feeds this rule end to end."""
-    from vinted_scraper.models import VintedItem
-
     from bazos.scraping.vinted.vinted_scraper import VintedScraper
 
     query.price_lower = 1000
     query.price_upper = 2000
-    item = VintedItem(
-        id=1, title="Item", description=None, currency="CZK",
-        price=5990.0, total_item_price=6307.5, promoted=False,
-        url="https://www.vinted.cz/items/1-x",
-    )
-    ad = VintedScraper._map_item(item)
+    ad = VintedScraper._map_row(vinted_row(price="5990.00"), "https://www.vinted.cz")
 
     result, reason = PriceRangeRule().apply(unsaved_delivery(ad, query))
     assert result == FilterResult.REJECT
@@ -595,8 +609,6 @@ def test_price_drop_rule_rejects_vinted_price_increase_via_query_runner(query, m
     hand, so a future scraper regression here fails this test too."""
     from unittest.mock import MagicMock, patch
 
-    from vinted_scraper.models import VintedItem
-
     from bazos.scraping.query_runner import QueryRunner
     from bazos.scraping.vinted.vinted_scraper import VintedScraper
 
@@ -604,21 +616,12 @@ def test_price_drop_rule_rejects_vinted_price_increase_via_query_runner(query, m
     query.new_query = False
     query.save()
 
-    old_item = VintedItem(
-        id=1, title="Item", description=None, currency="CZK",
-        price=5000.0, total_item_price=5000.0, promoted=False,
-        url="https://www.vinted.cz/items/1-x",
-    )
-    existing = VintedScraper._map_item(old_item)
+    base = "https://www.vinted.cz"
+    existing = VintedScraper._map_row(vinted_row(price="5000.00"), base)
     existing.save()
     delivery = make_delivery(existing, query, status=AdStatus.SENT)
 
-    new_item = VintedItem(
-        id=1, title="Item", description=None, currency="CZK",
-        price=7000.0, total_item_price=7000.0, promoted=False,
-        url="https://www.vinted.cz/items/1-x",
-    )
-    product = VintedScraper._map_item(new_item)
+    product = VintedScraper._map_row(vinted_row(price="7000.00"), base)
 
     runner = QueryRunner(query, MagicMock())
     with patch.object(runner.scraper, "run_query", return_value=iter([product])):
