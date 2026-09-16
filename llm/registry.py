@@ -8,6 +8,7 @@ from django.conf import settings
 from django.db import models
 
 from llm.base import LLMProvider
+from llm.providers.anthropic import AnthropicProvider
 from llm.providers.null import NullProvider
 
 
@@ -23,6 +24,7 @@ class LLMProviderName(models.TextChoices):
 #: with no entry is a planned provider, and asking for it fails loudly at selection time.
 PROVIDER_REGISTRY: dict[str, type] = {
     LLMProviderName.NULL: NullProvider,
+    LLMProviderName.ANTHROPIC: AnthropicProvider,
 }
 
 
