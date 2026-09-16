@@ -56,10 +56,16 @@ jobs:
           # no .pyc files, no .pytest_cache.
           # TEST_DB=sqlite: the rest of the suite runs on real Postgres (see conftest.py),
           # but this container has no database to reach and standing one up on the Pi — next
-          # to the production server — would be infrastructure bought for nothing. All six
+          # to the production server — would be infrastructure bought for nothing. The Bazos
           # live tests are @pytest.mark.django_db only because parsing a listing writes
           # publisher rows; what they actually assert is live-site parsing, so the backend is
           # irrelevant to them. Do not copy this into any other job.
+          #
+          # This job globs `-m live` across the repo, so it also covers
+          # refprice/tests/test_zbozi_contract.py — the drift check on Zbozi's unsupported
+          # /api/v3 surface, which touches no database at all. Unlike Bazos, Zbozi does not
+          # block datacenter or runner IPs, so that half would run anywhere; it lives here
+          # because weekly is the right cadence for it, not because the Pi is required.
           docker run --rm \
             -v "$PWD:/app" -w /app \
             -e SECRET_KEY="$SECRET_KEY" \
