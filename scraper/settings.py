@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "ip_changer",
     "senders",
     "llm",
+    "refprice",
 ]
 
 MIDDLEWARE = [
