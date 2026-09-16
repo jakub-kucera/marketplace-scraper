@@ -26,6 +26,9 @@ python manage.py run_filter --once    # one batch, then exit (same flag on run_s
 python manage.py runserver
 
 # One-off tools
+python manage.py appraise <url|external_id>  # everything known about one listing on one screen:
+                                          # specs, comparables, distance, price history, model verdict.
+                                          # Read-only and network-free — safe against live production.
 python manage.py compare_bazos_scrapers   # HTML vs hidden-API scraper overlap; read-only, never writes Ads
 python manage.py geocode_postal_codes     # warm the PostalCode cache (zip.php) for the distance filter;
                                           # idempotent, nothing to do in steady state — the scraper geocodes as it goes
