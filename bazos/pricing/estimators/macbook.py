@@ -37,6 +37,34 @@ class MacbookPriceModel:
 
     name = "macbook"
 
+    #: The features that make two listings "the same machine", for `bazos/comparables.py`.
+    #: An optional attribute, not a `PriceModel` protocol member — the same call as
+    #: `dedup_break_streak` on the scraper protocol. Chip, memory, storage and screen size
+    #: are what a buyer chooses between; year is deliberately absent, because it is implied
+    #: by the chip and is the field listings most often omit (it is the gate that declines
+    #: most M4 ads, measured 2026-09-15).
+    comparable_keys = ("chip_key", "ram_gb", "ssd_gb", "screen")
+
+    @staticmethod
+    def describe_features(bucket: dict) -> str:
+        """`{"chip_key": "apple4_max", ...}` -> `M4 Max 36GB/1TB 14"`."""
+        chip = str(bucket.get("chip_key") or "")
+        if chip.startswith("apple"):
+            gen, _, variant = chip[len("apple"):].partition("_")
+            chip_label = f"M{gen}" + ("" if variant == "base" else f" {variant.title()}")
+        else:
+            chip_label = chip or "?"
+        size = []
+        if bucket.get("ram_gb"):
+            size.append(f"{int(bucket['ram_gb'])}GB")
+        if bucket.get("ssd_gb"):
+            ssd = int(bucket["ssd_gb"])
+            size.append(f"{ssd // 1000}TB" if ssd >= 1000 else f"{ssd}GB")
+        out = chip_label + (" " + "/".join(size) if size else "")
+        if bucket.get("screen"):
+            out += f' {bucket["screen"]:g}"'
+        return out
+
     def __init__(self, version: str | None = None) -> None:
         self._requested: str = version or str(getattr(settings, "PRICE_MODEL_VERSION", "latest"))
         self._manifest: Manifest | None = None
