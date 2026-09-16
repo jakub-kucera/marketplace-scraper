@@ -348,10 +348,32 @@ RULE_REGISTRY: dict[str, FilterRule] = {
     "location_distance": LocationDistanceRule(),
     "price_model": PriceModelRule(),
 }
-#: Everything except `price_model`. That rule REJECTs anything it does not consider a deal,
-#: so switching it on by default would mute every existing query. It is opt-in per query via
-#: `Query.filter_rule_names`, which is exactly the case P17's registry was built for.
-DEFAULT_RULE_NAMES: list[str] = [n for n in RULE_REGISTRY if n != "price_model"]
+#: Rules that are registered but NOT applied unless a query names them. These are the
+#: *inverted* ones — they answer "is there a reason to send this?" rather than "is there a
+#: reason to drop it?" — so switching one on by default would mute every existing query.
+#: Opt in per query via `Query.filter_rule_names`, which is the case P17's registry was
+#: built for.
+OPT_IN_RULE_NAMES: set[str] = {"price_model"}
+
+DEFAULT_RULE_NAMES: list[str] = [n for n in RULE_REGISTRY if n not in OPT_IN_RULE_NAMES]
+
+
+def register_rule(rule: FilterRule, *, opt_in: bool = False) -> None:
+    """Add a rule from another app, at that app's `AppConfig.ready()`.
+
+    The registry is mutated rather than imported into, so `bazos` never has to know which
+    other apps exist and stays deletable-independent of them. Registering *through* this
+    function rather than assigning into `RULE_REGISTRY` directly is what keeps
+    `DEFAULT_RULE_NAMES` correct: it is a list built at import time, and a rule added
+    afterwards would otherwise be included or excluded purely by import order.
+    """
+    if rule.name in RULE_REGISTRY:
+        return
+    RULE_REGISTRY[rule.name] = rule
+    if opt_in:
+        OPT_IN_RULE_NAMES.add(rule.name)
+    else:
+        DEFAULT_RULE_NAMES.append(rule.name)
 
 
 def build_rule_engine(query: Query) -> RuleEngine:

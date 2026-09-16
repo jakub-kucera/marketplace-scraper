@@ -90,10 +90,21 @@ def lookup_reference_price(
             detail="nothing searchable left after normalising the title",
         )
 
+    robots_allowed = True
     try:
         resolution, http_requests = ladder.resolve(
             phrase, impl, category_hint=request.category_hint
         )
+        if resolution.facts is None and request.allow_disallowed_search:
+            # Rung 5. Measured: `Bosch GSB 18-2-LI` returns 33 canonical products through
+            # the ?q= search and zero through suggest. That route is robots-disallowed,
+            # so it is off by default, opted into per call, and recorded on the result --
+            # how a number was obtained travels with the number.
+            resolution, extra = ladder.escalate(
+                phrase, impl, resolution, category_hint=request.category_hint
+            )
+            http_requests += extra
+            robots_allowed = False
     except Exception as exc:  # noqa: BLE001 — a broken transport is not the caller's problem
         logger.exception("Reference lookup failed for %r", phrase)
         return _finish(
@@ -106,7 +117,7 @@ def lookup_reference_price(
 
     evidence = MatchEvidence(
         method=MatchMethod.RULE, confidence=resolution.confidence, phrase_used=phrase,
-        candidates_considered=resolution.traces, robots_allowed_path=True,
+        candidates_considered=resolution.traces, robots_allowed_path=robots_allowed,
     )
 
     method = MatchMethod.RULE
@@ -125,7 +136,8 @@ def lookup_reference_price(
             method = MatchMethod.LLM
             evidence = MatchEvidence(
                 method=method, confidence=choice.confidence, phrase_used=phrase,
-                candidates_considered=resolution.traces, robots_allowed_path=True,
+                candidates_considered=resolution.traces,
+                robots_allowed_path=robots_allowed,
             )
 
     cost = LookupCost(

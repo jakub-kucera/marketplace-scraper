@@ -199,7 +199,10 @@ def query_change_changelist_url(query_pk) -> str:
 
 class QueryAdminForm(forms.ModelForm):
     filter_rule_names = forms.MultipleChoiceField(
-        choices=[(name, name.replace("_", " ").title()) for name in RULE_REGISTRY],
+        # A callable, not a list: another app may register a rule at AppConfig.ready(),
+        # which runs after this module is imported. Freezing the choices here would leave
+        # such a rule impossible to enable from the admin even though the engine knows it.
+        choices=lambda: [(name, name.replace("_", " ").title()) for name in RULE_REGISTRY],
         # Unfold styles the widgets it maps from model fields, but this one is declared by
         # hand, so it has to name the themed widget itself. It subclasses Django's
         # CheckboxSelectMultiple, so nothing that checks the widget type has to change.
