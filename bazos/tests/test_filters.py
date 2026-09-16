@@ -644,13 +644,42 @@ def test_rule_registry_has_all_five_stage9_rules():
     } <= set(RULE_REGISTRY)
 
 
-def test_default_rule_names_is_every_rule_except_price_model():
-    """`price_model` REJECTs anything it does not consider a deal, so it is registered but
-    deliberately NOT a default — enabling it by default would mute every existing query.
-    See docs/proposals/ML_PRICE_SCORING.md §1.3."""
-    assert DEFAULT_RULE_NAMES == [n for n in RULE_REGISTRY if n != "price_model"]
-    assert "price_model" in RULE_REGISTRY
-    assert "price_model" not in DEFAULT_RULE_NAMES
+def test_default_rule_names_is_every_rule_that_is_not_opt_in():
+    """An *inverted* rule REJECTs anything it does not consider a deal, so it is
+    registered but deliberately NOT a default — enabling one by default would mute every
+    existing query. See docs/proposals/ML_PRICE_SCORING.md §1.3."""
+    from bazos.filters import OPT_IN_RULE_NAMES
+
+    assert DEFAULT_RULE_NAMES == [n for n in RULE_REGISTRY if n not in OPT_IN_RULE_NAMES]
+    for name in OPT_IN_RULE_NAMES:
+        assert name in RULE_REGISTRY
+        assert name not in DEFAULT_RULE_NAMES
+
+
+def test_price_model_is_opt_in():
+    from bazos.filters import OPT_IN_RULE_NAMES
+
+    assert "price_model" in OPT_IN_RULE_NAMES
+
+
+def test_a_rule_registered_late_lands_where_it_asked_to():
+    """Rules from other apps register at AppConfig.ready(), after DEFAULT_RULE_NAMES is
+    built. Going through register_rule is what stops import order deciding the answer."""
+    from bazos.filters import OPT_IN_RULE_NAMES, register_rule
+
+    class Sentinel:
+        name = "sentinel_opt_in_rule"
+
+        def apply(self, delivery):
+            return FilterResult.PASS, None
+
+    try:
+        register_rule(Sentinel(), opt_in=True)
+        assert "sentinel_opt_in_rule" in RULE_REGISTRY
+        assert "sentinel_opt_in_rule" not in DEFAULT_RULE_NAMES
+    finally:
+        RULE_REGISTRY.pop("sentinel_opt_in_rule", None)
+        OPT_IN_RULE_NAMES.discard("sentinel_opt_in_rule")
 
 
 @pytest.mark.django_db

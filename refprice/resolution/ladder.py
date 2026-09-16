@@ -86,6 +86,50 @@ def resolve(
     return Resolution(traces=traces, considered=considered), requests_made
 
 
+def escalate(
+    phrase: str,
+    provider: ReferenceProvider,
+    previous: Resolution,
+    *,
+    category_hint: int | None = None,
+    max_candidates: int = 8,
+) -> tuple[Resolution, int]:
+    """Rung 5: the robots-disallowed `?q=` search, for what suggest cannot reach.
+
+    Measured (`ZBOZI_API.md` §9.3): `Bosch GSB 18-2-LI` returns 33 canonical products
+    here and **zero** from suggest. Worth having, and worth keeping deliberate — the
+    caller opts in per call and the result records that it did.
+    """
+    spec = spec_from_phrase(phrase, category_id=category_hint)
+    try:
+        candidates = provider.search(phrase, allow_disallowed=True)
+    except Exception as exc:  # noqa: BLE001 — an escalation failure is still just a decline
+        logger.warning("Escalated search failed for %r: %s", phrase, exc)
+        return previous, 0
+
+    requests_made = 1
+    traces = list(previous.traces)
+    considered = list(previous.considered)
+    seen = {c.slug for c in considered}
+
+    for candidate in candidates[:max_candidates]:
+        if candidate.slug in seen:
+            continue
+        facts = provider.fetch(candidate.slug)
+        requests_made += 1
+        if facts is None:
+            continue
+        considered.append(facts)
+        verdict = validate(facts, spec)
+        traces.append(CandidateTrace(candidate.slug, facts.name, verdict.accepted,
+                                     verdict.reason))
+        if verdict.accepted:
+            return Resolution(facts=facts, traces=traces, considered=considered,
+                              confidence=verdict.confidence), requests_made
+
+    return Resolution(traces=traces, considered=considered), requests_made
+
+
 def to_matched_product(facts: RefProductFacts) -> MatchedProduct:
     return MatchedProduct(
         provider=facts.provider, product_id=facts.product_id, slug=facts.slug,
