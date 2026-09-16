@@ -81,6 +81,91 @@ class Marketplace(models.TextChoices):
     SBAZAR    = "sbazar",    "Sbazar"
 
 
+class MarketplaceCategory(models.Model):  # type: ignore[django-manager-missing]
+    """One node of a marketplace's own category tree — a lookup, **not** a `Query` FK.
+
+    Deliberately nothing points at this from `Query`. Vinted's tree is ~2,920 nodes that
+    have to be re-seeded from the live site, and a `PROTECT` FK would make a re-seed fail
+    the moment Vinted retires a node some `Query` still references, while `SET_NULL` would
+    silently widen that query to the whole marketplace — the worse of the two. With the ids
+    living in `Query.extra_params`, a retired node degrades to "returns nothing" and
+    `create_vinted_catalogs` can just warn about it. See
+    docs/backlog/VINTED_REWRITE.md §2.1.
+
+    Bazos keeps its own `Section`/`Category` and is **not** migrated in here: those two are
+    URL builders (`Section.full_url` is a subdomain, `Category.full_url` joins onto it), not
+    lookups, and this model has no equivalent of either.
+
+    `marketplace` is a column from day one rather than this being a `VintedCategory`:
+    Sbazar already stores `extra_params["category_id"]` and will want the same picker.
+    """
+    marketplace = models.CharField(max_length=20, choices=Marketplace.choices, db_index=True)
+    external_id = models.CharField(max_length=32, help_text="The marketplace's own id, e.g. Vinted '3580'.")
+    name = models.CharField(max_length=120)
+    slug = models.CharField(max_length=160, blank=True, help_text="URL segment, e.g. '3580-laptops'.")
+    parent = models.ForeignKey(
+        "self", on_delete=models.CASCADE, null=True, blank=True, related_name="children"
+    )
+
+    class Meta:
+        verbose_name = "Marketplace category"
+        verbose_name_plural = "Marketplace categories"
+        ordering = ("marketplace", "name")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["marketplace", "external_id"], name="unique_category_per_marketplace"
+            ),
+        ]
+
+    def __str__(self):
+        return self.path
+
+    @property
+    def path(self) -> str:
+        """`Elektronika > Pocitace a prislusenstvi > Notebooky`.
+
+        Not decoration: 205 Vinted titles are shared by more than one node — 575 of 2,920
+        (20%) are ambiguous by name alone, and "Ostatní" appears 35 times. A picker
+        labelled by `name` is unusable.
+
+        ⚠️ Walks `parent`, so this is one query per level unless the caller prefetched.
+        Never call it in a loop over a queryset — build labels in one pass instead (see
+        `MarketplaceCategory.path_map`).
+        """
+        names: list[str] = []
+        node: "MarketplaceCategory | None" = self
+        seen: set[int] = set()
+        while node is not None and node.pk not in seen:
+            seen.add(node.pk)          # a cycle would otherwise hang the admin
+            names.append(node.name)
+            node = node.parent
+        return " > ".join(reversed(names))
+
+    @classmethod
+    def path_map(cls, marketplace: str) -> dict[int, str]:
+        """`{pk: "A > B > C"}` for one marketplace, in a **single** query regardless of depth.
+
+        The bulk counterpart to :attr:`path`. Resolving 2,920 nodes through the property
+        would be ~12k queries on a single admin form render.
+        """
+        rows = list(cls.objects.filter(marketplace=marketplace).values("pk", "name", "parent_id"))
+        by_pk = {r["pk"]: r for r in rows}
+        cache: dict[int, str] = {}
+
+        def resolve(pk: int, seen: frozenset[int] = frozenset()) -> str:
+            if pk in cache:
+                return cache[pk]
+            row = by_pk.get(pk)
+            if row is None or pk in seen:
+                return ""
+            parent_id = row["parent_id"]
+            prefix = resolve(parent_id, seen | {pk}) if parent_id else ""
+            cache[pk] = f"{prefix} > {row['name']}" if prefix else row["name"]
+            return cache[pk]
+
+        return {pk: resolve(pk) for pk in by_pk}
+
+
 #: `Query` fields whose changes are worth an audit row in :class:`QueryChange`.
 TRACKED_CONFIG_FIELDS = (
     "text",
@@ -176,10 +261,17 @@ class Query(TimeStampedModel):
         default=dict,
         blank=True,
         help_text=(
-            "Marketplace-specific search params. Ignored by Bazos. Vinted: "
-            '{"base_url": "https://www.vinted.sk", "catalog_ids": [1194]}. '
-            "Vinted text search is fuzzy — a 'macbook' search returns unrelated items — so "
-            "setting filter_required is strongly recommended on Vinted queries."
+            "Marketplace-specific search params. Ignored by Bazos. "
+            'Vinted: {"catalog_ids": [3580], "brand_ids": [54661], "status_ids": [2], '
+            '"base_url": "https://www.vinted.sk"}. '
+            "⚠️ Vinted text search is fuzzy — a 'macbook' search returned 22 unrelated "
+            "items in 96, including clothing — so prefer catalog_ids + brand_ids over "
+            "text, and keep filter_required as a backstop. Category ids are in "
+            "Marketplace categories (seed with manage.py create_vinted_catalogs); brand "
+            "ids come from an item page's /brand/<id>-<slug> link. status_ids: "
+            "1=new without tags, 2=very good, 3=good, 4=satisfactory, 6=new with tags, "
+            "7=limited functionality — NOT the condition id shown on an item page. "
+            'Sbazar: {"category_id": 123}.'
         ),
     )
 
@@ -594,6 +686,30 @@ class Ad(TimeStampedModel):
     # tail silently stops `filter_blocklist`/`filter_required` phrases from matching.
     short_description = models.TextField()
     full_description = models.TextField(null=True, blank=True)
+
+    # Structured specs exactly as the marketplace stated them — the same split as
+    # price_raw/price: this is the audit trail, and any parse is derived from it at read
+    # time. Stored RAW and never normalised on write ({"computer_ram": "16 GB"}, not
+    # {"ram_gb": 16}): normalising here would bake in today's parser and leave nothing to
+    # re-derive from when it improves, which is the bind `rescore_ads` exists to work
+    # around. Values stay strings; nothing is coerced.
+    #
+    # The seam this keeps: `attributes` is what the marketplace said, `AdPriceScore.features`
+    # is what a model made of it — which is the reason `features` is JSON at all.
+    #
+    # Empty for marketplaces that publish no structured specs (Bazos, Sbazar today). Do NOT
+    # write regex-derived values in here from Bazos free text; that destroys the
+    # stated-vs-derived distinction the column exists for. Only populated when the query
+    # has load_full_description=True — Vinted serves specs on the detail page, not the
+    # listing row. See docs/backlog/VINTED_REWRITE.md §2.3.
+    attributes = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Structured specs as the marketplace stated them, verbatim, e.g. "
+            '{"computer_ram": "16 GB"}. Empty when the marketplace publishes none.'
+        ),
+    )
 
     publisher_name = models.CharField(max_length=100)
     email_publisher = models.ForeignKey('EmailPublisher', on_delete=models.PROTECT, null=True, related_name='ads')

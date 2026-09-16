@@ -5,12 +5,15 @@ Covers the admin-friendly checkbox UI for `Query.filter_rule_names`, backed by
 """
 import json
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from bs4 import BeautifulSoup
 from django import forms as dj_forms
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.forms import model_to_dict
+from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 
@@ -687,3 +690,389 @@ def test_query_changelist_renders_the_force_run_button(admin_client_logged_in):
     response = admin_client_logged_in.get(reverse("admin:bazos_query_changelist"))
 
     assert "Force Run Now" in response.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# Vinted catalog picker (VINTED_REWRITE.md §4)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def vinted_tree(db):
+    from bazos.models import Marketplace, MarketplaceCategory
+
+    electronics = MarketplaceCategory.objects.create(
+        marketplace=Marketplace.VINTED, external_id="2994", name="Elektronika",
+    )
+    computers = MarketplaceCategory.objects.create(
+        marketplace=Marketplace.VINTED, external_id="3564",
+        name="Počítače a příslušenství", parent=electronics,
+    )
+    laptops = MarketplaceCategory.objects.create(
+        marketplace=Marketplace.VINTED, external_id="3580",
+        name="Notebooky", parent=computers,
+    )
+    desktops = MarketplaceCategory.objects.create(
+        marketplace=Marketplace.VINTED, external_id="3581",
+        name="Stolní počítače", parent=computers,
+    )
+    return electronics, computers, laptops, desktops
+
+
+@pytest.fixture
+def vinted_query(db):
+    from bazos.models import Marketplace, Query
+
+    return Query.objects.create(
+        text="macbook", marketplace=Marketplace.VINTED,
+        price_lower=0, price_upper=0, new_query=False,
+    )
+
+
+def submit(query, **overrides):
+    """Run QueryAdminForm the way the change view does, returning the cleaned form."""
+    data = model_to_dict(query)
+    data["filter_blocklist"] = json.dumps(data["filter_blocklist"])
+    data["filter_required"] = json.dumps(data["filter_required"])
+    data["extra_params"] = json.dumps(data.get("extra_params") or {})
+    data = {k: ("" if v is None else v) for k, v in data.items()}
+    data.update(overrides)
+    form = QueryAdminForm(data=data, instance=query)
+    form.is_valid()
+    return form
+
+
+def test_catalog_picker_labels_are_breadcrumbs(vinted_tree):
+    """205 Vinted titles are shared by more than one node, so bare names cannot identify
+    a category."""
+    _, _, laptops, _ = vinted_tree
+    field = QueryAdminForm().fields["vinted_catalogs"]
+    assert field.label_from_instance(laptops) == (
+        "Elektronika > Počítače a příslušenství > Notebooky"
+    )
+
+
+def test_catalog_picker_builds_labels_in_one_query(vinted_tree, django_assert_num_queries):
+    """Reading MarketplaceCategory.path per choice would walk parents per row — thousands
+    of queries to render one form."""
+    field = QueryAdminForm().fields["vinted_catalogs"]
+    with django_assert_num_queries(1):
+        for node in vinted_tree:
+            field.label_from_instance(node)
+
+
+def test_catalog_picker_only_offers_vinted_rows(vinted_tree):
+    from bazos.models import Marketplace, MarketplaceCategory
+
+    MarketplaceCategory.objects.create(
+        marketplace=Marketplace.SBAZAR, external_id="3580", name="Nářadí",
+    )
+    offered = QueryAdminForm().fields["vinted_catalogs"].queryset
+    assert all(row.marketplace == Marketplace.VINTED for row in offered)
+
+
+def test_catalog_picker_is_seeded_from_extra_params(vinted_tree, vinted_query):
+    _, _, laptops, _ = vinted_tree
+    vinted_query.extra_params = {"catalog_ids": [3580]}
+    vinted_query.save()
+
+    initial = QueryAdminForm(instance=vinted_query).fields["vinted_catalogs"].initial
+    assert list(initial) == [laptops]
+
+
+def test_selecting_a_catalog_writes_extra_params(vinted_tree, vinted_query):
+    _, _, laptops, _ = vinted_tree
+    form = submit(vinted_query, vinted_catalogs=[laptops.pk])
+    assert form.cleaned_data["extra_params"]["catalog_ids"] == [3580]
+
+
+def test_selecting_several_catalogs(vinted_tree, vinted_query):
+    _, _, laptops, desktops = vinted_tree
+    form = submit(vinted_query, vinted_catalogs=[laptops.pk, desktops.pk])
+    assert sorted(form.cleaned_data["extra_params"]["catalog_ids"]) == [3580, 3581]
+
+
+def test_clearing_the_picker_removes_the_key(vinted_tree, vinted_query):
+    """Not left as an empty list: `catalog_ids: []` and an absent key mean the same thing
+    to the scraper, and the absent key is the honest representation of "no filter"."""
+    vinted_query.extra_params = {"catalog_ids": [3580]}
+    vinted_query.save()
+
+    form = submit(vinted_query, vinted_catalogs=[])
+    assert "catalog_ids" not in form.cleaned_data["extra_params"]
+
+
+def test_other_extra_params_are_preserved(vinted_tree, vinted_query):
+    _, _, laptops, _ = vinted_tree
+    vinted_query.extra_params = {"brand_ids": [54661], "base_url": "https://www.vinted.sk"}
+    vinted_query.save()
+
+    form = submit(vinted_query, vinted_catalogs=[laptops.pk])
+    extra = form.cleaned_data["extra_params"]
+    assert extra["brand_ids"] == [54661]
+    assert extra["base_url"] == "https://www.vinted.sk"
+    assert extra["catalog_ids"] == [3580]
+
+
+def test_ids_the_picker_cannot_see_are_preserved(vinted_tree, vinted_query):
+    """⚠️ The data-loss trap. A category Vinted has retired — or one set before the table
+    was seeded — has no row to select, so rebuilding the list from the selection alone
+    would silently delete it on the next unrelated save."""
+    _, _, laptops, _ = vinted_tree
+    vinted_query.extra_params = {"catalog_ids": [999999, 3580]}
+    vinted_query.save()
+
+    form = submit(vinted_query, vinted_catalogs=[laptops.pk])
+    assert sorted(form.cleaned_data["extra_params"]["catalog_ids"]) == [3580, 999999]
+
+
+def test_unknown_id_survives_clearing_the_picker(vinted_tree, vinted_query):
+    vinted_query.extra_params = {"catalog_ids": [999999]}
+    vinted_query.save()
+
+    form = submit(vinted_query, vinted_catalogs=[])
+    assert form.cleaned_data["extra_params"]["catalog_ids"] == [999999]
+
+
+def test_non_vinted_query_extra_params_untouched(vinted_tree, query):
+    """extra_params is shared with other marketplaces; a Vinted-only field must not
+    rewrite Sbazar's config."""
+    query.extra_params = {"category_id": 123}
+    query.save()
+
+    form = submit(query, vinted_catalogs=[])
+    assert form.cleaned_data["extra_params"] == {"category_id": 123}
+
+
+@pytest.mark.django_db
+def test_change_form_renders_the_picker(client, vinted_tree, vinted_query):
+    User = get_user_model()
+    User.objects.create_superuser("admin2", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin2"))
+
+    response = client.get(reverse("admin:bazos_query_change", args=[vinted_query.pk]))
+    assert response.status_code == 200
+    assert b"vinted_catalogs" in response.content
+
+
+@pytest.mark.django_db
+def test_saving_through_the_change_view_persists_catalog_ids(
+    client, vinted_tree, vinted_query, valid_query_data
+):
+    """End to end through the real view, including the inline management form the
+    change form needs."""
+    _, _, laptops, _ = vinted_tree
+    User = get_user_model()
+    User.objects.create_superuser("admin3", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin3"))
+
+    data = model_to_dict(vinted_query)
+    data["filter_blocklist"] = json.dumps([])
+    data["filter_required"] = json.dumps([])
+    data["extra_params"] = json.dumps({})
+    # `Query.sender` lacks blank=True despite null=True, so the form requires one, and
+    # QueryAdmin's inline needs its management form or the view re-renders as a 200 with
+    # empty form.errors — see valid_query_data.
+    data["sender"] = valid_query_data["sender"]
+    data.update({k: v for k, v in valid_query_data.items() if k.startswith("config_history-")})
+    data["vinted_catalogs"] = [laptops.pk]
+    data = {k: ("" if v is None else v) for k, v in data.items()}
+
+    response = client.post(
+        reverse("admin:bazos_query_change", args=[vinted_query.pk]), data
+    )
+    if response.status_code != 302:
+        form = response.context_data["adminform"].form
+        raise AssertionError(f"form did not validate: {form.errors.as_json()}")
+
+    vinted_query.refresh_from_db()
+    assert vinted_query.extra_params["catalog_ids"] == [3580]
+
+
+def test_picker_leaves_catalog_ids_alone_when_extra_params_is_invalid(vinted_tree, vinted_query):
+    """If extra_params failed validation it is absent from cleaned_data; writing the
+    picker's selection into a fresh dict would then wipe every other key on save."""
+    _, _, laptops, _ = vinted_tree
+    vinted_query.extra_params = {"catalog_ids": [3580], "brand_ids": [54661]}
+    vinted_query.save()
+
+    form = submit(vinted_query, extra_params="{not json", vinted_catalogs=[laptops.pk])
+
+    assert "extra_params" in form.errors
+    vinted_query.refresh_from_db()
+    assert vinted_query.extra_params == {"catalog_ids": [3580], "brand_ids": [54661]}
+
+
+@pytest.mark.django_db
+def test_marketplace_category_changelist_shows_breadcrumbs(client, vinted_tree):
+    User = get_user_model()
+    User.objects.create_superuser("admin4", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin4"))
+
+    response = client.get(reverse("admin:bazos_marketplacecategory_changelist"))
+    assert response.status_code == 200
+    assert "Elektronika &gt; Počítače a příslušenství &gt; Notebooky" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_breadcrumb_builds_the_path_map_once_per_marketplace(vinted_tree, django_assert_num_queries):
+    """Reading MarketplaceCategory.path per row would walk parents per row — hundreds of
+    queries on a full changelist."""
+    from bazos.admin import MarketplaceCategoryAdmin
+    from bazos.models import MarketplaceCategory
+
+    modeladmin = MarketplaceCategoryAdmin(MarketplaceCategory, admin.site)
+    with django_assert_num_queries(1):
+        labels = [modeladmin.breadcrumb(node) for node in vinted_tree]
+
+    assert labels[2] == "Elektronika > Počítače a příslušenství > Notebooky"
+
+
+@pytest.mark.django_db
+def test_breadcrumb_cache_is_cleared_per_changelist_request(client, vinted_tree):
+    """The admin instance outlives a request, so a re-seed must not need a restart to
+    show up."""
+    from bazos.admin import MarketplaceCategoryAdmin
+    from bazos.models import Marketplace, MarketplaceCategory
+
+    modeladmin = MarketplaceCategoryAdmin(MarketplaceCategory, admin.site)
+    modeladmin._path_cache = {Marketplace.VINTED: {}}
+
+    User = get_user_model()
+    User.objects.create_superuser("admin5", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin5"))
+    request = client.request(**{"PATH_INFO": reverse("admin:bazos_marketplacecategory_changelist")}).wsgi_request
+    modeladmin.changelist_view(request)
+
+    assert modeladmin._path_cache is None
+
+
+# ---------------------------------------------------------------------------
+# Per-marketplace fieldsets (VINTED_REWRITE.md §5)
+# ---------------------------------------------------------------------------
+
+def _fieldsets(obj):
+    """QueryAdmin.get_fieldsets for `obj`. `get_form` consults request.user permissions,
+    so the request needs a user that can do everything."""
+    from bazos.admin import QueryAdmin
+    from bazos.models import Query
+
+    request = RequestFactory().get("/")
+    request.user = SimpleNamespace(
+        has_perm=lambda *a, **k: True,
+        is_active=True, is_staff=True, is_superuser=True,
+    )
+    return QueryAdmin(Query, admin.site).get_fieldsets(request, obj)
+
+
+def _all_fields(fieldsets):
+    return [name for _title, opts in fieldsets for name in opts["fields"]]
+
+
+def _group(fieldsets, title):
+    return next((opts for name, opts in fieldsets if name == title), None)
+
+
+@pytest.mark.django_db
+def test_vinted_query_collapses_bazos_only_fields(vinted_query):
+    hidden = _group(_fieldsets(vinted_query), "Not used by this marketplace")
+    assert hidden is not None
+    assert set(hidden["fields"]) == {
+        "section", "category", "location_center", "location_radius",
+        "filter_location_center", "filter_location_radius",
+    }
+    assert "collapse" in hidden["classes"]
+
+
+@pytest.mark.django_db
+def test_bazos_query_collapses_vinted_only_fields(query):
+    hidden = _group(_fieldsets(query), "Not used by this marketplace")
+    assert set(hidden["fields"]) == {"vinted_catalogs", "extra_params"}
+
+
+@pytest.mark.django_db
+def test_vinted_query_shows_the_catalog_picker_in_place(vinted_query):
+    where = _group(_fieldsets(vinted_query), "Where to search")
+    assert "vinted_catalogs" in where["fields"]
+    assert "extra_params" in where["fields"]
+    assert "section" not in where["fields"]
+
+
+@pytest.mark.django_db
+def test_sbazar_query_keeps_extra_params_but_not_the_vinted_picker(query):
+    from bazos.models import Marketplace
+
+    query.marketplace = Marketplace.SBAZAR
+    query.save()
+    fieldsets = _fieldsets(query)
+    assert "extra_params" in _group(fieldsets, "Where to search")["fields"]
+    assert "vinted_catalogs" in _group(fieldsets, "Not used by this marketplace")["fields"]
+
+
+@pytest.mark.django_db
+def test_nothing_is_dropped_for_any_marketplace(query):
+    """⚠️ The invariant that matters: a field missing from the fieldsets is missing from
+    the form, so the operator can neither see nor clear its stored value."""
+    from bazos.admin import QueryAdmin, QueryAdminForm
+    from bazos.models import Marketplace, Query as QueryModel
+
+    expected = set(QueryAdminForm.base_fields) | set(QueryAdmin(QueryModel, admin.site).readonly_fields)
+    for marketplace in Marketplace.values:
+        query.marketplace = marketplace
+        query.save()
+        assert set(_all_fields(_fieldsets(query))) == expected, marketplace
+
+
+@pytest.mark.django_db
+def test_new_query_shows_everything_uncollapsed(query):
+    """`marketplace` has not been chosen yet on an add form, so there is nothing to
+    tailor to."""
+    fieldsets = _fieldsets(None)
+    assert _group(fieldsets, "Not used by this marketplace") is None
+    assert "section" in _all_fields(fieldsets)
+    assert "vinted_catalogs" in _all_fields(fieldsets)
+
+
+@pytest.mark.django_db
+def test_marketplace_stays_editable(vinted_query):
+    """Otherwise a query could never be moved off the marketplace whose fields are hidden."""
+    first_group = _fieldsets(vinted_query)[0]
+    assert "marketplace" in first_group[1]["fields"]
+
+
+@pytest.mark.django_db
+def test_a_field_missing_from_the_groups_still_renders(vinted_query, monkeypatch):
+    """Regression guard for the maintenance trap: adding a field to Query without
+    naming it in QUERY_FIELD_GROUPS must not silently drop it from the admin."""
+    import bazos.admin as admin_module
+
+    trimmed = tuple(
+        (title, tuple(n for n in names if n != "price_lower"))
+        for title, names in admin_module.QUERY_FIELD_GROUPS
+    )
+    monkeypatch.setattr(admin_module, "QUERY_FIELD_GROUPS", trimmed)
+    assert "price_lower" in _all_fields(_fieldsets(vinted_query))
+
+
+@pytest.mark.django_db
+def test_change_form_still_renders_and_saves(client, vinted_tree, vinted_query, valid_query_data):
+    """End to end: the grouped form must still validate and save."""
+    _, _, laptops, _ = vinted_tree
+    User = get_user_model()
+    User.objects.create_superuser("admin6", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin6"))
+
+    url = reverse("admin:bazos_query_change", args=[vinted_query.pk])
+    assert client.get(url).status_code == 200
+
+    data = model_to_dict(vinted_query)
+    data["filter_blocklist"] = json.dumps([])
+    data["filter_required"] = json.dumps([])
+    data["extra_params"] = json.dumps({})
+    data["sender"] = valid_query_data["sender"]
+    data.update({k: v for k, v in valid_query_data.items() if k.startswith("config_history-")})
+    data["vinted_catalogs"] = [laptops.pk]
+    data = {k: ("" if v is None else v) for k, v in data.items()}
+
+    assert client.post(url, data).status_code == 302
+    vinted_query.refresh_from_db()
+    assert vinted_query.extra_params["catalog_ids"] == [3580]
