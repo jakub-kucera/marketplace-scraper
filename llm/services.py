@@ -4,12 +4,15 @@
 row are not optional decorations a caller can forget, so they live on the inside of the
 boundary rather than being every caller's responsibility.
 """
+import dataclasses
+import hashlib
 import logging
 import time
 from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -20,6 +23,25 @@ from llm.registry import get_provider
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_OUTPUT_TOKENS = 512
+CACHE_PREFIX = "llm:v1:"
+
+
+def cache_key(*, provider: str, model: str, prompt_name: str, prompt_version: str,
+              prompt: str, system: str | None, schema: type | None) -> str:
+    """Identical input under the same prompt *version* must not be billed twice.
+
+    The version is part of the key because that is the whole point of versioning a
+    prompt — v2 is allowed to answer differently, and must not read v1's answer. The
+    schema is part of it because the cached object is an *instance* of that schema:
+    without it, the same prompt asked for a different dataclass hands back the wrong type.
+    """
+    schema_id = f"{schema.__module__}.{schema.__qualname__}" if schema else "-"
+    digest = hashlib.sha256(
+        "\x1f".join(
+            (provider, model, prompt_name, prompt_version, prompt, system or "", schema_id)
+        ).encode("utf-8")
+    ).hexdigest()
+    return f"{CACHE_PREFIX}{digest}"
 
 
 def month_to_date_cost() -> Decimal:
@@ -80,6 +102,23 @@ def complete(
                 outcome=LLMOutcome.DECLINED)
         return result
 
+    ttl = int(getattr(settings, "LLM_CACHE_SECONDS", 0) or 0)
+    key = cache_key(
+        provider=getattr(impl, "name", "?"), model=settings.LLM_MODEL,
+        prompt_name=prompt_name, prompt_version=prompt_version,
+        prompt=prompt, system=system, schema=schema,
+    )
+    if ttl:
+        hit = cache.get(key)
+        if hit is not None:
+            # Billed zero: the money was spent on the first call, and counting it again
+            # would close the monthly budget early. Still logged, so "how often was this
+            # asked" stays answerable.
+            result = dataclasses.replace(hit, cached=True, cost_usd=0.0, latency_ms=0)
+            _record(result, prompt_name=prompt_name, prompt_version=prompt_version,
+                    outcome=LLMOutcome.OK)
+            return result
+
     started = time.monotonic()
     try:
         result = impl.complete(
@@ -104,4 +143,8 @@ def complete(
 
     outcome = LLMOutcome.DECLINED if result.declined else LLMOutcome.OK
     _record(result, prompt_name=prompt_name, prompt_version=prompt_version, outcome=outcome)
+    if ttl and not result.declined:
+        # Declines are deliberately not cached: a refusal or a timeout is usually
+        # transient, and caching one would freeze a bad answer in place for its TTL.
+        cache.set(key, result, ttl)
     return result

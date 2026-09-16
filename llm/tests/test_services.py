@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import pytest
+from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
@@ -20,6 +21,15 @@ from llm.base import LLMResult
 from llm.models import LLMCall, LLMOutcome
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cache():
+    """These tests reuse one prompt string, so a warm cache would let each test read the
+    previous one's answer. Caching itself is covered in test_cache.py."""
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @dataclass(frozen=True)

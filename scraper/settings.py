@@ -191,6 +191,7 @@ UNFOLD = {
                 "items": [
                     {"title": "Query runs", "icon": "timeline", "link": reverse_lazy("admin:bazos_queryrun_changelist")},
                     {"title": "Config changes", "icon": "history", "link": reverse_lazy("admin:bazos_querychange_changelist")},
+                    {"title": "LLM calls", "icon": "smart_toy", "link": reverse_lazy("admin:llm_llmcall_changelist")},
                     {"title": "Logs", "icon": "receipt_long", "link": reverse_lazy("admin:django_db_logger_statuslog_changelist")},
                 ],
             },
@@ -315,6 +316,11 @@ LLM_API_KEY: str = env("LLM_API_KEY", default="")
 LLM_MONTHLY_BUDGET_USD: float = env.float("LLM_MONTHLY_BUDGET_USD", default=5.0)
 # connect/read. The read half has to cover a model thinking, not just a socket.
 LLM_TIMEOUT: tuple[int, int] = (10, 60)
+# Response cache TTL. Django's default locmem cache is per-process and dies with it, so
+# this dedupes within a run rather than across restarts — which is where the repeats are:
+# refprice normalises many scruffy ad titles down to the same brand+model before asking.
+# Durable amortisation comes from persisting the match, not from this. 0 disables.
+LLM_CACHE_SECONDS: int = env.int("LLM_CACHE_SECONDS", default=60 * 60 * 24)
 
 SENTRY_DSN: str = env("SENTRY_DSN", default="")
 
