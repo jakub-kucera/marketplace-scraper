@@ -5,6 +5,7 @@ Covers the admin-friendly checkbox UI for `Query.filter_rule_names`, backed by
 """
 import json
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from bs4 import BeautifulSoup
@@ -12,6 +13,7 @@ from django import forms as dj_forms
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.forms import model_to_dict
+from django.test import RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 
@@ -942,3 +944,135 @@ def test_breadcrumb_cache_is_cleared_per_changelist_request(client, vinted_tree)
     modeladmin.changelist_view(request)
 
     assert modeladmin._path_cache is None
+
+
+# ---------------------------------------------------------------------------
+# Per-marketplace fieldsets (VINTED_REWRITE.md §5)
+# ---------------------------------------------------------------------------
+
+def _fieldsets(obj):
+    """QueryAdmin.get_fieldsets for `obj`. `get_form` consults request.user permissions,
+    so the request needs a user that can do everything."""
+    from bazos.admin import QueryAdmin
+    from bazos.models import Query
+
+    request = RequestFactory().get("/")
+    request.user = SimpleNamespace(
+        has_perm=lambda *a, **k: True,
+        is_active=True, is_staff=True, is_superuser=True,
+    )
+    return QueryAdmin(Query, admin.site).get_fieldsets(request, obj)
+
+
+def _all_fields(fieldsets):
+    return [name for _title, opts in fieldsets for name in opts["fields"]]
+
+
+def _group(fieldsets, title):
+    return next((opts for name, opts in fieldsets if name == title), None)
+
+
+@pytest.mark.django_db
+def test_vinted_query_collapses_bazos_only_fields(vinted_query):
+    hidden = _group(_fieldsets(vinted_query), "Not used by this marketplace")
+    assert hidden is not None
+    assert set(hidden["fields"]) == {
+        "section", "category", "location_center", "location_radius",
+        "filter_location_center", "filter_location_radius",
+    }
+    assert "collapse" in hidden["classes"]
+
+
+@pytest.mark.django_db
+def test_bazos_query_collapses_vinted_only_fields(query):
+    hidden = _group(_fieldsets(query), "Not used by this marketplace")
+    assert set(hidden["fields"]) == {"vinted_catalogs", "extra_params"}
+
+
+@pytest.mark.django_db
+def test_vinted_query_shows_the_catalog_picker_in_place(vinted_query):
+    where = _group(_fieldsets(vinted_query), "Where to search")
+    assert "vinted_catalogs" in where["fields"]
+    assert "extra_params" in where["fields"]
+    assert "section" not in where["fields"]
+
+
+@pytest.mark.django_db
+def test_sbazar_query_keeps_extra_params_but_not_the_vinted_picker(query):
+    from bazos.models import Marketplace
+
+    query.marketplace = Marketplace.SBAZAR
+    query.save()
+    fieldsets = _fieldsets(query)
+    assert "extra_params" in _group(fieldsets, "Where to search")["fields"]
+    assert "vinted_catalogs" in _group(fieldsets, "Not used by this marketplace")["fields"]
+
+
+@pytest.mark.django_db
+def test_nothing_is_dropped_for_any_marketplace(query):
+    """⚠️ The invariant that matters: a field missing from the fieldsets is missing from
+    the form, so the operator can neither see nor clear its stored value."""
+    from bazos.admin import QueryAdmin, QueryAdminForm
+    from bazos.models import Marketplace, Query as QueryModel
+
+    expected = set(QueryAdminForm.base_fields) | set(QueryAdmin(QueryModel, admin.site).readonly_fields)
+    for marketplace in Marketplace.values:
+        query.marketplace = marketplace
+        query.save()
+        assert set(_all_fields(_fieldsets(query))) == expected, marketplace
+
+
+@pytest.mark.django_db
+def test_new_query_shows_everything_uncollapsed(query):
+    """`marketplace` has not been chosen yet on an add form, so there is nothing to
+    tailor to."""
+    fieldsets = _fieldsets(None)
+    assert _group(fieldsets, "Not used by this marketplace") is None
+    assert "section" in _all_fields(fieldsets)
+    assert "vinted_catalogs" in _all_fields(fieldsets)
+
+
+@pytest.mark.django_db
+def test_marketplace_stays_editable(vinted_query):
+    """Otherwise a query could never be moved off the marketplace whose fields are hidden."""
+    first_group = _fieldsets(vinted_query)[0]
+    assert "marketplace" in first_group[1]["fields"]
+
+
+@pytest.mark.django_db
+def test_a_field_missing_from_the_groups_still_renders(vinted_query, monkeypatch):
+    """Regression guard for the maintenance trap: adding a field to Query without
+    naming it in QUERY_FIELD_GROUPS must not silently drop it from the admin."""
+    import bazos.admin as admin_module
+
+    trimmed = tuple(
+        (title, tuple(n for n in names if n != "price_lower"))
+        for title, names in admin_module.QUERY_FIELD_GROUPS
+    )
+    monkeypatch.setattr(admin_module, "QUERY_FIELD_GROUPS", trimmed)
+    assert "price_lower" in _all_fields(_fieldsets(vinted_query))
+
+
+@pytest.mark.django_db
+def test_change_form_still_renders_and_saves(client, vinted_tree, vinted_query, valid_query_data):
+    """End to end: the grouped form must still validate and save."""
+    _, _, laptops, _ = vinted_tree
+    User = get_user_model()
+    User.objects.create_superuser("admin6", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin6"))
+
+    url = reverse("admin:bazos_query_change", args=[vinted_query.pk])
+    assert client.get(url).status_code == 200
+
+    data = model_to_dict(vinted_query)
+    data["filter_blocklist"] = json.dumps([])
+    data["filter_required"] = json.dumps([])
+    data["extra_params"] = json.dumps({})
+    data["sender"] = valid_query_data["sender"]
+    data.update({k: v for k, v in valid_query_data.items() if k.startswith("config_history-")})
+    data["vinted_catalogs"] = [laptops.pk]
+    data = {k: ("" if v is None else v) for k, v in data.items()}
+
+    assert client.post(url, data).status_code == 302
+    vinted_query.refresh_from_db()
+    assert vinted_query.extra_params["catalog_ids"] == [3580]
