@@ -731,6 +731,22 @@ class Ad(TimeStampedModel):
         """How many ads this seller has, counted three ways. See :class:`SellerAdCounts`."""
         return SellerAdCounts.for_ad(self)
 
+    def current_price_score(self):
+        """The newest non-declined `AdPriceScore`, or None. Cached per instance.
+
+        Both notification lines below need it, and `Ad.message` runs once per ad in
+        `run_sender`'s batch — so this is read once and reused rather than fetched twice.
+        The cache lives on the instance, which is the lifetime of one send.
+        """
+        if not hasattr(self, "_price_score_cache"):
+            self._price_score_cache = (
+                self.price_scores
+                .exclude(predicted__isnull=True)
+                .order_by("-created")
+                .first()
+            )
+        return self._price_score_cache
+
     @property
     def price_score_summary(self) -> str:
         """One line about what a price model thought, or "" if none had an opinion.
@@ -740,12 +756,7 @@ class Ad(TimeStampedModel):
         more so. Declined scores render as nothing: "a model looked and had no opinion" is
         worth storing (see `AdPriceScore`) but not worth a line in a notification.
         """
-        score = (
-            self.price_scores
-            .exclude(predicted__isnull=True)
-            .order_by("-created")
-            .first()
-        )
+        score = self.current_price_score()
         if score is None:
             return ""
         line = f"Model: {score.predicted} Kč predicted"
@@ -767,10 +778,27 @@ class Ad(TimeStampedModel):
         # Appended rather than interleaved so every existing golden message keeps its
         # shape — test_pipeline_e2e pins these strings, and an ad nothing scored is
         # byte-identical to before.
-        score_line = self.price_score_summary
-        if score_line:
-            parts.append(score_line)
+        for line in (self.price_score_summary, self.comparables_summary):
+            if line:
+                parts.append(line)
         return '\n'.join(parts)
+
+    @property
+    def comparables_summary(self) -> str:
+        """Where this ad sits among current listings of the same thing, or "".
+
+        Costs one query, and only for an ad that has a score — `find_comparables` reads the
+        spec bucket off the score, so an unscored ad short-circuits before touching the DB.
+        That keeps an unscored ad's message at its previous query count and confines the
+        extra cost to ads that were going to carry a model line anyway.
+        """
+        from bazos.comparables import find_comparables
+
+        score = self.current_price_score()
+        if score is None:
+            return ""
+        found = find_comparables(self, subject_score=score)
+        return found.summary() if found is not None else ""
 
     @property
     def link(self):

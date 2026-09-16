@@ -28,6 +28,7 @@ from unfold.widgets import (
     UnfoldAdminSelect2MultipleWidget,
 )
 
+from bazos.comparables import find_comparables
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
 from bazos.models import AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
@@ -748,6 +749,7 @@ class AdAdmin(ModelAdmin):
     readonly_fields = (
         "external_id", "marketplace",
         "seller_ad_counts",
+        "comparables",
     )
     inlines = (AdDeliveryInline, PriceChangeInline, AdPriceScoreInline)
     # query_count's Count(...) annotation forces a GROUP BY over the whole ad × addelivery
@@ -793,6 +795,40 @@ class AdAdmin(ModelAdmin):
         return "—" if obj.price_z is None else f"{obj.price_z:+.2f}"
 
     @admin.display(description="Seller history")
+    @admin.display(description="Comparable listings")
+    def comparables(self, obj):
+        """Same spec, cheapest first, with this ad marked — see `bazos/comparables.py`.
+
+        Detail page only, like `seller_ad_counts` and for the same reason: one bounded
+        query per page is fine, one per changelist row is not.
+        """
+        if obj.pk is None:
+            return "—"
+        found = find_comparables(obj)
+        if found is None:
+            return format_html(
+                '<span style="color:var(--body-quiet-color)">{}</span>',
+                "— no comparable bucket (needs a scored ad of a model that defines "
+                "comparable_keys)",
+            )
+        rows = format_html_join(
+            "",
+            '<li><a href="{}">{}</a> — <strong>{}</strong> Kč{}</li>',
+            (
+                (row.url, row.name[:70], row.price, " ← this ad" if row.is_subject else "")
+                for row in found.rows
+            ),
+        )
+        return format_html(
+            '<div><strong>{}</strong> — {} listed, median {} Kč{}</div>'
+            '<ul style="margin:.4em 0 0;padding-left:1.2em">{}</ul>'
+            '<div style="color:var(--body-quiet-color)">asking prices, not sold; '
+            'a relisted item counts once per listing</div>',
+            found.label, found.count, found.median,
+            f", this one ranks {found.subject_rank}" if found.subject_rank else "",
+            rows,
+        )
+
     def seller_ad_counts(self, obj):
         """Three counts plus links to each identity — see `SellerAdCounts` for why three.
 

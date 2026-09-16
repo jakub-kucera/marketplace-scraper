@@ -148,3 +148,16 @@ BAZOS_ZIP_API_URL: Final[str] = f"{BAZOS_API_BASE_URL}/zip.php"
 # Pacing between geocode lookups, for the backfill command that walks hundreds of them in a
 # row. The scraper's own per-ad lookups are already spaced by the walk around them.
 GEOCODE_WAIT_TIME: Final[tuple[float, float]] = (1.0, 3.0)
+
+# ---------------------------------------------------------------------------
+# Comparables (bazos/comparables.py)
+# ---------------------------------------------------------------------------
+
+# How far back a listing still counts as a comparable. Long enough that a thin spec bucket
+# (two M4 Max MacBooks on the whole site, measured 2026-09-15) has anything in it at all,
+# short enough that a price from a different market moment does not set the bar.
+COMPARABLE_MAX_AGE_DAYS: Final[int] = 90
+# Cap on rows read for one bucket. The notification only shows a count and a span, and the
+# appraisal report is meant to be read — neither wants an unbounded list, and this keeps the
+# query cost of `Ad.message` bounded regardless of how popular a configuration is.
+COMPARABLE_MAX_ROWS: Final[int] = 60
