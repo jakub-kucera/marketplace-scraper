@@ -79,26 +79,44 @@ def balanced_slice(text: str, start: int) -> str | None:
     return None
 
 
-def find_value(flight: str, key: str, pos: int = 0) -> tuple[Any, int] | None:
-    """Locate `"<key>":` and return its decoded value plus the offset just past it.
+def _occurrences(flight: str, key: str, pos: int = 0):
+    """Yield `(value | None, next_pos)` for every `"<key>":` in the payload.
 
-    `key` is the bare name without quotes or colon. Returns None when the key is absent
-    or its value is not an array/object (a scalar is never what callers want here).
+    ⚠️ A `None` is yielded — not a stop. The same key name is reused across the payload
+    for unrelated things, so an occurrence whose value is a scalar or is truncated must be
+    skipped and the scan continued. Returning early there meant one stray
+    `"attributes":"..."` hid every real attribute block after it.
     """
     needle = f'"{key}":'
-    index = flight.find(needle, pos)
-    if index < 0:
-        return None
-    start = index + len(needle)
-    while start < len(flight) and flight[start] in " \n\r\t":
-        start += 1
-    raw = balanced_slice(flight, start)
-    if raw is None:
-        return None
-    try:
-        return json.loads(raw), start + len(raw)
-    except json.JSONDecodeError:
-        return None
+    while True:
+        index = flight.find(needle, pos)
+        if index < 0:
+            return
+        start = index + len(needle)
+        while start < len(flight) and flight[start] in " \n\r\t":
+            start += 1
+        raw = balanced_slice(flight, start)
+        if raw is None:
+            # Scalar or truncated value: step past the key itself, not past the value,
+            # since there is no value to step past.
+            pos = index + len(needle)
+            yield None, pos
+            continue
+        pos = start + len(raw)
+        try:
+            yield json.loads(raw), pos
+        except json.JSONDecodeError:
+            yield None, pos
+
+
+def find_value(flight: str, key: str, pos: int = 0) -> tuple[Any, int] | None:
+    """The first decodable array/object value for `key` at or after `pos`, plus the offset
+    just past it. None when there is no such occurrence.
+    """
+    for value, next_pos in _occurrences(flight, key, pos):
+        if value is not None:
+            return value, next_pos
+    return None
 
 
 def get(flight: str, key: str) -> Any | None:
@@ -113,13 +131,9 @@ def iter_values(flight: str, key: str):
     Needed because the catalog tree is not shipped as one array: `"catalogs":[…]` appears
     ~2,100 times, each a subtree, and the first match is emphatically not the root.
     """
-    pos = 0
-    while True:
-        found = find_value(flight, key, pos)
-        if found is None:
-            return
-        value, pos = found
-        yield value
+    for value, _ in _occurrences(flight, key):
+        if value is not None:
+            yield value
 
 
 def items(flight: str) -> list[dict[str, Any]]:
@@ -129,14 +143,11 @@ def items(flight: str) -> list[dict[str, Any]]:
     (VINTED.md §10), and the word "datadome" appears on healthy pages, so "did any row
     parse" is the only trustworthy check.
     """
-    found = find_value(flight, "items")
-    while found is not None:
-        value, pos = found
+    for value in iter_values(flight, "items"):
         # `"items"` also names the wrapper object `{"items": [...], "pagination": {...}}`,
         # so accept the first value that is actually a list of rows.
         if isinstance(value, list):
             return [row for row in value if isinstance(row, dict)]
         if isinstance(value, dict) and isinstance(value.get("items"), list):
             return [row for row in value["items"] if isinstance(row, dict)]
-        found = find_value(flight, "items", pos)
     return []
