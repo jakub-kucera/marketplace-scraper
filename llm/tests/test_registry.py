@@ -30,7 +30,30 @@ def test_unknown_provider_raises_at_selection_time():
         get_provider("NOPE")
 
 
-def test_default_settings_choose_null():
-    """Shipping inert is the point: no key, no egress, nothing to opt out of."""
-    from django.conf import settings
-    assert settings.LLM_PROVIDER == "NULL"
+def test_the_shipped_default_is_null():
+    """Shipping inert is the point: no key, no egress, nothing to opt out of.
+
+    Asserts the *declared* fallback rather than the resolved setting — a developer with a
+    real provider in their own `.env` must not fail the suite for having configured one.
+    """
+    import pathlib
+
+    import scraper
+
+    source = (pathlib.Path(scraper.__file__).parent / "settings.py").read_text(encoding="utf-8")
+    assert 'env("LLM_PROVIDER", default="NULL")' in source
+
+
+def test_an_unset_provider_resolves_to_null():
+    with override_settings(LLM_PROVIDER=""):
+        assert isinstance(get_provider(), NullProvider)
+
+
+def test_env_sample_ships_the_inert_default():
+    """`.env.sample` is what a fresh checkout copies, so it is the real shipped default."""
+    import pathlib
+
+    import scraper
+
+    sample = (pathlib.Path(scraper.__file__).parents[1] / ".env.sample").read_text(encoding="utf-8")
+    assert "LLM_PROVIDER=NULL" in sample
