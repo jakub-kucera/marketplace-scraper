@@ -26,7 +26,7 @@ from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget
 
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
-from bazos.models import AdPriceScore, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
+from bazos.models import AdPriceScore, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
 class CategoryInline(TabularInline):
@@ -786,6 +786,41 @@ class PostalCodeAdmin(ModelAdmin):
     list_display = ("code", "city", "latitude", "longitude", "created")
     search_fields = ("code", "city")
     ordering = ("code",)
+
+
+@admin.register(MarketplaceCategory)
+class MarketplaceCategoryAdmin(ModelAdmin):
+    """Taxonomy lookup, seeded by `manage.py create_vinted_catalogs`.
+
+    Read-mostly and deliberately not referenced by any `Query` FK — the ids live in
+    `Query.extra_params`. See the model docstring for why.
+    """
+    list_display = ("name", "marketplace", "external_id", "breadcrumb")
+    list_filter = (("marketplace", ChoicesDropdownFilter),)
+    search_fields = ("name", "external_id", "slug")
+    ordering = ("marketplace", "name")
+    list_select_related = ("parent",)
+
+    @admin.display(description="Path")
+    def breadcrumb(self, obj: MarketplaceCategory) -> str:
+        """Uses the bulk path map, not `obj.path`.
+
+        `path` walks `parent` one query per level, which on a 2,920-row changelist page
+        would be thousands of queries. The map is built once per request and cached on the
+        instance; ModelAdmin instances are per-registry, not per-request, so the cache is
+        keyed on the request object rather than stored bare.
+        """
+        cache = getattr(self, "_path_cache", None)
+        if cache is None or obj.marketplace not in cache:
+            cache = cache or {}
+            cache[obj.marketplace] = MarketplaceCategory.path_map(obj.marketplace)
+            self._path_cache = cache
+        return cache[obj.marketplace].get(obj.pk) or obj.name
+
+    def changelist_view(self, request, extra_context=None):
+        # Drop the memo per request so a re-seed is visible without a restart.
+        self._path_cache = None
+        return super().changelist_view(request, extra_context)
 
 
 # django-db-logger registers StatusLog with a stock ModelAdmin. Under Unfold that still
