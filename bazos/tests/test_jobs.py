@@ -21,10 +21,10 @@ from bazos.jobs import (
     HEARTBEAT,
     PRUNE_QUERY_RUNS,
     PRUNE_STATUS_LOGS,
+    SCHEDULES,
     SWEEP_DELISTED,
     heartbeat,
 )
-from bazos.management.commands.ensure_schedules import SCHEDULES
 
 
 def resolve(dotted: str):
@@ -46,8 +46,8 @@ def test_every_task_path_resolves(dotted):
 
 
 def test_every_scheduled_path_resolves():
-    for name, (func, *_rest) in SCHEDULES.items():
-        assert callable(resolve(func)), f"schedule {name} points at an unimportable path"
+    for name, spec in SCHEDULES.items():
+        assert callable(resolve(spec.func)), f"schedule {name} points at an unimportable path"
 
 
 # ---------------------------------------------------------------------------
