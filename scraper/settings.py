@@ -266,6 +266,23 @@ ZERO_NEW_ADS_ALERT_THRESHOLD = env("ZERO_NEW_ADS_ALERT_THRESHOLD", default=10)
 # pass has already spent MAX_BLACKLIST_RETRIES attempts, so three in a row is not bad luck.
 QUERY_FAILURE_ALERT_THRESHOLD = env("QUERY_FAILURE_ALERT_THRESHOLD", default=3)
 
+# ---------------------------------------------------------------------------
+# Log/history retention (bazos/housekeeping.py)
+# ---------------------------------------------------------------------------
+
+# `StatusLog` and `QueryRun` are the only two tables that grow with the clock rather than
+# with the market, and nothing pruned either before 2026-09-17.
+#
+# The asymmetry between the two StatusLog horizons is deliberate and the QueryRun one's
+# *lack* of asymmetry is too: a debugging log has no ratio to distort, so keeping WARNING+
+# longer is free, while QueryRun is what every block-rate figure is computed over — pruning
+# its successes sooner than its failures would silently turn old windows into 100% failure.
+STATUS_LOG_RETENTION_DAYS = env("STATUS_LOG_RETENTION_DAYS", default=30)
+STATUS_LOG_ERROR_RETENTION_DAYS = env("STATUS_LOG_ERROR_RETENTION_DAYS", default=180)
+# Generous on purpose. A deleted row is gone, and `exit_ip` is the only record anywhere of
+# which egress the marketplace actually rejected.
+QUERY_RUN_RETENTION_DAYS = env("QUERY_RUN_RETENTION_DAYS", default=90)
+
 
 # ---------------------------------------------------------------------------
 # Logging

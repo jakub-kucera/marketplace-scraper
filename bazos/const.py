@@ -196,3 +196,13 @@ DELIST_PRIORITY_SPEEDUP: Final[int] = 2
 # but PROXY_ROTATION.md §5.1 names detail-endpoint volume as the ban vector, so the sweep
 # stays paced like every other Bazos path.
 DELIST_WAIT_TIME: Final[tuple[float, float]] = (2.0, 5.0)
+
+
+# ---------------------------------------------------------------------------
+# Housekeeping (bazos/housekeeping.py, `manage.py prune_logs`)
+# ---------------------------------------------------------------------------
+
+# Rows per DELETE. Django resolves cascades by collecting every pk first, so one unbounded
+# delete over a quarter-million rows is a single long transaction holding locks on a table
+# the scraper is still writing to.
+PRUNE_BATCH_SIZE: Final[int] = 5_000

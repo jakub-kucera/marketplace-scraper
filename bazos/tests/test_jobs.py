@@ -16,7 +16,13 @@ import pytest
 from django.core.management import call_command
 from django_q.models import Schedule
 
-from bazos.jobs import HEARTBEAT, SWEEP_DELISTED, heartbeat
+from bazos.jobs import (
+    HEARTBEAT,
+    PRUNE_QUERY_RUNS,
+    PRUNE_STATUS_LOGS,
+    SWEEP_DELISTED,
+    heartbeat,
+)
 from bazos.management.commands.ensure_schedules import SCHEDULES
 
 
@@ -29,7 +35,9 @@ def resolve(dotted: str):
 # The dotted paths django-q2 persists
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("dotted", [SWEEP_DELISTED, HEARTBEAT])
+@pytest.mark.parametrize(
+    "dotted", [SWEEP_DELISTED, HEARTBEAT, PRUNE_STATUS_LOGS, PRUNE_QUERY_RUNS]
+)
 def test_every_task_path_resolves(dotted):
     """django-q2 stores the path as a string, so a rename fails at *run* time, in a worker,
     as a Failure row nobody is watching. Resolve them here instead."""
@@ -124,6 +132,15 @@ def test_sweep_returns_the_command_summary(make_ad, query):
     result = sweep_delisted(limit=0)
 
     assert "due" in result
+
+
+@pytest.mark.django_db
+def test_prune_tasks_return_what_they_deleted():
+    """A blank Success row is a run log that does not log anything."""
+    from bazos.jobs import prune_query_runs, prune_status_logs
+
+    assert "deleted" in prune_status_logs()
+    assert "query runs" in prune_query_runs()
 
 
 @pytest.mark.django_db
