@@ -17,7 +17,7 @@ verified: 2026-09-16
 > The failure is contained to Vinted queries by the runner's per-query guard, which is why it ran
 > for eight days unnoticed. Nothing else in the pipeline is affected.
 >
-> ## ✅ Status, 2026-09-16 — PRs 1-5 are written and green; **PR 6 is not done**
+> ## ✅ Status, 2026-09-17 — **done, deployed, and verified in production**
 >
 > | PR | Branch | State |
 > |---|---|---|
@@ -26,11 +26,34 @@ verified: 2026-09-16
 > | 3 | `vinted/pr3-scraper` | ✅ verified end to end against live vinted.cz |
 > | 4 | `vinted/pr4-catalog-picker` | ✅ |
 > | 5 | `vinted/pr5-fieldsets` | ✅ |
-> | 6 | — | ⏳ **needs a deploy and production access — §7** |
+> | 6 | — | ✅ shipped in **v1.2.0** (2026-09-16), §7 worked through 2026-09-17 |
 >
-> Nothing is pushed and **no production config has been changed**. Vinted is still broken in
-> production until §7 is worked through. Coverage of the Vinted modules is 100% of statements,
-> 99% of branches.
+> Coverage of the Vinted modules is 100% of statements, 99% of branches.
+>
+> **What the rollout actually produced**, measured on the Pi 2026-09-17:
+>
+> - **The outage is over.** 12 Vinted query runs in 12 hours, **0 failures**, against 132 ok /
+>   131 failed for Bazos over the same window (that ratio is the unrelated Tor block rate).
+> - §7.2: `create_vinted_catalogs` → `2920 created, 0 updated`, exactly as predicted.
+> - §7.3: query 13 converted to `{"catalog_ids": [3580], "brand_ids": [54661]}` with `text`
+>   cleared. Both ids were checked before the change rather than trusted — `3580` resolves to
+>   **Notebooky** in the seeded table, and the scraper logged no `_warn_on_param_mismatch`, so
+>   Vinted honoured both.
+> - §7.4: the quiet first pass produced **one** `SUPPRESSED` delivery, not a flood. Widening
+>   from `search_text=macbook` to catalog+brand turned out to add almost nothing the text
+>   search was already finding — worth knowing before converting the next query, because the
+>   feared Discord flood is not the real risk here.
+>
+> §7.5, on 104 ads from the new transport, with two boxes left open honestly:
+>
+> | check | result |
+> |---|---|
+> | ads created, `QueryRun.success` true | ✅ 104 ads |
+> | **`short_description` non-empty** (the §3.5.1 regression check) | ✅ **104/104** — and note this is a *change*: under the old scraper all 760 Vinted ads had it empty, so both keyword rules were silently disabled on Vinted and are now live |
+> | `publish_date` / `view_count` null | ✅ 104/104 both |
+> | `price` parsed | ✅ `price_raw` is `"10192 CZK"` → `price=10192`, `price_type=exact`. Note the checklist's wording "an integer string" describes `price`, not `price_raw`, which carries the currency suffix |
+> | **`topped` set on some rows** | ⚠️ **0 of 104.** 40 Vinted ads are topped overall but the newest is 2026-09-13, i.e. all predate this transport. Either the catalog page does not expose a promoted flag or it is not being read. Low impact — `topped` only feeds `dedup_break_streak`, and under `newest_first` an eager break is correct anyway — but the box is not ticked |
+> | `attributes` carries specs with `load_full_description=True` | ⏸ not checked; query 13 has the flag **off** |
 
 ---
 
