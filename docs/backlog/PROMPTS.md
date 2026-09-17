@@ -1,8 +1,8 @@
 ---
 title: Ready-to-Run Prompts
 status: active
-updated: 2026-09-16
-verified: 2026-08-30
+updated: 2026-09-17
+verified: 2026-09-17
 ---
 
 # Ready-to-Run Prompts
@@ -10,14 +10,15 @@ verified: 2026-08-30
 Copy-paste any of these when you have tokens to burn.
 
 **Sections are ordered by priority, not by prompt number** — the defects and prerequisites
-(P20–P24) sit above the older improvements (P7–P17) because they're things quietly broken or
+(P20–P23) sit above the older improvements (P7–P17) because they're things quietly broken or
 blocking, not enhancements. **The section order is now out of step with the priority order**:
-P20 has shrunk to a 15-minute logging leftover and P23 was overtaken by what shipped, so
-neither still belongs at the top of the file. [Order recommendation](#order-recommendation) at
+P20 has shrunk to a 15-minute logging leftover, P23 was overtaken by what shipped, and P24 —
+the item the 2026-08-30 order put second — shipped on 2026-09-17, so the top of the file no
+longer holds the work that matters most. [Order recommendation](#order-recommendation) at
 the bottom is authoritative — read that, not the section order.
 
-**Prompt numbers are stable and gapped on purpose.** P1, P3–P6, P15, P17–P19 and P22 are gone
-from this file because they are **done** — they are recorded in [`SHIPPED.md`](../SHIPPED.md)
+**Prompt numbers are stable and gapped on purpose.** P1, P3–P6, P15, P17–P19, P22, P24 and
+P28–P29 are gone from this file because they are **done** — they are recorded in [`SHIPPED.md`](../SHIPPED.md)
 with the migration and commit that landed them. Numbers are never reused.
 
 ---
@@ -273,9 +274,11 @@ Part 4b — lower the interval the rest of the way:
 > `AdPriceScore` and the existing shadow-mode plumbing rather than adding
 > `Ad.price_percentile`.
 >
-> Note the calibration dependency is unchanged and now binding: step 6 wants real outcomes from
-> BACKLOG_IDEAS.md **#9** (`AdOutcome`), and `bazos/const.py` says the same thing about **P24**.
-> Neither exists, so anything built here stays in shadow mode too.
+> Note the calibration dependency has **changed shape, not gone away**: step 6 wants real
+> outcomes, and as of 2026-09-17 both sources exist — `AdOutcome` (was BACKLOG_IDEAS #9) and the
+> delisting sweep (was P24) shipped together. What they do not yet have is *history*. Anything
+> built here still ships in shadow mode; the difference is that the wait is now for data to
+> accumulate rather than for code to be written.
 
 ```
 Every rule in `bazos/filters.py` today is a static per-query predicate (price range, keyword
@@ -314,48 +317,6 @@ Steps:
 ```
 
 ---
-
-### P24 — Delisting / sold detection (time-to-disappear)
-> Design rationale already written:
-> [`HIDDEN_API.md`](../research/bazos-api/HIDDEN_API.md)
-> §6.4a and §8 Stage D. This prompt is the promotion of that design.
-
-```
-You currently record ASKING prices only, never realised ones. The closest available proxy is
-time-to-disappear plus last-seen price — and it's cheap, because `ads.php` accepts up to 210
-`ad_id[]=` values in ONE request and silently omits ids that no longer exist, while
-`ad-detail-2.php` returns HTTP 410 {"status":"deleted"} for a removed ad.
-
-This is the single most valuable field the DB doesn't have: it's the feedback signal for
-P23's anomaly model (a genuinely underpriced item should disappear fast — see
-docs/research/bazos-api/DISCOVERY_PIPELINE.md §3.4 "deal-velocity"), and it's the prerequisite
-for any price-index or valuation work (docs/MONETIZATION.md §4.1b, §7.2c).
-
-Steps:
-1. Add `AdStatus.REMOVED` plus `Ad.last_seen_at` and `Ad.removed_at` (nullable). Note the
-   status-machine implication: REMOVED is orthogonal to the delivery states
-   (PENDING/APPROVED/SENT) — an ad can be SENT and later removed. Decide deliberately whether
-   REMOVED is a status value or a separate nullable timestamp field; the timestamp is
-   probably cleaner precisely because it doesn't collide with delivery state.
-2. Add a management command `check_delisted` that batches known non-removed ads by
-   `(marketplace, external_id)` into `ads.php?ad_id[]=...` calls of up to 210 ids, marks
-   returned ids with a fresh `last_seen_at`, and marks absent ids as removed. Follow the
-   existing `run_filter`/`run_sender` polling pattern (`select_for_update(skip_locked=True)`)
-   so it's safe to run alongside everything else.
-3. Also refresh `price` from the same response — the bulk form returns `price_formatted` and
-   `views` for free, so this doubles as comprehensive price-change detection and largely
-   subsumes BACKLOG_IDEAS.md #8's expensive full-listing rescan. Note that explicitly in #8
-   if this lands.
-4. Cadence: this is bounded by tracked-ad count, not query count. Read
-   docs/research/proxies/PROXY_ROTATION.md §5.1 before choosing an interval — detail-endpoint
-   volume is the documented ban vector. Once per hour or few hours is plenty for a
-   time-to-sell signal; do not run it every pass.
-5. Do NOT create a `Job` model for this yet — one recurring job doesn't justify
-   docs/proposals/JOB_QUEUE.md's generic machinery. A management command plus a docker-compose
-   service matches the existing pattern. Revisit if a third such job appears.
-6. Tests: batching at the 210 boundary; absent ids marked removed; present ids refreshed;
-   410 handling on the detail path; idempotency when run twice.
-```
 
 ---
 
@@ -600,8 +561,8 @@ Steps:
    (`models.py:271`), so None fails on Postgres and an over-long value raises DataError.
 2. Apply the same None-guard reasoning to `full_description` (`data.get("description")` can be
    None; that column is nullable so it's legal, but every consumer concatenates it).
-3. Leave the 410 early-return (`bazos_api_scraper.py:159-161`) untouched — a removed ad has
-   nothing to read. Delisting handling is P24; do not scope-creep into it here.
+3. Leave the 410 early-return untouched — a removed ad has nothing to read. Delisting shipped
+   2026-09-17 (`bazos/delisting.py`) and owns that question; do not scope-creep into it here.
 4. Add a short comment recording the listing-vs-detail asymmetry from Context above, so the
    next reader doesn't go hunting for an API listing field that doesn't exist.
 5. Explicitly OUT of scope, each worth its own task: `user_ads_count`/`user_reviews_count` are
@@ -816,160 +777,21 @@ substance (see `docs/archive/shipped/AD_DELIVERY_SPLIT.md` §7's note on why `00
 
 ---
 
-## 🧩 Reference prices (new apps, 2026-09-16)
-
-> Design: [`PRICE_REFERENCE_SERVICE.md`](../proposals/PRICE_REFERENCE_SERVICE.md).
-> Measurements: [`ZBOZI_API.md`](../research/marketplaces/ZBOZI_API.md).
->
-> **P28 and P29 are independent.** P28 ships on its own and has three other consumers waiting
-> (P27's extraction re-measurement, `LLM_AD_REVIEW.md`, filter-term suggestion). P29 stages a–d
-> need **no LLM, no API key and no money** — the feature is fully usable before P28 is wired in,
-> which is the whole reason the ladder is staged this way. Do not start P29e before P28b.
-
-### P28 — `llm/`: a provider-agnostic LLM layer
-
-**P28a — the skeleton, no provider, no cost** (~half a day)
-```
-Create a new Django app `llm/` per docs/proposals/PRICE_REFERENCE_SERVICE.md §2.
-
-1. `llm/base.py` — `LLMProvider` Protocol (`complete(prompt, system, schema,
-   max_output_tokens, temperature) -> LLMResult`), plus the `LLMResult` dataclass
-   (`value`, `raw`, `tokens_in`, `tokens_out`, `cost_usd`, `latency_ms`, `model`,
-   `declined_reason`, `cached`).
-2. `llm/registry.py` — `PROVIDER_REGISTRY` + `get_provider()`, keyed by an
-   `LLMProviderName(TextChoices)`. Same shape as `Marketplace` and `_build_scrapers`.
-3. `llm/providers/null.py` — `NullProvider`, always declines, never touches the network.
-   This is `DummyIPChanger`'s role and it is the DEFAULT.
-4. `llm/models.py` + migration `0001` — `LLMCall`: prompt name/version, provider, model,
-   tokens in/out, cost_usd, latency_ms, cached, outcome, declined_reason, created.
-   Written on EVERY call including failures — `QueryRun`'s rule.
-5. Settings: `LLM_PROVIDER` (default `"NULL"`), `LLM_MODEL`, `LLM_API_KEY` (default ""),
-   `LLM_MONTHLY_BUDGET_USD` (default 5.0), `LLM_TIMEOUT = (10, 60)`. Add to `.env.sample`.
-6. `llm/services.py::complete()` — resolves the provider, enforces the budget ceiling BEFORE
-   calling, writes the `LLMCall` row, returns `LLMResult`. Declining is never an exception.
-7. Add `"llm"` to INSTALLED_APPS below the third-party block.
-8. Tests: NullProvider declines; a fake provider records an LLMCall on success AND on
-   failure; the budget ceiling declines without calling the provider; a schema mismatch
-   declines rather than raising.
-```
-
-**P28b — a real provider, versioned prompts, caching** (~half a day)
-```
-1. `llm/providers/anthropic.py` — the Messages API, JSON output validated against the
-   dataclass in `schema`. A parse failure is a DECLINE, not an exception. Bounded retry on
-   429/5xx only, never on a refusal. Record real token counts and cost.
-2. `llm/prompts/__init__.py` — `load(name, version)` reading `llm/prompts/<name>/v<N>.md`.
-   The resolved version goes on every `LLMCall`. Editing a shipped prompt in place is a bug;
-   adding v2 is the change.
-3. Response cache keyed on sha256(provider, model, prompt_name, prompt_version,
-   normalized_input). Cached hits still write an `LLMCall` with `cached=True`.
-4. `llm/admin.py` — read-only `LLMCall` changelist on `unfold.admin.ModelAdmin`, with a
-   month-to-date cost total. Add a sidebar entry (UNFOLD navigation is hand-maintained).
-5. Tests use a stubbed transport — no live calls in the suite.
-```
-
----
-
-### P29 — `refprice/`: explicit reference-price lookup
-
-**P29a — the Zboží provider, pure functions** (~1 day)
-```
-Create `refprice/providers/`. No Django models in this stage.
-
-1. `base.py` — `ReferenceProvider` Protocol: `suggest()`, `fetch()`, `history()`, and
-   `search()` kept SEPARATE because search is the robots-disallowed route (ZBOZI_API.md §4).
-2. `zbozi.py` — the three endpoints from ZBOZI_API.md §3. Own `requests.Session`, own
-   timeouts, NOT the Tor session (VintedScraper precedent). `filterFields` trimmed to the
-   named list — 261 B, not 29 KB.
-3. Convert hundredths→whole CZK exactly once, here. Both spellings: `minPrice` and
-   `minPriceHa`. This is the ×100 trap and it is the single likeliest bug in this app.
-4. Record cassettes; unit-test parsing offline.
-5. Add a `live`-marked contract test asserting all three endpoints still parse, and wire it
-   into `contract-check.yml` alongside the Bazos one. This is an UNSUPPORTED private API —
-   the contract test is the mitigation, not optimism.
-```
-
-**P29b — persistence** (~2 hours)
-```
-`refprice/models.py` + migration `0001`, per PRICE_REFERENCE_SERVICE.md §6:
-`RefProduct` (provider, product_id, slug, name, brand, category_id, product_no, median/min/max
-CZK, shop_count, availability, release_date, fetched_at) unique on (provider, product_id);
-`RefPricePoint` (product FK, date, min/median/max CZK) unique on (product, date), append-only,
-merged on re-fetch; `RefProductLink` (ad FK SET_NULL + ad_title snapshot, provider, product FK,
-confidence, method, phrase_used, evidence JSON, confirmed_by_human, created);
-`RefLookup` (one row per ATTEMPT including failures — status, cost fields, error).
-```
-
-**P29c — resolution, rungs 0–2, no LLM** (~1 day — the real work)
-```
-1. `resolution/normalize.py` — reduce a title to brand + line + model code. Strip
-   \d+\s?(GB|TB), colours, `stav [A-C]`, `zánovní`, warranty/packaging phrases.
-   Measured necessity: `Apple iPhone 13` → 15 candidates, `Apple iPhone 13 128GB` → 0.
-2. `resolution/validate.py` — over ALL candidates, not rank 0 (8 of 17 archetypes had a wrong
-   or empty top-1; the right answer sat at rank 1/3/6). Gates: brand ∈ vendorName;
-   model tokens PREFIX-tolerant (DHP484 must match DHP484Z — exact equality was measured
-   rejecting the correct Makita); reject Czech bundle words (`sada`, `set`, `+`) — measured
-   selecting a 7 785 Kč two-tool kit for `DeWalt DCD796`; reject contrast tokens
-   (Tab/mini/Pro/Max/Plus/FE); categoryId sanity; require shop_count >= 2 else `no_market`.
-3. `resolution/ladder.py` + `services.py::lookup_reference_price()` returning the
-   six-status `ReferenceResult` of §4. Plain dataclasses in and out — no `Ad` crosses the
-   boundary, so the extraction seam stays intact.
-4. History summary: depreciation_pct_per_year, change_90d/365d, min_ever, trend.
-5. Tests against the P29a cassettes, INCLUDING the six measured failure archetypes as
-   regression cases. Those are the spec.
-```
-
-**P29d — the UI, i.e. the actual ask** (~half a day)
-```
-1. `AdAdmin` / `AdDeliveryAdmin` — an Unfold `actions_list` "Look up reference price"
-   (force-run button precedent), plus an inline showing the cached link, the snapshot and the
-   price series. Confirm / Reject-match buttons that set `confirmed_by_human` — that flag is
-   the labelled corpus, and it is why manual invocation is a feature.
-2. `manage.py lookup_reference_price --ad N | --query N --limit N | --refresh-stale`,
-   with `--dry-run`.
-3. Sidebar entries for the new models (UNFOLD navigation is hand-maintained — a registered
-   model does NOT appear on its own).
-```
-
-**P29e — LLM rungs 3–4** (~half a day, needs P28b)
-```
-Two versioned prompts:
-- `refprice_query_phrase/v1.md` — title+description → canonical phrase + {brand, line,
-  model_code, variant, capacity, year}. Fires only when rung 1 produced nothing searchable.
-- `refprice_adjudicate/v1.md` — ad title + N real candidates → chosen index or NULL + reason.
-  Closed-set, explicit decline. ~340 tokens. THIS is the rung that earns the LLM layer;
-  it is not the blind extraction HEUREKA_ZBOZI.md §4d costed and rejected.
-Both must degrade to the rung-2 result on decline. Cache hits should be common because
-rung 1 already normalised the input.
-```
-
-**P29f — escalation and the unwired rule** (~2 hours)
-```
-1. `allow_disallowed_search=True` per-call flag enabling rung 5 (the `?q=` route). Off by
-   default. Sets `MatchEvidence.robots_allowed_path = False` so how a number was obtained
-   always travels with it.
-2. Register `reference_price` in `RULE_REGISTRY` and DELIBERATELY EXCLUDE it from
-   `DEFAULT_RULE_NAMES` — exactly how `price_model` ships, for the same reason.
-   It may ONLY read existing `RefProductLink` rows. It must never call Zboží:
-   network I/O inside `run_filter`'s transaction stays forbidden.
-```
-
----
-
 ## Order recommendation
 
-> **Revised 2026-08-30.** Earlier revisions optimised for "cheapest independent win"; that
-> doesn't survive contact with what the project is *for* (see
-> [`MONETIZATION.md`](../MONETIZATION.md) §7.1). The priority is **latency, then failure
-> visibility, then data usability** — features after that.
+> **Revised 2026-09-17.** The priority is unchanged — **latency, then failure visibility, then
+> data usability**, features after that (see [`MONETIZATION.md`](../MONETIZATION.md) §7.1) — but
+> two of the previous revision's five items have since shipped.
 >
 > **What changed in this revision, all verified against the tree rather than against the
-> previous revision:** P20 dropped from item 1 to item 5 (its remaining case closed
-> 2026-08-29 — timeouts, and both unguarded call sites); P23 was rewritten, because price
-> scoring shipped 2026-08-26 in a narrower and deeper form than that prompt describes; P24
-> was promoted above P21b, since it is what gates using what shipped; and BACKLOG_IDEAS #10's
-> radius half shipped 2026-08-30. Everything already done lives in
-> [`SHIPPED.md`](../SHIPPED.md), not here.
+> previous revision:** **P24 shipped 2026-09-17** and is gone from this file, taking
+> BACKLOG_IDEAS #9 (`AdOutcome`) with it — they landed in one change, since neither is worth
+> much without the other. **P28 and P29 shipped 2026-09-16** and are gone too. That leaves
+> **P21a Parts 1 + 4a as the last untouched item from the latency chain, and it has been item 1
+> through three consecutive revisions without being started** — worth saying plainly rather than
+> renumbering around it. One genuinely new entry: **P26 #1 got more urgent** (see below), because
+> the delisting sweep is now a far larger producer of `PRICE_CHANGED` than the scrape walk ever
+> was. Everything already done lives in [`SHIPPED.md`](../SHIPPED.md), not here.
 
 **Do these first, in this order:**
 
@@ -984,10 +806,12 @@ rung 1 already normalised the input.
    its code out of `Ad.location`, so **cutting over as-is silently disables the distance filter
    on every migrated query** — it degrades to PASS, which is indistinguishable from "no filter
    configured". Fix that in Part 1, before the cutover, not after.
-2. **P24** (delisting / time-to-disappear) — ~1–2 days. **Promoted above P21b.** It is the only
-   outcome data the system would have, and `bazos/const.py` names it as the specific gate on
-   taking price scoring out of shadow mode: `Ad.modified` never advances past `created`, so
-   nothing in the DB records whether an ad ever sold. Genuinely unblocked — `Ad.price` exists.
+2. **P26 #1** (price-change fan-out overwriting an in-flight delivery) — **promoted into the
+   top five, which it was not in the previous revision.** The reason is new: `apply_batch` flips
+   *every* delivery of a re-priced ad to `PRICE_CHANGED`, and the delisting sweep re-prices at a
+   volume the scrape walk never reached — a full backfill of ~28,700 ads extrapolates to several
+   hundred price changes in one run. The defect is unchanged; its blast radius is not. Read its
+   own note in P26 first: it is explicitly **not** a drive-by fix.
 3. **P21b** (rotating proxy → ~1–2 min) — ~1–2 days + ~$3–6/mo. Deliberately last of the
    latency chain: the only item requiring a paid account and an unrun benchmark. **Note the
    independent reliability argument** — Tor is still the transport and still failing (~48% of
@@ -1000,12 +824,14 @@ rung 1 already normalised the input.
    Was item 1 in the previous revision; cases (a), (b) and (c) all closed 2026-08-29, and what
    remains cannot cost a pass.
 
-**Then, if flipping is the actual goal**, the cheap item from
-[`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) that isn't a prompt yet: **#9** (`AdOutcome`, ~half a
-day) — the manual counterpart to P24 and, with it, the only ground truth for calibrating
-anything. **#10's radius half shipped 2026-08-30** (see [`SHIPPED.md`](../SHIPPED.md)); its
-travel-cost half needs a margin estimate and therefore waits on P23 and P24. **P16** is still
-worth building alongside whichever of these touches the notification path.
+**Then, if flipping is the actual goal** — ⚠️ **the honest answer here is now "wait", and that
+is a schedule, not a task.** `AdOutcome` and the delisting sweep both shipped 2026-09-17, so the
+ground truth for calibrating anything exists but is **empty**; there is nothing to fit against
+until outcomes accumulate, and `removed_at` conflates sold with expired until enough `AdOutcome`
+rows separate them. Taking `PRICE_MODEL_SHADOW_MODE` off before then is guessing with extra
+steps. **#10's travel-cost half** (margin − 2 × km × cost/km) waits on the same data, not on
+P24 having landed. **P16** is still worth building alongside whichever item touches the
+notification path.
 
 **Still worthwhile, lower priority:**
 
@@ -1032,16 +858,6 @@ worth building alongside whichever of these touches the notification path.
 - **P14** (interval tuning) — ⚠️ **blocked**: `extract_date` discards the time component, so
   `ExtractHour("publish_date")` returns 0 for every row. P21a unblocks it by supplying the API's
   second-resolution `from` field. See [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6.
-- **P28** (`llm/` layer) — ~1 day, and the only item here with **three other consumers already
-  waiting**: P27's extraction re-measurement (`PRICE_MODEL_BENCHMARK.md` §3.1 measured extraction,
-  not model class, as the bottleneck), `LLM_AD_REVIEW.md`, and filter-term suggestion for
-  `QUERY_COMPOSITION.md` §3.2's traps. Defaults to `NULL`, so it ships inert and costs nothing
-  until something opts in. Worth doing ahead of P29 on those grounds alone.
-- **P29** (`refprice/` reference prices) — ~3 days for stages a–d, which is the whole usable
-  feature with **no LLM and no API key**. Honestly **below P21a/P24** on the project's own stated
-  priority (latency → failure visibility → data usability → features): this is a manual research
-  tool, not something on the detection path. Its one time-sensitive argument is that it is an
-  unsupported private API that could close — the contract test in P29a is the hedge.
 - **P2** (Stage 5 query priority) and **P11** (multi-marketplace `Ad.message`) — feature work.
   **P11 is no longer cosmetic**: Vinted and Sbazar are both live, and every one of their ads
   renders a "0 ads seen" seller summary because both publisher FKs are null.
