@@ -33,6 +33,7 @@ SCORE_AD = "bazos.jobs.score_ad"
 RESCORE_ADS = "bazos.jobs.rescore_ads"
 SYNC_VINTED_CATALOGS = "bazos.jobs.sync_vinted_catalogs"
 COMPARE_BAZOS_SCRAPERS = "bazos.jobs.compare_bazos_scrapers"
+GEOCODE_POSTAL_CODE = "bazos.jobs.geocode_postal_code"
 
 
 # ---------------------------------------------------------------------------
@@ -286,3 +287,45 @@ def compare_bazos_scrapers(limit: int | None = None) -> str:
     summary = out.getvalue().strip().replace("\n", " | ")
     logger.info("Scraper parity check: %s", summary)
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Jobs that need the Bazos session — these serialise behind the delisting sweep
+# ---------------------------------------------------------------------------
+
+def geocode_postal_code(code: str) -> str:
+    """Resolve one postal code into the `PostalCode` cache.
+
+    The gap this closes: `Query.filter_location_center` is typed by hand in the admin and
+    may name a code no listing has ever come from, so it has no creation moment of its own.
+    Until something geocodes it, `location_distance` PASSes for that whole query — which is
+    indistinguishable from "no filter configured". `ScrapeRunner` warms centres once per
+    pass, so the window is up to 45 minutes of a filter the admin says is on and isn't.
+
+    Returns "already cached" without a request when the row exists. That is the common case
+    when the action is used on a selection, and a no-op that says so is better than one that
+    looks like a lookup.
+    """
+    from bazos.geo import geocode_postal_code as geocode, normalize_postal_code
+    from bazos.models import PostalCode
+    from bazos.scraping.session import build_ip_changer, with_rotation
+
+    normalized = normalize_postal_code(code)
+    if not normalized:
+        # Not an exception: a code the parser cannot read is a data problem to report, not a
+        # transport failure to retry, and a Failure row would say the wrong thing about it.
+        return f"{code!r}: not a usable postal code"
+    if PostalCode.objects.filter(code=normalized).exists():
+        return f"{normalized}: already cached"
+
+    changer = build_ip_changer()
+    row = with_rotation(
+        changer,
+        lambda session: geocode(normalized, session, pace=True, raise_on_block=True),
+        what=f"Geocoding {normalized}",
+    )
+    if row is None:
+        # zip.php genuinely not knowing a code is a real answer, and a different one from
+        # "we were blocked" — which `with_rotation` raises rather than returns.
+        return f"{normalized}: unresolved (zip.php has no entry)"
+    return f"{normalized}: {row.city} ({row.latitude:.4f}, {row.longitude:.4f})"
