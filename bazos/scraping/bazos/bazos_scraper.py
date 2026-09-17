@@ -258,9 +258,24 @@ class BazosScraper:
         if response is None:
             logger.warning("Failed to load full description for %s after %d attempts", product.url, MAX_ATTEMPTS)
             return product
+        # Same check `run_query` makes, and it was missing here. A 403 is a *response*, so
+        # `run_request` returns its body rather than retrying, and this method used to parse
+        # that body as if it were a listing — `.text` on the absent `popisdetail` raised
+        # AttributeError. That is not a `DatabaseError`, so it escaped
+        # `_tolerating_one_bad_ad`, and not a `MarketplaceBlockedError`, so nothing rotated:
+        # a single blocked detail circuit aborted the whole query for the pass, silently, on
+        # any query with load_full_description=True. Roughly half of exits are blocked.
+        if response.status_code == 403:
+            raise MarketplaceBlockedError.from_response(response)
         soup = BeautifulSoup(response.text, 'html.parser')
-        full_description = soup.find(class_='popisdetail').text  # TODO FIX, CAN BE NONE?
-        product.full_description = full_description
+        detail = soup.find(class_='popisdetail')
+        if detail is None:
+            # A removed listing, or a page shape this parser does not know. Returning the
+            # product unchanged keeps "no description available" a normal outcome rather
+            # than an exception that costs the caller its whole walk.
+            logger.warning("No description block on %s (removed, or unexpected page)", product.url)
+            return product
+        product.full_description = detail.text
         return product
 
     def run_query(self, query: Query) -> Iterator[Ad]:

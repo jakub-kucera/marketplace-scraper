@@ -7,13 +7,14 @@ detail).
 import copy
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 from django.utils import timezone
 
-from bazos.models import Ad, EmailPublisher, PhonePublisher, PriceType, Query
+from bazos.exceptions import MarketplaceBlockedError
+from bazos.models import Ad, EmailPublisher, Marketplace, PhonePublisher, PriceType, Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper, parse_listing_item
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 
@@ -397,3 +398,41 @@ class TestScraperRegistry:
         assert query.marketplace == "bazos"
         runner = QueryRunner(query, MagicMock())
         assert isinstance(runner.scraper, BazosScraper)
+
+
+# ---------------------------------------------------------------------------
+# load_full_description and the blocked detail page
+# ---------------------------------------------------------------------------
+
+class TestDetailFetchOnABlockedCircuit:
+    """Found by running `fetch_full_description` against a real ad on 2026-09-17.
+
+    `run_request` returns a 403 rather than retrying — a block is a *response* — so the
+    detail path has to check for it explicitly, the way `run_query` always has. Without the
+    check the API scraper reported "no description" for an ad nobody had actually looked at,
+    and the HTML scraper raised AttributeError on the block body.
+    """
+
+    @pytest.mark.parametrize("status", [403, 429])
+    def test_a_blocked_detail_response_raises_so_the_caller_can_rotate(self, status):
+        scraper = BazosApiScraper(MagicMock())
+        response = MagicMock(status_code=status, text="... IP: 1.2.3.4")
+        with patch.object(scraper, "run_request", return_value=response), \
+             patch("bazos.scraping.bazos.bazos_api_scraper.sleep"):
+            with pytest.raises(MarketplaceBlockedError):
+                scraper.load_full_description(make_ad_for_detail())
+
+    def test_an_unexpected_status_still_returns_the_ad_unchanged(self):
+        """Not every non-200 is retryable; only a block is."""
+        scraper = BazosApiScraper(MagicMock())
+        response = MagicMock(status_code=500)
+        with patch.object(scraper, "run_request", return_value=response), \
+             patch("bazos.scraping.bazos.bazos_api_scraper.sleep"):
+            ad = scraper.load_full_description(make_ad_for_detail())
+        assert ad.full_description is None
+
+
+def make_ad_for_detail() -> Ad:
+    return Ad(external_id=1, marketplace=Marketplace.BAZOS_API, url="https://x.test/1",
+              name="x", price_raw="1 Kč", location="Praha", short_description="",
+              publisher_name="")

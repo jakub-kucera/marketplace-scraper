@@ -316,6 +316,12 @@ class BazosApiScraper:
         if response.status_code == 410:
             logger.info("Ad %s no longer available (410 deleted)", product.external_id)
             return product
+        # Raised rather than folded into the `!= 200` branch below: a block is retryable on
+        # a different circuit and every other path in this class treats it that way, while
+        # "unexpected status" is not. Returning the product unchanged for a 403 would report
+        # "this ad has no description" for an ad nobody actually looked at.
+        if response.status_code in (403, 429):
+            raise MarketplaceBlockedError.from_response(response)
         if response.status_code != 200:
             logger.warning("Unexpected status=%d loading detail for ad %s", response.status_code, product.external_id)
             return product
