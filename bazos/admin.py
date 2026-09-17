@@ -33,7 +33,7 @@ from unfold.widgets import (
 )
 
 from bazos.comparables import find_comparables
-from bazos.jobs import GEOCODE_POSTAL_CODE, SCORE_AD
+from bazos.jobs import FETCH_FULL_DESCRIPTION, GEOCODE_POSTAL_CODE, REFRESH_AD, SCORE_AD
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
 from bazos.models import AdOutcome, AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
@@ -805,7 +805,9 @@ class AdAdmin(ModelAdmin):
     # Annotated rather than left to inference: `refprice/admin.py` appends its own action
     # to this tuple from outside (the dependency points inward, so `bazos` cannot import
     # it), and a literal would be inferred as tuple[str] and reject the callable.
-    actions: tuple[Any, ...] = ("score_selected_ads",)
+    actions: tuple[Any, ...] = (
+        "score_selected_ads", "fetch_full_descriptions", "refresh_selected_ads",
+    )
     # query_count's Count(...) annotation forces a GROUP BY over the whole ad × addelivery
     # join. Without this, the changelist paginator's separate "N results" count query runs
     # that GROUP BY as a subquery aggregate over the FULL table on every page load — cheap
@@ -865,6 +867,46 @@ class AdAdmin(ModelAdmin):
             request,
             f"Queued {len(pks)} scoring task(s). Results appear on each ad, and in "
             f"Scheduled tasks → Successful/Failed tasks.",
+            messages.INFO,
+        )
+
+    @admin.action(description="Fetch the full description")
+    def fetch_full_descriptions(self, request, queryset):
+        """Queue a detail fetch per ad, regardless of its query's `load_full_description`.
+
+        Ads that already have one are skipped and counted — this costs a paced request
+        against a marketplace that 403s about half our exits, so re-fetching something we
+        have is not a free no-op the way a cache hit is.
+        """
+        pks = list(queryset.filter(full_description__isnull=True).values_list("pk", flat=True))
+        for pk in pks:
+            async_task(FETCH_FULL_DESCRIPTION, pk)
+        skipped = queryset.count() - len(pks)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} detail fetch(es)"
+            + (f"; {skipped} already had a description." if skipped > 0 else "."),
+            messages.INFO,
+        )
+
+    @admin.action(description="Re-read the listing (price, still up?)")
+    def refresh_selected_ads(self, request, queryset):
+        """Queue a listing re-read per ad. Bazos only — see `enrichment.refresh_ad`.
+
+        Filtered here rather than left to fail in the worker: a Failure row per Vinted ad
+        would say "something broke" about a marketplace that simply has no bulk-id endpoint.
+        """
+        from bazos.delisting import SWEEPABLE_MARKETPLACES
+
+        refreshable = queryset.filter(marketplace__in=SWEEPABLE_MARKETPLACES)
+        pks = list(refreshable.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(REFRESH_AD, pk)
+        skipped = queryset.count() - len(pks)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} refresh(es)"
+            + (f"; {skipped} on a marketplace with no bulk-id endpoint." if skipped > 0 else "."),
             messages.INFO,
         )
 
