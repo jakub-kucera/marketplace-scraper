@@ -1093,5 +1093,3 @@ Original plan, for reference:
 | Current HTML scraper (baseline) | `bazos/scraping/bazos/bazos_scraper.py` |
 | Faithful app User-Agent construction | `USER_AGENT.md`, `bazos/scraping/bazos/user_agent.py` |
 | Live probe evidence for all §4–§7 findings | curl commands in §7, run directly against `www.bazos.cz`/`www.bazos.sk` on 2026-07-19 |
-</content>
-</invoke>

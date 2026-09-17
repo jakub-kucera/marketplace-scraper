@@ -1,7 +1,7 @@
 ---
 title: MacBook price prediction — measured on the production corpus
 status: reference
-updated: 2026-08-26
+updated: 2026-09-17
 verified: 2026-08-26
 ---
 
@@ -382,6 +382,24 @@ records no outcomes. This changes which listings you look at; whether that is an
 profit is the question P24 exists to answer.
 
 ## 6. Why none of this can be calibrated yet
+
+> ⚠️ **Updated 2026-09-17 — the mechanism described below has been fixed; the conclusion has
+> not yet changed.** P24 shipped that day: `bazos/delisting.py` re-checks live ads on an
+> age-decayed schedule and records `Ad.last_seen_at` / `Ad.removed_at`, and `AdOutcome` records
+> what a human actually did. So ads *are* re-checked now, and time-to-disappear *is* being
+> collected. What has not changed is this section's conclusion, because **outcome data has to
+> accumulate before it can calibrate anything** — a sweep that started on 2026-09-17 has no
+> history to fit against, and `removed_at` conflates sold with withdrawn, deleted and expired
+> (CLAUDE.md's delisting note). Re-read §4's precision figures as composition audits until
+> there are enough `AdOutcome` rows to test them against. The rest of this section is kept as
+> written because the reasoning is what P24 was built to answer.
+>
+> One correction worth carrying, since it is the natural next assumption: **`Ad.modified` is
+> still not the field to read, and that is deliberate.** The sweep writes `last_seen_at` with
+> a queryset `.update()`, which bypasses `auto_now` entirely, and its price-change path saves
+> with `update_fields` that exclude `modified`. Were it otherwise, `modified` would come to
+> mean "we looked at it", which is a fact about the scraper, not about the ad. The fields that
+> answer this question are `last_seen_at`, `removed_at` and `AdOutcome`.
 
 **`Ad.modified` never advances past `Ad.created`** — measured across all 2,038 rows, max delta
 1.3×10⁻⁸ hours. Ads are written once and never re-checked. There is no time-to-disappear, no
