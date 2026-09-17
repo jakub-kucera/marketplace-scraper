@@ -80,3 +80,6 @@ old_tests/
 .coverage
 .coverage.*
 htmlcov/
+
+# Agent-created git worktrees (full repo copies); see pytest.ini's norecursedirs
+.claude/
