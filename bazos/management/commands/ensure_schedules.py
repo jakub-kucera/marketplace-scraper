@@ -24,6 +24,10 @@ SCHEDULES: dict[str, tuple] = {
         # Daily is the right resolution: `removed_at` is stamped when the sweep notices, so
         # finer cadence buys precision the question ("how many days to disappear") cannot
         # use, at a linear cost in requests.
+        #
+        # No `limit`, which is what puts the task in chunked mode: it works a slice, yields
+        # the single worker, and re-enqueues itself while ads remain due. A backlog run as
+        # one task would make every other job wait for the whole backfill.
         {},
     ),
     "cluster-heartbeat": (

@@ -206,3 +206,15 @@ DELIST_WAIT_TIME: Final[tuple[float, float]] = (2.0, 5.0)
 # delete over a quarter-million rows is a single long transaction holding locks on a table
 # the scraper is still writing to.
 PRUNE_BATCH_SIZE: Final[int] = 5_000
+
+
+# Ads per chunk when the sweep is left to run itself down. 10 requests' worth, which at
+# DELIST_WAIT_TIME plus rotations is roughly a minute of worker time — short enough that an
+# admin-triggered lookup queued behind it waits a minute rather than the length of a full
+# backfill, which is the whole reason chunking exists (see ENRICHMENT_JOBS.md §1.2).
+DELIST_CHUNK_SIZE: Final[int] = DELIST_BATCH_SIZE * 10
+# Safety bound on the self-re-enqueue. Without it a chunk that keeps failing leaves its ads
+# due, re-queues itself, and hammers Bazos in a loop that looks like progress. The sweep
+# also stops early whenever a chunk clears nothing at all; this is the backstop for the case
+# where it clears *some* ads every round but never finishes.
+DELIST_MAX_CHUNK_ROUNDS: Final[int] = 20

@@ -16,6 +16,7 @@ import pytest
 from django.core.management import call_command
 from django_q.models import Schedule
 
+from bazos.const import DELIST_MAX_CHUNK_ROUNDS
 from bazos.jobs import (
     HEARTBEAT,
     PRUNE_QUERY_RUNS,
@@ -188,3 +189,92 @@ def test_missed_schedules_do_not_replay():
     from django.conf import settings
 
     assert settings.Q_CLUSTER["catch_up"] is False
+
+
+# ---------------------------------------------------------------------------
+# The chunked sweep — the prerequisite for every interactive job
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_an_explicit_limit_runs_once_and_never_re_enqueues(monkeypatch):
+    """`limit` given is the one-off: do exactly that much and stop."""
+    from bazos import jobs
+
+    queued = []
+    monkeypatch.setattr("django_q.tasks.async_task", lambda *a, **kw: queued.append((a, kw)))
+
+    jobs.sweep_delisted(limit=5)
+
+    assert queued == []
+
+
+@pytest.mark.django_db
+def test_a_chunk_that_leaves_work_queues_the_next_one(monkeypatch, make_ad):
+    from bazos import jobs
+
+    queued = []
+    monkeypatch.setattr("django_q.tasks.async_task", lambda *a, **kw: queued.append((a, kw)))
+    # 3 due before the chunk, 1 after: progress was made and work remains.
+    counts = iter([3, 1])
+    monkeypatch.setattr(jobs, "call_command", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        "bazos.delisting.due_for_check",
+        lambda *a, **kw: _CountOnly(next(counts)),
+    )
+
+    result = jobs.sweep_delisted()
+
+    assert len(queued) == 1
+    assert queued[0][1]["rounds_left"] == DELIST_MAX_CHUNK_ROUNDS - 1
+    assert "next chunk queued" in result
+
+
+@pytest.mark.django_db
+def test_a_chunk_that_clears_nothing_stops_instead_of_looping(monkeypatch):
+    """The stop that matters. A chunk whose every batch was blocked leaves its ads due, so
+    without this the job re-queues itself against a marketplace that is refusing us — a loop
+    that looks like progress."""
+    from bazos import jobs
+
+    queued = []
+    monkeypatch.setattr("django_q.tasks.async_task", lambda *a, **kw: queued.append((a, kw)))
+    counts = iter([3, 3])
+    monkeypatch.setattr(jobs, "call_command", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        "bazos.delisting.due_for_check", lambda *a, **kw: _CountOnly(next(counts))
+    )
+
+    result = jobs.sweep_delisted()
+
+    assert queued == []
+    assert "made no progress" in result
+
+
+@pytest.mark.django_db
+def test_the_round_budget_is_a_backstop_for_slow_progress(monkeypatch):
+    """Separate from the no-progress stop: this covers a sweep that clears *some* ads every
+    round but never finishes."""
+    from bazos import jobs
+
+    queued = []
+    monkeypatch.setattr("django_q.tasks.async_task", lambda *a, **kw: queued.append((a, kw)))
+    counts = iter([3, 2])
+    monkeypatch.setattr(jobs, "call_command", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        "bazos.delisting.due_for_check", lambda *a, **kw: _CountOnly(next(counts))
+    )
+
+    result = jobs.sweep_delisted(rounds_left=1)
+
+    assert queued == []
+    assert "round budget spent" in result
+
+
+class _CountOnly:
+    """`due_for_check()` returns a QuerySet; the chunk logic only ever counts it."""
+
+    def __init__(self, count: int):
+        self._count = count
+
+    def count(self) -> int:
+        return self._count
