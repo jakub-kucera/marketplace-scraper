@@ -12,16 +12,12 @@ command has nothing to do. It exists for the two cases that path cannot cover:
 """
 import logging
 
-from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from bazos.const import MAX_BLACKLIST_RETRIES
-from bazos.exceptions import MarketplaceBlockedError
 from bazos.geo import ensure_postal_code, normalize_postal_code, parse_postal_code
 from bazos.models import Ad, PostalCode, Query
-from ip_changer.dummy import DummyIPChanger
+from bazos.scraping.session import AllCircuitsBlocked, build_ip_changer, with_rotation
 from ip_changer.ip_changer import IPChanger
-from ip_changer.tor import TorIPChanger
 
 logger = logging.getLogger(__name__)
 
@@ -43,35 +39,27 @@ class Command(BaseCommand):
         )
 
     def _ip_changer(self) -> IPChanger:
-        # Same transport the scraper uses, chosen the same way ScrapeRunner chooses it:
         # zip.php is a bazos.cz path, so it is subject to the same exit-IP blocking as
         # every other request the project makes.
-        changer_class = DummyIPChanger if settings.IP_CHANGER_TYPE == "DUMMY" else TorIPChanger
-        return changer_class()
+        return build_ip_changer()
 
     def _geocode_with_rotation(self, code: str, changer: IPChanger) -> bool:
-        """One code, rotating the circuit on a 403 — the same shape as
-        `ScrapeRunner._run_query_with_rotation`, and for the same reason.
+        """One code, rotating the circuit on a 403.
 
         A block is a property of the exit IP, not of the code: without this the first
         blocked circuit fails every remaining lookup identically (0/40, measured
-        2026-08-30). `rotate_circuit()` returning False means this transport has no other
-        egress to offer (`DummyIPChanger`), so retrying would re-ask the same IP.
+        2026-08-30).
         """
-        for attempt in range(1, MAX_BLACKLIST_RETRIES + 1):
-            assert changer.session is not None
-            try:
-                return ensure_postal_code(
-                    code, changer.session, pace=True, raise_on_block=True
-                ) is not None
-            except MarketplaceBlockedError as e:
-                logger.warning(
-                    "Geocoding %s blocked on exit %s (attempt %d/%d)",
-                    code, e.exit_ip or "unknown", attempt, MAX_BLACKLIST_RETRIES,
-                )
-                if not changer.rotate_circuit():
-                    return False
-        return False
+        try:
+            return with_rotation(
+                changer,
+                lambda session: ensure_postal_code(
+                    code, session, pace=True, raise_on_block=True
+                ),
+                what=f"Geocoding {code}",
+            ) is not None
+        except AllCircuitsBlocked:
+            return False
 
     def _wanted_codes(self, options) -> list[str]:
         if options["codes"]:
