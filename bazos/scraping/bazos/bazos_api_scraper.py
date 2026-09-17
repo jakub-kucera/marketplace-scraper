@@ -172,6 +172,41 @@ class BazosApiScraper:
         total = int(total_header) if total_header is not None else None
         return response.json(), total
 
+    def fetch_by_ids(self, external_ids: list[int]) -> dict[int, dict]:
+        """Bulk-fetch listings by id. Missing ids are simply absent from the result.
+
+        That absence is the whole delisting signal: `ads.php` silently omits ids it no
+        longer has rather than erroring (HIDDEN_API.md §3.1), so one request answers "which
+        of these 210 are still up" and returns their current `price_formatted` and `views`
+        for free.
+
+        Raises `MarketplaceBlockedError` on a 403/429 so the caller can rotate. Returns an
+        empty dict for any other failure — which the caller **must** treat as "no
+        information", never as "all of them are gone".
+        """
+        if not external_ids:
+            return {}
+        response = self.run_request(
+            f"{BAZOS_API_BASE_URL}/ads.php",
+            params={"ad_id[]": [str(i) for i in external_ids]},
+        )
+        if response is None:
+            logger.warning("Bulk id fetch failed after %d attempts", MAX_ATTEMPTS)
+            return {}
+        if response.status_code in (403, 429):
+            raise MarketplaceBlockedError.from_response(response)
+        if response.status_code != 200:
+            logger.warning("Bulk id fetch returned status=%d", response.status_code)
+            return {}
+        try:
+            rows = response.json()
+        except ValueError:
+            logger.warning("Bulk id fetch returned non-JSON")
+            return {}
+        if not isinstance(rows, list):
+            return {}
+        return {int(row["id"]): row for row in rows if isinstance(row, dict) and "id" in row}
+
     def check_blacklisted(self) -> bool:
         response = self.run_request(f"{BAZOS_API_BASE_URL}/ads.php", params={"query": "iphone", "limit": 1, "offset": 0})
         if response is None:

@@ -31,7 +31,7 @@ from unfold.widgets import (
 from bazos.comparables import find_comparables
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
-from bazos.models import AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
+from bazos.models import AdOutcome, AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
 
 
 class CategoryInline(TabularInline):
@@ -694,6 +694,20 @@ class PriceChangeInline(TabularInline):
     can_delete = False
 
 
+class AdOutcomeInline(TabularInline):
+    """The one place a human records what actually happened about an ad.
+
+    Editable, unlike every other inline here — this is the only table in the project whose
+    contents a person is supposed to type. `Ad.removed_at` measures time-to-disappear, which
+    confounds sold with expired; these rows are what calibrate that.
+    """
+    model = AdOutcome
+    extra = 0
+    max_num = 1
+    fields = ("kind", "realised_price", "note")
+    can_delete = True
+
+
 class AdPriceScoreInline(TabularInline):
     """What the price model thought, on the ad's own page.
 
@@ -729,6 +743,7 @@ class AdAdmin(ModelAdmin):
         "query_count",
         "price_discount",
         "price_z",
+        "listing_state",
         "created",
     )
     # Plain "-publish_date" would put every Vinted ad (publish_date is always null —
@@ -754,7 +769,7 @@ class AdAdmin(ModelAdmin):
         "seller_ad_counts",
         "comparables",
     )
-    inlines = (AdDeliveryInline, PriceChangeInline, AdPriceScoreInline)
+    inlines = (AdOutcomeInline, AdDeliveryInline, PriceChangeInline, AdPriceScoreInline)
     # query_count's Count(...) annotation forces a GROUP BY over the whole ad × addelivery
     # join. Without this, the changelist paginator's separate "N results" count query runs
     # that GROUP BY as a subquery aggregate over the FULL table on every page load — cheap
@@ -796,6 +811,21 @@ class AdAdmin(ModelAdmin):
     @admin.display(description="z", ordering=models.F("price_z").asc(nulls_last=True))
     def price_z(self, obj):
         return "—" if obj.price_z is None else f"{obj.price_z:+.2f}"
+
+    @admin.display(description="Listing", ordering="removed_at")
+    def listing_state(self, obj):
+        """How long it stayed up — the one outcome-ish number in the database.
+
+        Says "gone", never "sold": a disappearance conflates sold, withdrawn and expired.
+        A never-swept ad and one past the watch horizon both read "—", because neither is
+        evidence of anything.
+        """
+        if obj.removed_at:
+            days = (obj.removed_at - obj.created).days
+            return f"gone after {days}d"
+        if obj.last_seen_at:
+            return "listed"
+        return "—"
 
     @admin.display(description="Seller history")
     @admin.display(description="Comparable listings")
@@ -1064,3 +1094,19 @@ class ThemedStatusLogAdmin(StatusLogAdmin, ModelAdmin):
     )
     list_filter_submit = True
     search_fields = ("msg", "logger_name")
+
+
+@admin.register(AdOutcome)
+class AdOutcomeAdmin(ModelAdmin):
+    """The outcome logbook, across all ads.
+
+    A cross-ad changelist as well as the per-ad inline, because the question this table
+    exists to answer is aggregate — "of the ads I was told about, how many did I buy, and
+    how did the ones that disappeared quickly differ" — and that is not askable one change
+    page at a time.
+    """
+    list_display = ("ad", "kind", "realised_price", "created")
+    list_filter = (("kind", ChoicesDropdownFilter), ("created", RangeDateTimeFilter))
+    search_fields = ("ad__name", "ad__external_id", "note")
+    autocomplete_fields = ("ad",)
+    ordering = ("-created",)

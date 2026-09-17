@@ -715,6 +715,27 @@ class Ad(TimeStampedModel):
     email_publisher = models.ForeignKey('EmailPublisher', on_delete=models.PROTECT, null=True, related_name='ads')
     phone_publisher = models.ForeignKey('PhonePublisher', on_delete=models.PROTECT, null=True, related_name='ads')
 
+    # Delisting observation. Two timestamps, deliberately **not** an `AdStatus` value:
+    # `AdStatus` is the *delivery* state machine and lives on `AdDelivery`, while being
+    # removed is a property of the listing. An ad can be SENT and later removed; those are
+    # not alternatives, so they must not share a column.
+    #
+    # ⚠️ `removed_at` means "no longer served by the marketplace", which is NOT "sold". It
+    # conflates sold, withdrawn, deleted, and — the big one — **expired**: Bazos listings
+    # age out on their own, so a disappearance near the expiry horizon says more about the
+    # clock than about a buyer. There is deliberately no `sold` boolean: the column name is
+    # the claim, and this one cannot honestly make it. `AdOutcome` is where ground truth
+    # goes.
+    last_seen_at = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text="Last delisting sweep that still found this ad. Null = never swept.",
+    )
+    removed_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="First sweep that did NOT find it. Null means still listed OR never swept "
+                  "OR past the watch horizon — see DELIST_MAX_AGE_DAYS.",
+    )
+
     # do_send = Column(Boolean, nullable=False, default=True)  # not used
 
     def __str__(self):
@@ -725,6 +746,17 @@ class Ad(TimeStampedModel):
         verbose_name_plural = "Ads"
         constraints = [
             models.UniqueConstraint(fields=["marketplace", "external_id"], name="unique_ad_per_marketplace"),
+        ]
+        indexes = [
+            # The delisting sweep's "what is due" query is the only hot path over these
+            # columns, and it never looks at an ad already known removed — so the index is
+            # partial. Without the WHERE it would carry every dead ad forever, which is the
+            # majority of the table in steady state.
+            models.Index(
+                fields=["last_seen_at"],
+                condition=models.Q(removed_at__isnull=True),
+                name="ad_live_last_seen_idx",
+            ),
         ]
 
     def seller_ad_counts(self) -> "SellerAdCounts":
@@ -841,6 +873,57 @@ class AdDelivery(TimeStampedModel):
 
     def __str__(self):
         return f"{self.ad} → {self.query} [{self.status}]"
+
+
+class OutcomeKind(models.TextChoices):
+    """What actually happened about one ad, as recorded by a human.
+
+    `LOST_TO_OTHER_BUYER` is its own value rather than folded into `NO_REPLY` because it is
+    the direct evidence of whether latency is still costing deals — the question the whole
+    latency half of the backlog exists to answer.
+    """
+    INTERESTED   = "interested",   "Interested, not acted on yet"
+    CONTACTED    = "contacted",    "Contacted the seller"
+    NO_REPLY     = "no_reply",     "Contacted, no reply"
+    LOST         = "lost",         "Lost to another buyer"
+    REJECTED     = "rejected",     "Looked, decided against it"
+    BOUGHT       = "bought",       "Bought it"
+    NOT_AS_LISTED = "not_as_listed", "Misrepresented / damaged / scam"
+
+
+class AdOutcome(TimeStampedModel):
+    """What a human did about one ad, and what it was worth. The only ground truth here.
+
+    `Ad.removed_at` measures *time to disappear*, which is a proxy for selling and a
+    confounded one — expiry looks identical. This table is how that proxy gets calibrated:
+    a few dozen honestly-recorded rows are enough to estimate how often "disappeared" means
+    "sold", and nothing else in the database can supply that.
+
+    One row per ad, not per delivery: what happened is a fact about the listing, the same
+    reason `AdPriceScore` hangs off `Ad`.
+
+    ⚠️ Its value depends entirely on being filled in. A logbook nobody writes to is worse
+    than none, because it looks like data — so the entry point is an admin action on the ad
+    changelist rather than a form someone has to remember to visit.
+    """
+    ad = models.OneToOneField(Ad, on_delete=models.CASCADE, related_name="outcome")
+    kind = models.CharField(max_length=20, choices=OutcomeKind.choices)
+    #: What it actually changed hands for, when that is known. Null for every outcome except
+    #: BOUGHT, and null even then if the number was never agreed — an asking price copied
+    #: into this column would quietly poison the one table that is supposed to hold truth.
+    realised_price = models.BigIntegerField(
+        null=True, blank=True,
+        help_text="CZK actually paid. Only for 'bought', and only if genuinely known.",
+    )
+    note = models.TextField(blank=True)
+
+    class Meta:
+        verbose_name = "Ad outcome"
+        verbose_name_plural = "Ad outcomes"
+        ordering = ("-created",)
+
+    def __str__(self):
+        return f"{self.get_kind_display()} — {self.ad}"
 
 
 class AdPriceScore(TimeStampedModel):
