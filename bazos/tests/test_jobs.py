@@ -27,6 +27,7 @@ from bazos.jobs import (
     SCHEDULES,
     SCORE_AD,
     SWEEP_DELISTED,
+    SYNC_VINTED_CATALOGS,
     heartbeat,
 )
 
@@ -42,7 +43,10 @@ def resolve(dotted: str):
 
 @pytest.mark.parametrize(
     "dotted",
-    [SWEEP_DELISTED, HEARTBEAT, PRUNE_STATUS_LOGS, PRUNE_QUERY_RUNS, SCORE_AD, RESCORE_ADS],
+    [
+        SWEEP_DELISTED, HEARTBEAT, PRUNE_STATUS_LOGS, PRUNE_QUERY_RUNS,
+        SCORE_AD, RESCORE_ADS, SYNC_VINTED_CATALOGS,
+    ],
 )
 def test_every_task_path_resolves(dotted):
     """django-q2 stores the path as a string, so a rename fails at *run* time, in a worker,
@@ -385,3 +389,15 @@ def test_the_admin_action_queues_one_task_per_ad(saved_ad, monkeypatch):
     }
     predict.assert_not_called()
     assert "Queued 2" in captured[0][1]
+
+
+@pytest.mark.django_db
+def test_vinted_catalog_sync_wraps_the_command():
+    """The report is the point: `catalog_ids` live in a JSONField and are not an FK, so a
+    retired node fails as an empty result rather than as an error."""
+    from bazos import jobs
+
+    with patch.object(jobs, "call_command") as call:
+        jobs.sync_vinted_catalogs()
+
+    assert call.call_args.args[0] == "create_vinted_catalogs"
