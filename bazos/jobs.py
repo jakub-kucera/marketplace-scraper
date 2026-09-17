@@ -34,6 +34,8 @@ RESCORE_ADS = "bazos.jobs.rescore_ads"
 SYNC_VINTED_CATALOGS = "bazos.jobs.sync_vinted_catalogs"
 COMPARE_BAZOS_SCRAPERS = "bazos.jobs.compare_bazos_scrapers"
 GEOCODE_POSTAL_CODE = "bazos.jobs.geocode_postal_code"
+FETCH_FULL_DESCRIPTION = "bazos.jobs.fetch_full_description"
+REFRESH_AD = "bazos.jobs.refresh_ad"
 
 
 # ---------------------------------------------------------------------------
@@ -329,3 +331,50 @@ def geocode_postal_code(code: str) -> str:
         # "we were blocked" — which `with_rotation` raises rather than returns.
         return f"{normalized}: unresolved (zip.php has no entry)"
     return f"{normalized}: {row.city} ({row.latitude:.4f}, {row.longitude:.4f})"
+
+
+def fetch_full_description(ad_pk: int) -> str:
+    """Fetch one ad's full description on demand, whatever its marketplace.
+
+    Makes `Query.load_full_description` per-ad instead of per-query: today the choice is
+    "every ad on this query pays a detail request, or none do", and the question is always
+    about one listing.
+    """
+    from bazos.enrichment import fetch_full_description as fetch
+    from bazos.models import Ad
+    from bazos.scraping.session import build_ip_changer, with_rotation
+
+    ad = Ad.objects.get(pk=ad_pk)
+    changer = build_ip_changer()
+    fetched = with_rotation(
+        changer,
+        lambda session: fetch(ad, session),
+        what=f"Detail fetch for ad {ad_pk}",
+    )
+    if not fetched.full_description:
+        # A 410 on the API path, or a detail page that carried nothing. Not a failure — the
+        # request worked and the answer was "nothing here" — so it must not raise.
+        return f"ad {ad_pk}: no description returned"
+    seller = "seller resolved" if fetched.email_publisher or fetched.phone_publisher else "no seller ids"
+    return f"ad {ad_pk}: {len(fetched.full_description)} chars, {seller}"
+
+
+def refresh_ad(ad_pk: int) -> str:
+    """Re-read one listing's row — still up, and has the price moved?
+
+    This is `PROMPTS.md` P26 #2 (`_resolve_ad` never refreshes a rediscovered ad) turned
+    into something triggerable for a single listing. The price path goes through the
+    delisting sweep's `apply_batch`, so a change found here writes `PriceChange` history and
+    re-enters the filter exactly as one found by the sweep does.
+    """
+    from bazos.enrichment import refresh_ad as refresh
+    from bazos.models import Ad
+    from bazos.scraping.session import build_ip_changer, with_rotation
+
+    ad = Ad.objects.get(pk=ad_pk)
+    changer = build_ip_changer()
+    return with_rotation(
+        changer,
+        lambda session: refresh(ad, session),
+        what=f"Refresh of ad {ad_pk}",
+    )
