@@ -92,5 +92,11 @@ jobs:
       - name: Run migrations
         run: docker compose run --rm --no-deps marketplace_scraper python manage.py migrate
 
+      # Idempotent, and it never resets a cadence edited in the admin — so it is safe on
+      # every deploy and means a new schedule ships with the code that needs it rather than
+      # waiting for someone to remember an SSH session.
+      - name: Ensure job schedules
+        run: docker compose run --rm --no-deps marketplace_scraper python manage.py ensure_schedules
+
       - name: Start all services
         run: docker compose up -d

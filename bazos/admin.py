@@ -5,6 +5,7 @@ from typing import Any
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
+from django.contrib.admin.exceptions import NotRegistered
 from django.db import models
 from django.db.models import Count, IntegerField, Max, OuterRef, Subquery
 from django.db.models.functions import Coalesce
@@ -15,6 +16,8 @@ from django.utils.safestring import mark_safe
 from django.utils.http import urlencode
 from django_db_logger.admin import StatusLogAdmin
 from django_db_logger.models import StatusLog
+from django_q.admin import FailAdmin, QueueAdmin, ScheduleAdmin, TaskAdmin
+from django_q.models import Failure as QFailure, OrmQ as QTask, Schedule as QSchedule, Success as QSuccess
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.filters.admin import (
     ChoicesDropdownFilter,
@@ -1110,3 +1113,47 @@ class AdOutcomeAdmin(ModelAdmin):
     search_fields = ("ad__name", "ad__external_id", "note")
     autocomplete_fields = ("ad",)
     ordering = ("-created",)
+
+
+# django-q2 ships stock ModelAdmins, which render unthemed under unfold — the same problem
+# and the same fix as StatusLog above. These are not incidental third-party tables: they are
+# the run log, and "see what ran and what it returned" is the reason the queue was adopted
+# over a systemd timer.
+for _model, _themed_name in (
+    (QTask, "ThemedQueuedTaskAdmin"),
+    (QSuccess, "ThemedSuccessAdmin"),
+    (QFailure, "ThemedFailureAdmin"),
+    (QSchedule, "ThemedScheduleAdmin"),
+):
+    try:
+        admin.site.unregister(_model)
+    except NotRegistered:  # pragma: no cover - depends on app load order
+        pass
+
+
+@admin.register(QSchedule)
+class ThemedScheduleAdmin(ScheduleAdmin, ModelAdmin):
+    """Cadence lives here, editable, which is the whole reason for the queue.
+
+    `manage.py ensure_schedules` creates these rows and owns the dotted `func`, but it
+    deliberately does not reset a hand-edited cadence — otherwise this page would be a
+    control that a deploy silently overrides.
+    """
+    list_filter = (("schedule_type", ChoicesDropdownFilter),)
+
+
+@admin.register(QSuccess)
+class ThemedSuccessAdmin(TaskAdmin, ModelAdmin):
+    list_filter = (("started", RangeDateTimeFilter),)
+    list_filter_submit = True
+
+
+@admin.register(QFailure)
+class ThemedFailureAdmin(FailAdmin, ModelAdmin):
+    list_filter = (("started", RangeDateTimeFilter),)
+    list_filter_submit = True
+
+
+@admin.register(QTask)
+class ThemedQueuedTaskAdmin(QueueAdmin, ModelAdmin):
+    pass

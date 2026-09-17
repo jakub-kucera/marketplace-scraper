@@ -19,6 +19,24 @@ services:
       - postgres
       - tor_proxy
 
+  # One worker by construction — see Q_CLUSTER in settings.py. This process is what runs
+  # every scheduled and on-demand job, so if it is down, background work silently stops:
+  # the `cluster-heartbeat` schedule exists to make that silence visible.
+  marketplace_qcluster:
+    build: .
+    restart: always
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: 1
+      POSTGRES_HOST: postgres
+      TOR_PROXY_IP: tor_proxy
+    command: ["python", "manage.py", "qcluster"]
+    volumes:
+      - .:/app
+    depends_on:
+      - postgres
+      - tor_proxy
+
   marketplace_filter:
     build: .
     restart: always
