@@ -21,7 +21,9 @@ from django_q.models import Schedule
 from bazos.const import DELIST_MAX_CHUNK_ROUNDS
 from bazos.jobs import (
     COMPARE_BAZOS_SCRAPERS,
+    FETCH_FULL_DESCRIPTION,
     GEOCODE_POSTAL_CODE,
+    REFRESH_AD,
     HEARTBEAT,
     PRUNE_QUERY_RUNS,
     PRUNE_STATUS_LOGS,
@@ -48,7 +50,7 @@ def resolve(dotted: str):
     [
         SWEEP_DELISTED, HEARTBEAT, PRUNE_STATUS_LOGS, PRUNE_QUERY_RUNS,
         SCORE_AD, RESCORE_ADS, SYNC_VINTED_CATALOGS, COMPARE_BAZOS_SCRAPERS,
-        GEOCODE_POSTAL_CODE,
+        GEOCODE_POSTAL_CODE, FETCH_FULL_DESCRIPTION, REFRESH_AD,
     ],
 )
 def test_every_task_path_resolves(dotted):
@@ -502,3 +504,18 @@ def test_the_query_action_skips_queries_with_no_centre(query, monkeypatch):
 
     assert [call.args for call in async_task.call_args_list] == [(GEOCODE_POSTAL_CODE, "11000")]
     assert "Queued 1" in captured[0][1]
+
+
+@pytest.mark.django_db
+def test_an_empty_detail_fetch_is_reported_not_raised(saved_ad):
+    """A 410 on the API path, or a detail page carrying nothing. The request worked and the
+    answer was "nothing here", so a Failure row would misdescribe it."""
+    from bazos import jobs
+
+    ad = saved_ad()
+    with patch("bazos.enrichment.fetch_full_description", side_effect=lambda a, s: a), \
+         patch("bazos.scraping.session.build_ip_changer"), \
+         patch("bazos.scraping.session.with_rotation", side_effect=lambda c, op, **kw: op(None)):
+        result = jobs.fetch_full_description(ad.pk)
+
+    assert "no description returned" in result
