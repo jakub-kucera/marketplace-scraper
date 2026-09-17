@@ -31,6 +31,7 @@ PRUNE_STATUS_LOGS = "bazos.jobs.prune_status_logs"
 PRUNE_QUERY_RUNS = "bazos.jobs.prune_query_runs"
 SCORE_AD = "bazos.jobs.score_ad"
 RESCORE_ADS = "bazos.jobs.rescore_ads"
+SYNC_VINTED_CATALOGS = "bazos.jobs.sync_vinted_catalogs"
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +68,10 @@ SCHEDULES: dict[str, ScheduleSpec] = {
     # a few days earlier at the cost of a long DELETE competing with the scraper for locks.
     "prune-status-logs": ScheduleSpec(PRUNE_STATUS_LOGS, Schedule.WEEKLY),
     "prune-query-runs": ScheduleSpec(PRUNE_QUERY_RUNS, Schedule.WEEKLY),
+    # Monthly. Vinted's taxonomy is ~2 920 nodes that move rarely, and the whole tree
+    # arrives in ONE request — so this is not about cost, it is about not finding out a
+    # catalog id was retired by watching a query quietly return nothing.
+    "sync-vinted-catalogs": ScheduleSpec(SYNC_VINTED_CATALOGS, Schedule.MONTHLY),
 }
 
 
@@ -234,4 +239,22 @@ def rescore_ads(model: str | None = None, missing_features: bool = False) -> str
     call_command("rescore_ads", stdout=out, **kwargs)
     summary = out.getvalue().strip().replace("\n", " | ")
     logger.info("Rescore finished: %s", summary)
+    return summary
+
+
+def sync_vinted_catalogs() -> str:
+    """Re-seed `MarketplaceCategory` from Vinted's live category tree.
+
+    One request for the whole tree, `update_or_create`, and **nothing is ever deleted** —
+    the command reports a retired node instead, along with any `Query` whose `extra_params`
+    still reference it. That report is the entire point of scheduling this: `catalog_ids`
+    live in a JSONField and are not an FK, so a retired id fails as an empty result rather
+    than as an error. Vinted queries have already gone silently dead for eight days once.
+    """
+    from io import StringIO
+
+    out = StringIO()
+    call_command("create_vinted_catalogs", stdout=out)
+    summary = out.getvalue().strip().replace("\n", " | ")
+    logger.info("Vinted catalog sync: %s", summary)
     return summary
