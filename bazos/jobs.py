@@ -15,9 +15,11 @@ Two rules this module keeps:
   only concurrency control required — see JOB_QUEUE.md §2.
 """
 import logging
+from dataclasses import dataclass
 
 from django.core.management import call_command
 from django.utils import timezone
+from django_q.models import Schedule
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,54 @@ SWEEP_DELISTED = "bazos.jobs.sweep_delisted"
 HEARTBEAT = "bazos.jobs.heartbeat"
 PRUNE_STATUS_LOGS = "bazos.jobs.prune_status_logs"
 PRUNE_QUERY_RUNS = "bazos.jobs.prune_query_runs"
+
+
+# ---------------------------------------------------------------------------
+# Schedules
+# ---------------------------------------------------------------------------
+#
+# Declared here rather than in the management command so another app can contribute one
+# without `bazos` importing it. `refprice` already registers a filter rule this way; a
+# schedule is the same seam for the same reason — deleting that app must break nothing here.
+
+@dataclass(frozen=True)
+class ScheduleSpec:
+    func: str
+    schedule_type: str
+    minutes: int | None = None
+    kwargs: dict | None = None
+
+
+#: name -> spec. Cadence is editable in the admin afterwards; this only declares the row.
+SCHEDULES: dict[str, ScheduleSpec] = {
+    "delisting-sweep": ScheduleSpec(
+        SWEEP_DELISTED,
+        Schedule.DAILY,
+        # Daily is the right resolution: `removed_at` is stamped when the sweep notices, so
+        # finer cadence buys precision the question ("how many days to disappear") cannot
+        # use, at a linear cost in requests.
+        #
+        # No `limit` in kwargs, which is what puts the task in chunked mode: it works a
+        # slice, yields the single worker, and re-enqueues itself while ads remain due. A
+        # backlog run as one task would make every other job wait for the whole backfill.
+    ),
+    "cluster-heartbeat": ScheduleSpec(HEARTBEAT, Schedule.MINUTES, minutes=60),
+    # Weekly, not daily: both prunes are by age, so running more often deletes the same rows
+    # a few days earlier at the cost of a long DELETE competing with the scraper for locks.
+    "prune-status-logs": ScheduleSpec(PRUNE_STATUS_LOGS, Schedule.WEEKLY),
+    "prune-query-runs": ScheduleSpec(PRUNE_QUERY_RUNS, Schedule.WEEKLY),
+}
+
+
+def register_schedule(name: str, spec: ScheduleSpec) -> None:
+    """Add a schedule from another app, at that app's `AppConfig.ready()`.
+
+    Mutating the registry rather than importing into it is what keeps the dependency
+    pointing inward — `bazos` never has to know which other apps exist. Registering twice is
+    a no-op so a double `ready()` (Django calls it once, test harnesses are less reliable)
+    cannot produce two rows for one job.
+    """
+    SCHEDULES.setdefault(name, spec)
 
 
 def sweep_delisted(limit: int | None = None, rounds_left: int | None = None) -> str:
