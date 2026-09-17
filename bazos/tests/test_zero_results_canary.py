@@ -21,7 +21,12 @@ class StopLoop(Exception):
 def make_runner():
     """Construct a ScrapeRunner bypassing __init__, with a no-op IP changer.
 
-    __init__ is skipped, so the two canary counters must be initialised by hand here.
+    __init__ is skipped, so every counter it sets must be initialised by hand here.
+
+    ⚠️ Adding a counter to `ScrapeRunner.__init__` and forgetting it here does **not** fail
+    loudly: `_run_pass` raises `AttributeError`, `run()`'s pass-level guard swallows it as
+    "Pass FAILED", and `alerts_at` filters on "CANARY" in the message — so the bogus error
+    is invisible and the canary assertions still pass, having never run the canary.
     """
     runner = ScrapeRunner.__new__(ScrapeRunner)
     runner.unsafe = False
@@ -33,6 +38,7 @@ def make_runner():
     runner.ip_changer.session = MagicMock()
     runner.zero_rows_passes = 0
     runner.zero_new_ads_passes = 0
+    runner.query_failure_streaks = {}
     return runner
 
 
@@ -195,8 +201,15 @@ def test_a_zero_row_pass_resets_the_zero_new_ads_counter(query):
 
 
 @pytest.mark.django_db
-@override_settings(ZERO_ROWS_ALERT_THRESHOLD=2)
+@override_settings(ZERO_ROWS_ALERT_THRESHOLD=2, QUERY_FAILURE_ALERT_THRESHOLD=99)
 def test_pass_where_every_query_failed_does_not_count_as_zero_rows(query):
+    """A pass that produced no evidence must not be read as evidence of parser drift.
+
+    `QUERY_FAILURE_ALERT_THRESHOLD` is pinned out of the way because the *per-query* alert
+    legitimately fires on this input — three passes in which one query failed outright is
+    exactly what it exists to catch. This test is about the zero-rows canary, and the two
+    share the "CANARY:" prefix that `alerts_at` matches on.
+    """
     runner = make_runner()
 
     with patch.object(QueryRunner, "run", side_effect=RuntimeError("boom")):

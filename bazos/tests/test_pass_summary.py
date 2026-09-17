@@ -165,6 +165,8 @@ def make_runner(summary_senders=None):
     runner.ip_changer.check_ip_local.return_value = False
     runner.zero_rows_passes = 0
     runner.zero_new_ads_passes = 0
+    # __init__ is bypassed here, so every counter it sets has to be mirrored by hand.
+    runner.query_failure_streaks = {}
     return runner
 
 

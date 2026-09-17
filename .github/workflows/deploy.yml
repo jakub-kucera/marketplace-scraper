@@ -39,6 +39,19 @@ jobs:
             "import sys, django; print(sys.version); print('Django', django.get_version())"
           docker compose run --rm --no-deps marketplace_scraper python manage.py check
 
+      # Written into .env, not exported for this job, so it survives a manual
+      # `docker compose up` or a Pi reboot — every service reads `env_file: .env`.
+      # Without this the SDK defaults `environment` to "production" everywhere, which is
+      # how developer shell sessions ended up indistinguishable from the Pi in Sentry.
+      # Rewritten rather than appended so re-deploying the same tag cannot accumulate
+      # duplicate keys (the last one would win, but the file would grow forever).
+      - name: Stamp the release into .env
+        run: |
+          touch .env
+          sed -i '/^SENTRY_ENVIRONMENT=/d; /^SENTRY_RELEASE=/d' .env
+          printf 'SENTRY_ENVIRONMENT=production\nSENTRY_RELEASE=%s\n' "${{ github.ref_name }}" >> .env
+          grep '^SENTRY_' .env
+
       - name: Stop services
         run: docker compose down
 
