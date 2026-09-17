@@ -36,6 +36,8 @@ class ScrapeRunner:
         self.ip_changer = ip_changer_class()
         self.zero_rows_passes = 0
         self.zero_new_ads_passes = 0
+        #: Query.pk -> consecutive passes that query has failed outright.
+        self.query_failure_streaks: dict[int, int] = {}
 
     def run(self):
         while True:
@@ -76,6 +78,7 @@ class ScrapeRunner:
 
         start = datetime.now(timezone.utc)
         results: list[QueryResult] = []
+        outcomes: list[tuple[Query, QueryResult]] = []
         for index, query in enumerate(queries):
             if index:
                 self._sleep_between_queries()
@@ -83,6 +86,7 @@ class ScrapeRunner:
 
             result = self._run_query_with_rotation(query)
             results.append(result)
+            outcomes.append((query, result))
             if not result.failed:
                 logger.info("Found %d new products for query %s", result.new_ads, query)
 
@@ -95,6 +99,7 @@ class ScrapeRunner:
             sum(r.new_ads for r in succeeded),
             len(succeeded),
         )
+        self._check_query_failure_streaks(outcomes)
 
     def _ensure_filter_centres(self, queries) -> None:
         """Geocode the distance filter's centres, so nobody has to run a command by hand.
@@ -237,6 +242,45 @@ class ScrapeRunner:
                 self.log("Force-run flag detected — skipping remaining sleep")
                 flag_path.unlink(missing_ok=True)
                 return
+
+    def _check_query_failure_streaks(self, outcomes: list[tuple[Query, "QueryResult"]]) -> None:
+        """Alert when one query fails pass after pass, naming it and its error.
+
+        The two canaries below are pass-wide and aggregate only over *successful* queries,
+        so a single marketplace dying contributes nothing to either — it just quietly stops
+        appearing in the numerator. That is exactly how Vinted returned 404 on every query
+        for eight days (2026-09-08 to 09-16) while the Bazos queries kept parsing rows and
+        both canaries stayed green.
+
+        Keyed on `Query.pk`, not the label: editing a query's text must not reset its
+        streak, and two queries can render the same label.
+
+        Streaks live in memory, so `run_scraper` rebuilding a crashed `ScrapeRunner` resets
+        them — the same caveat the zero-results counters carry. A crash is loud on its own;
+        this is for the failure that is *quiet*.
+        """
+        threshold = settings.QUERY_FAILURE_ALERT_THRESHOLD
+        for query, result in outcomes:
+            if not result.failed:
+                self.query_failure_streaks.pop(query.pk, None)
+                continue
+            streak = self.query_failure_streaks.get(query.pk, 0) + 1
+            self.query_failure_streaks[query.pk] = streak
+            if streak >= threshold:
+                self.log(
+                    f"CANARY: query {query} has failed {streak} consecutive passes — "
+                    f"last error: {result.error}",
+                    level=logging.ERROR,
+                )
+                # Reset after alerting so a permanently broken query reports every
+                # `threshold` passes instead of every pass, matching the canaries below.
+                self.query_failure_streaks.pop(query.pk, None)
+        # Drop queries that did not run this pass (disabled, deleted) so a streak cannot be
+        # resumed weeks later against a query that has since been fixed or removed.
+        ran = {query.pk for query, _ in outcomes}
+        self.query_failure_streaks = {
+            pk: streak for pk, streak in self.query_failure_streaks.items() if pk in ran
+        }
 
     def _check_zero_results_canary(self, rows_seen: int, new_ads: int, successful_queries: int) -> None:
         """Alert when the pipeline stops producing — parser drift looks exactly like a quiet market.
