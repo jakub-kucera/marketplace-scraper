@@ -93,7 +93,7 @@ class Command(BaseCommand):
         for attempt in range(1, MAX_BLACKLIST_RETRIES + 1):
             try:
                 scraper.session = changer.session
-                return scraper.fetch_by_ids(ids), True
+                found = scraper.fetch_by_ids(ids)
             except MarketplaceBlockedError as e:
                 logger.warning(
                     "Delisting batch blocked on exit %s (attempt %d/%d)",
@@ -101,6 +101,15 @@ class Command(BaseCommand):
                 )
                 if not changer.rotate_circuit():
                     return {}, False
+                continue
+            # None is "no usable answer", NOT "none of them are listed". A timed-out or
+            # unparseable response must record nothing — writing `{}` here would mark all
+            # 210 ads in the batch as removed, which is what happened in production on
+            # 2026-09-17 against a Tor circuit that had not finished warming up.
+            if found is None:
+                logger.warning("Delisting batch got no usable response; skipping %d ads", len(ids))
+                return {}, False
+            return found, True
         return {}, False
 
 
