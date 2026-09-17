@@ -257,6 +257,14 @@ ZERO_ROWS_ALERT_THRESHOLD = env("ZERO_ROWS_ALERT_THRESHOLD", default=2)
 # genuinely quiet market is indistinguishable — so the threshold is high.
 ZERO_NEW_ADS_ALERT_THRESHOLD = env("ZERO_NEW_ADS_ALERT_THRESHOLD", default=10)
 
+# Consecutive passes in which ONE query failed every attempt, before alerting about that
+# query by name. The two canaries above are pass-wide and aggregate only over *successful*
+# queries, so a single marketplace dying contributes nothing to either: Vinted returned 404
+# on every query for eight days (2026-09-08 to 09-16) and neither fired, because the Bazos
+# queries kept parsing rows normally. Low threshold on purpose — a query that fails a whole
+# pass has already spent MAX_BLACKLIST_RETRIES attempts, so three in a row is not bad luck.
+QUERY_FAILURE_ALERT_THRESHOLD = env("QUERY_FAILURE_ALERT_THRESHOLD", default=3)
+
 
 # ---------------------------------------------------------------------------
 # Logging
