@@ -161,3 +161,38 @@ COMPARABLE_MAX_AGE_DAYS: Final[int] = 90
 # appraisal report is meant to be read — neither wants an unbounded list, and this keeps the
 # query cost of `Ad.message` bounded regardless of how popular a configuration is.
 COMPARABLE_MAX_ROWS: Final[int] = 60
+
+# ---------------------------------------------------------------------------
+# Delisting sweep (bazos/delisting.py, `manage.py check_delisted`)
+# ---------------------------------------------------------------------------
+
+# `ads.php?ad_id[]=` accepts this many ids in one request and silently omits the ones that
+# no longer exist — the absence IS the signal (HIDDEN_API.md §3.1, §4.0's measured cap).
+DELIST_BATCH_SIZE: Final[int] = 210
+
+# How often an ad is re-checked, by age. The hazard of a listing selling is front-loaded, so
+# resolution is spent where the events are. This is the whole cost model: flat hourly checks
+# over ~20k live Bazos ads would be ~3 300 requests/day — roughly three times the entire
+# current scrape — while the schedule below covers the same ads for ~33/day, because
+# `ceil(20000/210)` is only 96 requests for a *complete* sweep.
+#
+# (max_age_days, recheck_interval_days) — first matching row wins, so keep it ascending.
+DELIST_SCHEDULE: Final[tuple[tuple[int, int], ...]] = (
+    (3, 1),    # < 3 days old  -> daily
+    (14, 3),   # 3-14 days     -> every 3 days
+    (60, 7),   # 14-60 days    -> weekly
+)
+# Past this, stop checking and leave `removed_at` NULL. That is a **censored observation**,
+# not "still for sale": Bazos listings expire on their own, so beyond this horizon a
+# disappearance says more about the clock than about a buyer.
+DELIST_MAX_AGE_DAYS: Final[int] = DELIST_SCHEDULE[-1][0]
+
+# Ads that were notified or scored get checked one tier faster: they are few, and they are
+# the ones whose outcome calibrates something. Everything else still gets watched, because
+# without the un-notified ads there is no baseline to compare "sold fast" against.
+DELIST_PRIORITY_SPEEDUP: Final[int] = 2
+
+# Pacing between batches. Each request is ~200x cheaper per ad than a per-ad detail call,
+# but PROXY_ROTATION.md §5.1 names detail-endpoint volume as the ban vector, so the sweep
+# stays paced like every other Bazos path.
+DELIST_WAIT_TIME: Final[tuple[float, float]] = (2.0, 5.0)
