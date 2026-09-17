@@ -29,19 +29,67 @@ PRUNE_STATUS_LOGS = "bazos.jobs.prune_status_logs"
 PRUNE_QUERY_RUNS = "bazos.jobs.prune_query_runs"
 
 
-def sweep_delisted(limit: int | None = None) -> str:
+def sweep_delisted(limit: int | None = None, rounds_left: int | None = None) -> str:
     """Run the delisting sweep. See `bazos/delisting.py` for what it does and does not mean.
 
     Wraps the management command rather than reimplementing it: the command is the documented
     entry point and stays usable by hand (`--dry-run`, `--limit`) for the one-off backfill.
+
+    **Two modes, chosen by `limit`.**
+
+    - `limit` given — do exactly that much and stop. The explicit one-off.
+    - `limit` omitted — work in chunks of `DELIST_CHUNK_SIZE` and **re-enqueue itself** while
+      ads remain due. This is what the schedule uses.
+
+    Chunking is not throughput tuning; it is what stops a backfill monopolising the cluster.
+    `Q_CLUSTER["workers"] = 1` is a correctness constraint (the Tor session is not safe for
+    concurrent callers), so *every* other job waits behind this one. A ~29 000-ad backlog run
+    as a single task means an admin-triggered lookup sits behind the whole thing; run as
+    chunks, it waits about a minute.
+
+    No offset is threaded through, and that is deliberate: a swept ad has `last_seen_at`
+    stamped, so it drops out of `due_for_check()` on its own. Paginating instead would skip
+    exactly as many rows as the previous chunk removed from the result set.
+
+    **Two independent stops**, because a re-enqueueing task that cannot finish is a loop that
+    looks like progress: the round budget, and "this chunk cleared nothing". The second is
+    the one that matters — a chunk whose every batch was blocked leaves its ads due, and
+    without it the job would re-queue itself against a marketplace that is refusing us.
     """
     from io import StringIO
 
+    from django_q.tasks import async_task
+
+    from bazos.const import DELIST_CHUNK_SIZE, DELIST_MAX_CHUNK_ROUNDS
+    from bazos.delisting import due_for_check
+
+    one_off = limit is not None
+    chunk = limit if one_off else DELIST_CHUNK_SIZE
+    rounds_left = DELIST_MAX_CHUNK_ROUNDS if rounds_left is None else rounds_left
+
+    due_before = 0 if one_off else due_for_check().count()
+
     out = StringIO()
-    call_command("check_delisted", limit=limit, stdout=out)
+    call_command("check_delisted", limit=chunk, stdout=out)
     summary = out.getvalue().strip().replace("\n", " | ")
     logger.info("Delisting sweep finished: %s", summary)
-    return summary
+
+    if one_off:
+        return summary
+
+    due_after = due_for_check().count()
+    if due_after == 0:
+        return f"{summary} | nothing left due"
+    if due_after >= due_before:
+        # Every batch was skipped — blocked circuits, or a transport that cannot answer.
+        # Re-queueing would spend the round budget asking the same question.
+        logger.warning("Delisting chunk cleared nothing; %d still due", due_after)
+        return f"{summary} | {due_after} still due, chunk made no progress — stopping"
+    if rounds_left <= 1:
+        return f"{summary} | {due_after} still due, round budget spent — stopping"
+
+    async_task(SWEEP_DELISTED, rounds_left=rounds_left - 1)
+    return f"{summary} | {due_after} still due, next chunk queued"
 
 
 def heartbeat() -> str:
