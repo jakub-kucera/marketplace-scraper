@@ -14,7 +14,7 @@ from bazos.scraping.interval_multiplier import NightMultiplier
 from django.conf import settings
 
 from ip_changer.dummy import DummyIPChanger
-from ip_changer.tor import TorIPChanger
+from ip_changer.tor import DROPPED_MOBILE_UA_COUNT, TorIPChanger
 from senders.models import Discord
 from senders.services.discord_sender import DiscordSender
 
@@ -38,6 +38,14 @@ class ScrapeRunner:
         self.zero_new_ads_passes = 0
         #: Query.pk -> consecutive passes that query has failed outright.
         self.query_failure_streaks: dict[int, int] = {}
+        if DROPPED_MOBILE_UA_COUNT:
+            # Reported here rather than at import: this is the first point in the process
+            # where a database exists for the log handler to write to.
+            logger.info(
+                "User-Agent pool filtered: dropped %d mobile agent(s) — Bazos serves them "
+                "a DOM the parser cannot read",
+                DROPPED_MOBILE_UA_COUNT,
+            )
 
     def run(self):
         while True:
