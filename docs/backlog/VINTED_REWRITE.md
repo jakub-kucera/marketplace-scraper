@@ -1,8 +1,8 @@
 ---
 title: Vinted — rewrite the scraper on the catalog-page transport
 status: active
-updated: 2026-09-16
-verified: 2026-09-16
+updated: 2026-09-17
+verified: 2026-09-17
 ---
 
 # Vinted — rewrite the scraper on the catalog-page transport
@@ -49,7 +49,7 @@ verified: 2026-09-16
 > | check | result |
 > |---|---|
 > | ads created, `QueryRun.success` true | ✅ 104 ads |
-> | **`short_description` non-empty** (the §3.5.1 regression check) | ✅ **104/104** — and note this is a *change*: under the old scraper all 760 Vinted ads had it empty, so both keyword rules were silently disabled on Vinted and are now live |
+> | **`short_description` non-empty** (the §3.5.1 regression check) | ✅ **104/104** — and note this is a *change*: under the old scraper all 760 Vinted ads had it empty. The keyword rules were **degraded to title-only, not disabled** — their haystack is `name + short_description` and `VintedScraper` always populates `name` (it skips rows without a title), so they still matched, just on less text. A Vinted query with a blocklist may therefore start rejecting ads it previously let through |
 > | `publish_date` / `view_count` null | ✅ 104/104 both |
 > | `price` parsed | ✅ `price_raw` is `"10192 CZK"` → `price=10192`, `price_type=exact`. Note the checklist's wording "an integer string" describes `price`, not `price_raw`, which carries the currency suffix |
 > | **`topped` set on some rows** | ⚠️ **0 of 104.** 40 Vinted ads are topped overall but the newest is 2026-09-13, i.e. all predate this transport. Either the catalog page does not expose a promoted flag or it is not being read. Low impact — `topped` only feeds `dedup_break_streak`, and under `newest_first` an eager break is correct anyway — but the box is not ticked |
@@ -362,8 +362,10 @@ that is the reason, not a bug in the walk.
 
 #### 3.5.1 `short_description` — the real improvement
 
-The shipped scraper stored `""`, which silently disabled `blocklist_keyword` and `required_keyword`
-on Vinted (they match `name + short_description`). `productItem.itemBox` gives, at **96/96
+The shipped scraper stored `""`, which silently degraded `blocklist_keyword` and
+`required_keyword` on Vinted to **title-only** matching — not disabled: their haystack is
+`name + short_description`, and `name` is always populated (a row without a title is skipped),
+so they kept matching on half the text. `productItem.itemBox` gives, at **96/96
 coverage**, `firstLine` (Vinted-normalised brand + model, e.g. `Apple MacBook Pro 2019`) and
 `secondLine` (condition). Store `f"{firstLine} · {secondLine}"`.
 
@@ -499,11 +501,16 @@ Update `VINTED_PAGE_SIZE`'s comment: it is no longer a `per_page` request parame
 `pyproject.toml`: **remove `vinted-scraper = "^4.0.0"`**. Check whether `httpx` disappears from the
 lock as a result. Nothing else depends on it (`grep -rn vinted_scraper --include=*.py`).
 
-## 7. Rollout — PR 6, the part that is not done
+## 7. Rollout — ✅ done 2026-09-17
 
-Everything above is code on local branches. None of it is deployed, and **Vinted is still
-failing in production**. This section is the hand-off; it needs production access and a
-deploy, neither of which happens from a development checkout.
+**All of this has been carried out**; the steps below are kept as the record of what was run
+and as the recipe for converting the *next* Vinted query, which §7.3 still describes. The
+status banner at the top of this file has the measurements. In short: `v1.2.0` deployed the
+code on 2026-09-16, §7.2–7.4 were worked through on the Pi on 2026-09-17, and Vinted has since
+run 12 passes with 0 failures.
+
+The instructions are written in the imperative because they were a hand-off. Read them as
+"what was done", not "what remains".
 
 ### 7.1 Deploy
 
@@ -563,8 +570,9 @@ In the admin, on ads from the new pass:
 - [ ] ads are being created at all, and `QueryRun.success` is true for the Vinted query
 - [ ] `price_raw` is an integer string and `price` is the **ex-fee** figure (cross-check one
       against the listing page: the site shows the ex-fee price in large type)
-- [ ] **`short_description` is non-empty** — the regression check for §3.5.1; empty means
-      `itemBox` changed shape and both keyword rules are silently disabled again
+- [x] **`short_description` is non-empty** — the regression check for §3.5.1; empty means
+      `itemBox` changed shape and both keyword rules fall back to title-only matching again
+      (degraded, not disabled — `name` is always populated). ✅ 104/104 on 2026-09-17
 - [ ] `topped` is set on some rows
 - [ ] `publish_date` and `view_count` are null (they must stay null — never synthesised)
 - [ ] with `load_full_description=True`, `attributes` carries real specs
