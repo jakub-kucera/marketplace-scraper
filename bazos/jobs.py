@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 #: here so a rename breaks an import rather than silently orphaning a schedule.
 SWEEP_DELISTED = "bazos.jobs.sweep_delisted"
 HEARTBEAT = "bazos.jobs.heartbeat"
+PRUNE_STATUS_LOGS = "bazos.jobs.prune_status_logs"
+PRUNE_QUERY_RUNS = "bazos.jobs.prune_query_runs"
 
 
 def sweep_delisted(limit: int | None = None) -> str:
@@ -56,3 +58,29 @@ def heartbeat() -> str:
     now = timezone.now()
     logger.info("Job cluster heartbeat at %s", now.isoformat(timespec="seconds"))
     return f"alive at {now:%Y-%m-%d %H:%M:%S}"
+
+
+# ---------------------------------------------------------------------------
+# Housekeeping — the two tables that grow with the clock, not with the market
+# ---------------------------------------------------------------------------
+
+def prune_status_logs(days: int | None = None, error_days: int | None = None) -> str:
+    """Drop log rows past their horizon. See `bazos/housekeeping.py` for the two horizons."""
+    from bazos.housekeeping import prune_status_logs as prune
+
+    routine, serious = prune(days, error_days)
+    logger.info("Pruned %d routine and %d warning+ log rows", routine, serious)
+    return f"deleted {routine} routine, {serious} warning+"
+
+
+def prune_query_runs(days: int | None = None) -> str:
+    """Drop `QueryRun` rows past their horizon.
+
+    ⚠️ This is the table every block-rate measurement is computed from, and a deleted row is
+    gone — `exit_ip` is the only record of which egress the marketplace actually rejected.
+    """
+    from bazos.housekeeping import prune_query_runs as prune
+
+    deleted = prune(days)
+    logger.info("Pruned %d query runs", deleted)
+    return f"deleted {deleted} query runs"
