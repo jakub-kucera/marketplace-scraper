@@ -10,12 +10,14 @@ boundary belongs to the task layer, so these stay callable from a shell, a test 
 without a queue in the way.
 """
 import logging
+from dataclasses import dataclass
 
 import requests
 
 from bazos.delisting import SWEEPABLE_MARKETPLACES, apply_batch
-from bazos.models import Ad
-from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
+from bazos.geo import ensure_postal_code, parse_postal_code
+from bazos.models import Ad, AdSource, Marketplace
+from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper, parse_listing_item
 from bazos.scraping.query_runner import get_scraper
 
 logger = logging.getLogger(__name__)
@@ -108,3 +110,64 @@ def _refresh_listing_facts(ad: Ad, row: dict) -> list[str]:
     if changed:
         ad.save(update_fields=changed)
     return changed
+
+
+@dataclass(frozen=True)
+class InventoryResult:
+    fetched: int = 0
+    created: int = 0
+    already_known: int = 0
+
+    def __str__(self) -> str:
+        return f"{self.fetched} listed, {self.created} new, {self.already_known} already known"
+
+
+def fetch_seller_listings(publisher, session: requests.Session) -> InventoryResult:
+    """Pull one seller's entire current inventory and store what we do not already have.
+
+    `ads.php?email_id=` / `phone_id=` returns the lot in one request (HIDDEN_API.md §6.4g),
+    which is what makes "what else is this person selling" affordable at all.
+
+    **Rows are written as `Marketplace.BAZOS`, not `BAZOS_API`**, and that is the detail to
+    get right. `Ad` is unique on `(marketplace, external_id)`, so writing the API's own
+    marketplace value would create a *second* row for a listing the HTML scraper has already
+    seen, or will see tomorrow — two rows for one real-world ad, each with half its history,
+    both swept for delisting. The transport used to fetch a listing is not a property of the
+    listing.
+
+    Each new row is stamped `source=SELLER_SWEEP` and gets **no `AdDelivery`** — no query
+    asked for it, and inventing one would put ads nobody searched for into a notification
+    stream. The provenance column is what keeps "ads we have" and "ads our queries found"
+    tellable apart afterwards.
+
+    The publisher FK is set from the id we queried, which is the one seller fact the thin
+    payload does not carry and we already know for certain.
+    """
+    scraper = BazosApiScraper(session)
+    rows = scraper.fetch_publisher_listings(publisher.ratings_param, publisher.bazos_id)
+    if rows is None:
+        raise RuntimeError(
+            f"no usable inventory response for {publisher.ratings_param}={publisher.bazos_id}"
+        )
+
+    fk = "email_publisher" if publisher.ratings_param == "email_id" else "phone_publisher"
+    created = already = 0
+    for row in rows:
+        parsed = parse_listing_item(row)
+        if Ad.objects.filter(
+            marketplace=Marketplace.BAZOS, external_id=parsed["external_id"]
+        ).exists():
+            already += 1
+            continue
+        ad = Ad.objects.create(
+            marketplace=Marketplace.BAZOS,
+            source=AdSource.SELLER_SWEEP,
+            short_description="",   # the thin listing payload carries none
+            publisher_name="",
+            **{fk: publisher},
+            **parsed,
+        )
+        ensure_postal_code(parse_postal_code(ad.location), session)
+        created += 1
+
+    return InventoryResult(fetched=len(rows), created=created, already_known=already)
