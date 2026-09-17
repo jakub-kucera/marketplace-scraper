@@ -243,6 +243,43 @@ def test_a_blocked_batch_is_skipped_not_recorded_as_removed(make_live_ad):
 
 
 @pytest.mark.django_db
+def test_a_failed_request_is_not_recorded_as_removal(make_live_ad):
+    """The regression that shipped on 2026-09-17.
+
+    A cold Tor circuit made `run_request` exhaust its retries. `fetch_by_ids` returned `{}`,
+    the command read that as a successful response listing nothing, and `apply_batch` marked
+    every ad in the batch removed. The block path was guarded and tested; this one — an
+    ordinary network failure — was not.
+    """
+    ad = make_live_ad(age_days=1)
+    scraper = MagicMock()
+    scraper.fetch_by_ids.return_value = None   # no usable answer
+
+    with patch("bazos.management.commands.check_delisted.BazosApiScraper", return_value=scraper), \
+         patch.object(type(_command()), "_ip_changer", return_value=MagicMock()):
+        run_command()
+
+    ad.refresh_from_db()
+    assert ad.removed_at is None, "a failed request must never be recorded as a removal"
+    assert ad.last_seen_at is None
+
+
+@pytest.mark.django_db
+def test_an_empty_but_successful_response_does_record_removal(make_live_ad):
+    """The other half: `{}` from a real 200 genuinely means every id is gone."""
+    ad = make_live_ad(age_days=1)
+    scraper = MagicMock()
+    scraper.fetch_by_ids.return_value = {}
+
+    with patch("bazos.management.commands.check_delisted.BazosApiScraper", return_value=scraper), \
+         patch.object(type(_command()), "_ip_changer", return_value=MagicMock()):
+        run_command()
+
+    ad.refresh_from_db()
+    assert ad.removed_at is not None
+
+
+@pytest.mark.django_db
 def test_a_successful_sweep_records_both_outcomes(make_live_ad):
     alive = make_live_ad(age_days=1)
     gone = make_live_ad(age_days=1)
@@ -333,12 +370,22 @@ def test_fetch_by_ids_raises_on_a_block_so_the_caller_can_rotate(status):
 
 
 @pytest.mark.parametrize("response", [None, _response(status=500), _response(payload={"not": "a list"})])
-def test_fetch_by_ids_returns_empty_on_failure(response):
-    """Empty means "no information" to the caller, which must not act on it. The command
-    checks the `ok` flag rather than the emptiness of this dict for exactly that reason."""
+def test_fetch_by_ids_returns_none_when_it_has_no_answer(response):
+    """`None` and `{}` mean opposite things here, and conflating them destroys data:
+    `{}` is "a successful response listed none of these, they are all gone", while `None`
+    is "no usable answer, record nothing"."""
     scraper = _scraper()
 
     with patch.object(scraper, "run_request", return_value=response):
+        assert scraper.fetch_by_ids([1, 2]) is None
+
+
+def test_fetch_by_ids_returns_empty_dict_for_a_genuinely_empty_result():
+    """The distinction above, from the other side: a 200 listing no ids IS the removal
+    signal and must stay distinguishable from a failure."""
+    scraper = _scraper()
+
+    with patch.object(scraper, "run_request", return_value=_response(payload=[])):
         assert scraper.fetch_by_ids([1, 2]) == {}
 
 
