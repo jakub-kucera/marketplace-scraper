@@ -18,6 +18,7 @@ from django_db_logger.admin import StatusLogAdmin
 from django_db_logger.models import StatusLog
 from django_q.admin import FailAdmin, QueueAdmin, ScheduleAdmin, TaskAdmin
 from django_q.models import Failure as QFailure, OrmQ as QTask, Schedule as QSchedule, Success as QSuccess
+from django_q.tasks import async_task
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.filters.admin import (
     ChoicesDropdownFilter,
@@ -32,6 +33,7 @@ from unfold.widgets import (
 )
 
 from bazos.comparables import find_comparables
+from bazos.jobs import SCORE_AD
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
 from bazos.models import AdOutcome, AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
@@ -773,6 +775,10 @@ class AdAdmin(ModelAdmin):
         "comparables",
     )
     inlines = (AdOutcomeInline, AdDeliveryInline, PriceChangeInline, AdPriceScoreInline)
+    # Annotated rather than left to inference: `refprice/admin.py` appends its own action
+    # to this tuple from outside (the dependency points inward, so `bazos` cannot import
+    # it), and a literal would be inferred as tuple[str] and reject the callable.
+    actions: tuple[Any, ...] = ("score_selected_ads",)
     # query_count's Count(...) annotation forces a GROUP BY over the whole ad × addelivery
     # join. Without this, the changelist paginator's separate "N results" count query runs
     # that GROUP BY as a subquery aggregate over the FULL table on every page load — cheap
@@ -814,6 +820,26 @@ class AdAdmin(ModelAdmin):
     @admin.display(description="z", ordering=models.F("price_z").asc(nulls_last=True))
     def price_z(self, obj):
         return "—" if obj.price_z is None else f"{obj.price_z:+.2f}"
+
+    @admin.action(description="Re-score with the price model")
+    def score_selected_ads(self, request, queryset):
+        """Queue one scoring task per ad. Never scores inline.
+
+        CPU-only work, so it would in fact survive being done here — but a fifty-row
+        selection is fifty model evaluations plus fifty writes inside one admin request,
+        and routing it through the queue is what makes each one visible as its own row in
+        Successful/Failed tasks. The message says "queued" for the same reason it does on
+        the reference-price action: the outcome lives on those rows.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(SCORE_AD, pk)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} scoring task(s). Results appear on each ad, and in "
+            f"Scheduled tasks → Successful/Failed tasks.",
+            messages.INFO,
+        )
 
     @admin.display(description="Listing", ordering="removed_at")
     def listing_state(self, obj):

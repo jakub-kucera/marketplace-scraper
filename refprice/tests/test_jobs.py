@@ -61,18 +61,9 @@ def test_bazos_jobs_does_not_import_refprice():
     there, explaining why the seam exists, and a substring search would make documenting the
     reason fail the test that enforces it.
     """
-    import ast
-    import pathlib
+    from refprice.tests.import_direction import modules_imported_by
 
-    source = pathlib.Path(__import__("bazos").__file__).parent / "jobs.py"
-    imported: list[str] = []
-    for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
-        if isinstance(node, ast.Import):
-            imported += [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.append(node.module)
-
-    assert not [name for name in imported if name.split(".")[0] == "refprice"]
+    assert "refprice" not in modules_imported_by("jobs.py")
 
 
 # ---------------------------------------------------------------------------
