@@ -13,7 +13,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django_q.models import Schedule
 
-from bazos.jobs import HEARTBEAT, SWEEP_DELISTED
+from bazos.jobs import HEARTBEAT, PRUNE_QUERY_RUNS, PRUNE_STATUS_LOGS, SWEEP_DELISTED
 
 #: name -> (dotted func, schedule_type, minutes, kwargs)
 SCHEDULES: dict[str, tuple] = {
@@ -30,6 +30,21 @@ SCHEDULES: dict[str, tuple] = {
         HEARTBEAT,
         Schedule.MINUTES,
         60,
+        {},
+    ),
+    # Weekly, not daily: both tables are pruned by age, so running it more often deletes
+    # the same rows a few days earlier at the cost of a long DELETE competing with the
+    # scraper for locks on a table it writes to every pass.
+    "prune-status-logs": (
+        PRUNE_STATUS_LOGS,
+        Schedule.WEEKLY,
+        None,
+        {},
+    ),
+    "prune-query-runs": (
+        PRUNE_QUERY_RUNS,
+        Schedule.WEEKLY,
+        None,
         {},
     ),
 }
