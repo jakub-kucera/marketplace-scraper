@@ -172,7 +172,7 @@ class BazosApiScraper:
         total = int(total_header) if total_header is not None else None
         return response.json(), total
 
-    def fetch_by_ids(self, external_ids: list[int]) -> dict[int, dict]:
+    def fetch_by_ids(self, external_ids: list[int]) -> dict[int, dict] | None:
         """Bulk-fetch listings by id. Missing ids are simply absent from the result.
 
         That absence is the whole delisting signal: `ads.php` silently omits ids it no
@@ -180,9 +180,17 @@ class BazosApiScraper:
         of these 210 are still up" and returns their current `price_formatted` and `views`
         for free.
 
-        Raises `MarketplaceBlockedError` on a 403/429 so the caller can rotate. Returns an
-        empty dict for any other failure — which the caller **must** treat as "no
-        information", never as "all of them are gone".
+        ⚠️ **`None` and `{}` mean opposite things, and conflating them destroys data.**
+
+        - `{}` — a successful response that listed none of these ids. Every one is gone.
+        - `None` — no usable answer: the request failed, timed out, or came back unparseable.
+          The caller must record nothing.
+
+        Returning `{}` for a failed request is exactly the bug this signature now prevents:
+        a cold Tor circuit made `run_request` exhaust its retries, which read as "all 210 of
+        these are gone" and wrote false removals into the only outcome data the project has.
+
+        Raises `MarketplaceBlockedError` on a 403/429 so the caller can rotate.
         """
         if not external_ids:
             return {}
@@ -192,19 +200,20 @@ class BazosApiScraper:
         )
         if response is None:
             logger.warning("Bulk id fetch failed after %d attempts", MAX_ATTEMPTS)
-            return {}
+            return None
         if response.status_code in (403, 429):
             raise MarketplaceBlockedError.from_response(response)
         if response.status_code != 200:
             logger.warning("Bulk id fetch returned status=%d", response.status_code)
-            return {}
+            return None
         try:
             rows = response.json()
         except ValueError:
             logger.warning("Bulk id fetch returned non-JSON")
-            return {}
+            return None
         if not isinstance(rows, list):
-            return {}
+            logger.warning("Bulk id fetch returned %s, not a list", type(rows).__name__)
+            return None
         return {int(row["id"]): row for row in rows if isinstance(row, dict) and "id" in row}
 
     def check_blacklisted(self) -> bool:
