@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     # third party
     "django_extensions",
     "django_db_logger",
+    "django_q",
     # my apps
     "bazos",
     "facebook",
@@ -368,3 +369,41 @@ if SENTRY_DSN and not RUNNING_TESTS:
         # then shows up in the UI as a real release that nothing belongs to.
         release=SENTRY_RELEASE or None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Background jobs (django-q2)
+# ---------------------------------------------------------------------------
+# Chosen over a systemd timer because scheduling has to be editable and every run has to be
+# visible in the admin — a timer gives neither. Chosen over django-cron because that package
+# was last released in 2022 and declares no Django support; this one requires Django >= 5.2,
+# which is where this project now is.
+#
+# Broker is the ORM, so the infrastructure is still just Postgres and Tor. No Redis.
+Q_CLUSTER = {
+    "name": "marketplace",
+    # ⚠️ ONE worker, and this is not a tuning choice. JOB_QUEUE.md §2: the shared
+    # `requests.Session` and its Tor circuit are not safe for concurrent callers — two jobs
+    # touching Bazos at once would race on circuit rotation. §2 offers exactly this as the
+    # alternative to building a lock: "simply constraining them to a single-concurrency
+    # worker". Raising this REQUIRES the `requires_bazos_session` lock design first.
+    "workers": 1,
+    # Restart the worker process every N tasks; cheap insurance against a slow leak on a Pi
+    # that is expected to stay up for months.
+    "recycle": 100,
+    # `retry` MUST exceed `timeout`, or a task still running is re-queued underneath itself.
+    # The delisting sweep is the long pole: ~96 paced requests plus circuit rotations.
+    "timeout": 30 * 60,
+    "retry": 60 * 60,
+    "max_attempts": 3,
+    # False = a schedule missed while the Pi was down fires ONCE on return and then skips to
+    # the next future slot, rather than replaying every occurrence it slept through.
+    # Verified in django_q/scheduler.py: the next_run loop advances past missed slots unless
+    # CATCH_UP is set. That is the `Persistent=true` property of the backup timer, without a
+    # thundering herd after a long outage.
+    "catch_up": False,
+    # Keep enough successful runs to answer "did the sweep run, and what did it find" for a
+    # couple of months at daily cadence. Failures are retained separately.
+    "save_limit": 1000,
+    "orm": "default",
+}
