@@ -13,13 +13,12 @@ Usage:
 """
 import logging
 
-import requests
 from django.core.management.base import BaseCommand
 
 from bazos.models import Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
-from ip_changer.tor import PROXIES
+from bazos.scraping.session import AllCircuitsBlocked, build_ip_changer, with_rotation
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +31,10 @@ class Command(BaseCommand):
         parser.add_argument("--limit", type=int, default=5, help="How many enabled queries to compare (default 5)")
 
     def handle(self, *args, **options):
-        session = requests.Session()
-        session.proxies = PROXIES
-
-        html_scraper = BazosScraper(session)
-        api_scraper = BazosApiScraper(session)
+        changer = build_ip_changer()
+        assert changer.session is not None
+        html_scraper = BazosScraper(changer.session)
+        api_scraper = BazosApiScraper(changer.session)
 
         if options["query_id"]:
             queries = Query.objects.filter(pk=options["query_id"])
@@ -46,11 +44,16 @@ class Command(BaseCommand):
         for query in queries:
             self.stdout.write(f"--- Query {query.pk}: {query} ---")
 
-            # BazosScraper.extract_product leaves external_id as the raw string
-            # parsed from the URL path; BazosApiScraper's is already an int.
-            # Normalise both to int before comparing.
-            html_ids = {int(ad.external_id) for ad in html_scraper.run_query(query)}
-            api_ids = {int(ad.external_id) for ad in api_scraper.run_query(query)}
+            # Rotation matters more here than anywhere else, because of what this output is
+            # read as. A 403'd circuit returns nothing, and "nothing" from one of the two
+            # scrapers is indistinguishable from the parser drift this command exists to
+            # detect — a canary that cannot tell "blocked" from "broken" is worse than none.
+            try:
+                html_ids = self._ids(html_scraper, changer, query, "html")
+                api_ids = self._ids(api_scraper, changer, query, "api")
+            except AllCircuitsBlocked as e:
+                self.stdout.write(self.style.WARNING(f"  blocked, no comparison made: {e}"))
+                continue
 
             common = html_ids & api_ids
             only_html = html_ids - api_ids
@@ -65,3 +68,20 @@ class Command(BaseCommand):
                 self.stdout.write(f"  only in html (sample): {sorted(only_html)[:10]}")
             if only_api:
                 self.stdout.write(f"  only in api (sample): {sorted(only_api)[:10]}")
+
+    @staticmethod
+    def _ids(scraper, changer, query, what: str) -> set[int]:
+        """Every external_id one scraper finds for this query, on a circuit that works.
+
+        `BazosScraper.extract_product` leaves `external_id` as the raw string parsed from
+        the URL path while `BazosApiScraper`'s is already an int, so both are normalised
+        before they are compared.
+
+        The set comprehension is inside the callable on purpose: `run_query` is a generator,
+        so a block is raised while it is being *iterated*, not when it is called.
+        """
+        def fetch(session):
+            scraper.session = session
+            return {int(ad.external_id) for ad in scraper.run_query(query)}
+
+        return with_rotation(changer, fetch, what=f"{what} scrape of query {query.pk}")
