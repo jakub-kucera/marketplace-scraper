@@ -1,12 +1,17 @@
 ---
-title: Bazos Mobile App — User-Agent Behaviour
+title: Bazos User-Agents — the app's, and the trap on the HTML path
 status: shipped
-updated: 2026-07-19
-verified: 2026-07-19
+updated: 2026-09-17
+verified: 2026-09-17
 shipped_in: bazos/scraping/bazos/user_agent.py
 ---
 
-# Bazos Mobile App — User-Agent Behaviour
+# Bazos User-Agents — the app's, and the trap on the HTML path
+
+**§1–§8 are the API path**: how the official Android app builds the `User-Agent` it sends to
+`api/v1/`, and how `bazos/scraping/bazos/user_agent.py` reproduces it. **§9 is the HTML path** —
+a different pool, a different problem, and the one that has actually cost production passes.
+Read it before touching `ip_changer/tor.py`'s import-time filtering.
 
 How the official Android app (`cz.ackee.bazos`) builds the `User-Agent` header it
 sends to the hidden `api/v1/` endpoints, and how to reproduce it faithfully.
@@ -178,4 +183,66 @@ The construction, interceptor ordering, and the appended `okhttp/4.11.0` are rea
 directly from the bytecode and are reliable. What remains **unverified without a live
 capture**: that the server actually accepts this UA and doesn't additionally gate on a
 TLS/HTTP2 fingerprint. One probe (through the project's Tor proxy) would confirm it.
-</content>
+
+---
+
+## 9. The HTML path — Bazos serves a different DOM to mobile User-Agents
+
+> **Not about §1–§8's app UA.** `BazosScraper` fetches ordinary web pages, not `api/v1/`, and
+> draws its agent from `requests_random_user_agent`'s pool — which patches
+> `requests.utils.default_user_agent` to pick a fresh one **per call**. That pool ships phone
+> and tablet agents.
+
+Measured live 2026-09-17 on one query's own listing URL, same Tor circuit, seconds apart:
+
+| User-Agent | rows parsed | rows missing `inzeratycena` |
+|---|---|---|
+| desktop Chrome | 20 | **0** |
+| iPhone Safari | 20 | **20** |
+| Android Chrome | 20 | **20** |
+
+The mobile markup is a **different template, not a degraded one**: it carries price and
+locality inline inside `div.popis` and has no `inzeratycena` / `inzeratylok` / `inzeratyview` /
+`inzeratyakce` at all.
+
+### 9.1 Why that costs a whole pass, not one ad
+
+`_parse_product` is written against the desktop template, so it raises `AttributeError` on the
+**first** row. Three properties compound:
+
+- It fires **while the generator is being iterated** — `run_query` does
+  `list(get_page_products(...))` — so it lands **outside** `_tolerating_one_bad_ad`, whose
+  guard wraps the loop *body*. The per-ad tolerance does not apply.
+- It is not a `MarketplaceBlockedError`, so `_run_query_with_rotation` does not retry it. One
+  draw of a mobile agent writes the query off for the pass.
+- It is **invisible in the aggregate**. The zero-rows canary counts rows *parsed*, and a query
+  that raised parsed none — it stops contributing to the numerator while the healthy queries
+  keep the totals looking normal. Same blind spot that let every Vinted query 404 for eight
+  days; `QUERY_FAILURE_ALERT_THRESHOLD` is what now covers it.
+
+**2 of 62 agents in the pool were mobile — about 3% of sessions.** Frequent enough to lose
+passes steadily, rare enough to read as ordinary Bazos flakiness.
+
+### 9.2 The fix, and the fix that would be wrong
+
+`ip_changer/tor.py::drop_mobile_user_agents()` strips them at import, matching
+`MOBILE_UA_MARKERS = ("Mobile", "Android", "iPhone", "iPad", "Windows Phone")`. Two details are
+load-bearing: it mutates the pool **in place** (`pool[:] = desktop`), because the library's
+patch closes over that list object by name in its own module; and it **refuses to empty the
+pool**, because `random.choice([])` raises inside the patched `default_user_agent` and would
+break 100% of requests instead of 3%.
+
+⚠️ **Do not "fix" this by teaching `_parse_product` the mobile layout.** The mobile template
+has no `inzeratyakce`, and that block is the only source of `publisher_email` /
+`publisher_phone` on the HTML path. A parser that handled both would stop raising and start
+**silently dropping seller identity** on ~3% of ads — which feeds `SellerAdCounts`,
+`PublisherBlocklistRule`, and every seller-keyed lookup in §6.4 of `HIDDEN_API.md`. A loud
+failure on 3% of passes beats quiet corruption of 3% of rows.
+
+### 9.3 What this implies for §6's rotation strategy
+
+§6 recommends rotating a `DeviceProfile` per Tor identity so each exit looks like a distinct
+fresh install. That reasoning holds **for the API path only**. On the HTML path the constraint
+runs the other way — the parser pins us to one device class, so agent variety there is bounded
+by what the DOM allows rather than by what looks most natural. Any future per-identity rotation
+on the HTML path must draw from the desktop subset.
