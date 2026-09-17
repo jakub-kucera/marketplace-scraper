@@ -32,6 +32,7 @@ PRUNE_QUERY_RUNS = "bazos.jobs.prune_query_runs"
 SCORE_AD = "bazos.jobs.score_ad"
 RESCORE_ADS = "bazos.jobs.rescore_ads"
 SYNC_VINTED_CATALOGS = "bazos.jobs.sync_vinted_catalogs"
+COMPARE_BAZOS_SCRAPERS = "bazos.jobs.compare_bazos_scrapers"
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +73,9 @@ SCHEDULES: dict[str, ScheduleSpec] = {
     # arrives in ONE request — so this is not about cost, it is about not finding out a
     # catalog id was retired by watching a query quietly return nothing.
     "sync-vinted-catalogs": ScheduleSpec(SYNC_VINTED_CATALOGS, Schedule.MONTHLY),
+    # Weekly, matching contract-check.yml's cadence for the same kind of question. Read-only
+    # and cheap — a handful of queries against both transports.
+    "compare-bazos-scrapers": ScheduleSpec(COMPARE_BAZOS_SCRAPERS, Schedule.WEEKLY),
 }
 
 
@@ -257,4 +261,28 @@ def sync_vinted_catalogs() -> str:
     call_command("create_vinted_catalogs", stdout=out)
     summary = out.getvalue().strip().replace("\n", " | ")
     logger.info("Vinted catalog sync: %s", summary)
+    return summary
+
+
+def compare_bazos_scrapers(limit: int | None = None) -> str:
+    """Do the HTML and the hidden-API scraper still see the same listings?
+
+    Read-only — it never writes an `Ad`. This is the standing drift check for **P21a's
+    cutover**: `BazosApiScraper` is registered but no `Query` selects it, so today nothing
+    would notice if it quietly stopped agreeing with the HTML scraper, and the cutover is a
+    step nobody wants to take on a scraper last validated by hand weeks earlier.
+
+    The command rotates circuits per scrape, which matters more here than anywhere else: a
+    403 returns nothing, and "nothing" from one of the two transports reads exactly like the
+    drift this is looking for.
+    """
+    from io import StringIO
+
+    out = StringIO()
+    kwargs: dict[str, object] = {}
+    if limit is not None:
+        kwargs["limit"] = limit
+    call_command("compare_bazos_scrapers", stdout=out, **kwargs)
+    summary = out.getvalue().strip().replace("\n", " | ")
+    logger.info("Scraper parity check: %s", summary)
     return summary

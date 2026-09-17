@@ -20,6 +20,7 @@ from django_q.models import Schedule
 
 from bazos.const import DELIST_MAX_CHUNK_ROUNDS
 from bazos.jobs import (
+    COMPARE_BAZOS_SCRAPERS,
     HEARTBEAT,
     PRUNE_QUERY_RUNS,
     PRUNE_STATUS_LOGS,
@@ -45,7 +46,7 @@ def resolve(dotted: str):
     "dotted",
     [
         SWEEP_DELISTED, HEARTBEAT, PRUNE_STATUS_LOGS, PRUNE_QUERY_RUNS,
-        SCORE_AD, RESCORE_ADS, SYNC_VINTED_CATALOGS,
+        SCORE_AD, RESCORE_ADS, SYNC_VINTED_CATALOGS, COMPARE_BAZOS_SCRAPERS,
     ],
 )
 def test_every_task_path_resolves(dotted):
@@ -401,3 +402,27 @@ def test_vinted_catalog_sync_wraps_the_command():
         jobs.sync_vinted_catalogs()
 
     assert call.call_args.args[0] == "create_vinted_catalogs"
+
+
+@pytest.mark.django_db
+def test_scraper_parity_check_wraps_the_command():
+    """The standing drift check for P21a's cutover: `BazosApiScraper` is registered but no
+    Query selects it, so nothing would notice if it stopped agreeing with the HTML scraper."""
+    from bazos import jobs
+
+    with patch.object(jobs, "call_command") as call:
+        jobs.compare_bazos_scrapers(limit=3)
+
+    assert call.call_args.args[0] == "compare_bazos_scrapers"
+    assert call.call_args.kwargs["limit"] == 3
+
+
+@pytest.mark.django_db
+def test_parity_check_omits_limit_when_not_given():
+    """`--limit` defaults to 5 in the command; passing None would override that with None."""
+    from bazos import jobs
+
+    with patch.object(jobs, "call_command") as call:
+        jobs.compare_bazos_scrapers()
+
+    assert "limit" not in call.call_args.kwargs
