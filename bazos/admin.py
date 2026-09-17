@@ -33,7 +33,7 @@ from unfold.widgets import (
 )
 
 from bazos.comparables import find_comparables
-from bazos.jobs import SCORE_AD
+from bazos.jobs import GEOCODE_POSTAL_CODE, SCORE_AD
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
 from bazos.models import AdOutcome, AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
@@ -421,7 +421,7 @@ class QueryAdmin(ModelAdmin):
     # str(Query) reads text/category/section, so without this the changelist does a
     # section+category lookup per row.
     list_select_related = ("category", "section", "sender")
-    actions = ["enable_queries", "disable_queries"]
+    actions = ["enable_queries", "disable_queries", "geocode_filter_centres"]
     actions_list = ["force_run_now"]
     autocomplete_fields = ["category", "section", "sender"]
     inlines = (QueryChangeInline,)
@@ -575,6 +575,33 @@ class QueryAdmin(ModelAdmin):
     def disable_queries(self, request, queryset):
         updated = queryset.update(enabled=False)
         self.message_user(request, f"{updated} query(ies) disabled successfully.")
+
+    @admin.action(description="Geocode the distance-filter centre")
+    def geocode_filter_centres(self, request, queryset):
+        """Queue a `zip.php` lookup for each selected query's `filter_location_center`.
+
+        A centre is typed by hand on this page and has no creation moment of its own, so
+        until something geocodes it `location_distance` PASSes for the whole query — which
+        looks exactly like "no filter configured". The runner warms centres once a pass, so
+        without this the window is up to 45 minutes of a filter this page says is on.
+
+        Queries with no centre are skipped and counted rather than passed through: a task
+        whose only possible outcome is "nothing to do" is noise in the run log.
+        """
+        centres = {
+            centre for centre in queryset.exclude(filter_location_center="")
+            .values_list("filter_location_center", flat=True) if centre
+        }
+        for centre in sorted(centres):
+            async_task(GEOCODE_POSTAL_CODE, centre)
+
+        skipped = queryset.count() - len(centres)
+        self.message_user(
+            request,
+            f"Queued {len(centres)} geocode(s)"
+            + (f"; {skipped} selected query(ies) have no filter centre." if skipped > 0 else "."),
+            messages.INFO,
+        )
 
     @unfold_action(description="Force Run Now", icon="bolt", url_path="force-run")
     def force_run_now(self, request):

@@ -21,6 +21,7 @@ from django_q.models import Schedule
 from bazos.const import DELIST_MAX_CHUNK_ROUNDS
 from bazos.jobs import (
     COMPARE_BAZOS_SCRAPERS,
+    GEOCODE_POSTAL_CODE,
     HEARTBEAT,
     PRUNE_QUERY_RUNS,
     PRUNE_STATUS_LOGS,
@@ -47,6 +48,7 @@ def resolve(dotted: str):
     [
         SWEEP_DELISTED, HEARTBEAT, PRUNE_STATUS_LOGS, PRUNE_QUERY_RUNS,
         SCORE_AD, RESCORE_ADS, SYNC_VINTED_CATALOGS, COMPARE_BAZOS_SCRAPERS,
+        GEOCODE_POSTAL_CODE,
     ],
 )
 def test_every_task_path_resolves(dotted):
@@ -426,3 +428,77 @@ def test_parity_check_omits_limit_when_not_given():
         jobs.compare_bazos_scrapers()
 
     assert "limit" not in call.call_args.kwargs
+
+
+# ---------------------------------------------------------------------------
+# Geocoding one code on demand
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_an_already_cached_code_makes_no_request():
+    """The common case when the action runs over a selection. A no-op that says so beats
+    one that looks like a lookup."""
+    from bazos import jobs
+    from bazos.models import PostalCode
+
+    PostalCode.objects.create(code="11000", city="Praha 1", latitude=50.08, longitude=14.42)
+
+    with patch("bazos.geo.geocode_postal_code") as geocode:
+        result = jobs.geocode_postal_code("110 00")
+
+    geocode.assert_not_called()
+    assert "already cached" in result
+
+
+@pytest.mark.django_db
+def test_an_unparseable_code_is_reported_not_raised():
+    """A code the parser cannot read is a data problem to report, not a transport failure to
+    retry — and a Failure row would say the wrong thing about it."""
+    from bazos import jobs
+
+    with patch("bazos.geo.geocode_postal_code") as geocode:
+        result = jobs.geocode_postal_code("not a code")
+
+    geocode.assert_not_called()
+    assert "not a usable postal code" in result
+
+
+@pytest.mark.django_db
+def test_zip_php_not_knowing_a_code_is_distinct_from_being_blocked():
+    """`None` from the geocoder is a real answer about the code. Being blocked raises, so
+    the run log can tell "there is no such place" from "we could not ask"."""
+    from bazos import jobs
+
+    with patch("bazos.geo.geocode_postal_code", return_value=None), \
+         patch("bazos.scraping.session.build_ip_changer"), \
+         patch("bazos.scraping.session.with_rotation", side_effect=lambda c, op, **kw: op(None)):
+        result = jobs.geocode_postal_code("99999")
+
+    assert "unresolved" in result
+
+
+@pytest.mark.django_db
+def test_the_query_action_skips_queries_with_no_centre(query, monkeypatch):
+    from django.contrib import admin as dj_admin
+    from django.contrib.messages import INFO
+    from django.test import RequestFactory
+
+    from bazos.jobs import GEOCODE_POSTAL_CODE
+    from bazos.models import Query
+
+    query.filter_location_center = "11000"
+    query.save()
+    model_admin = dj_admin.site._registry[Query]
+    captured: list[tuple[int, str]] = []
+    monkeypatch.setattr(
+        model_admin, "message_user",
+        lambda req, msg, level=INFO, **kw: captured.append((level, msg)),
+    )
+
+    with patch("bazos.admin.async_task") as async_task:
+        model_admin.geocode_filter_centres(
+            RequestFactory().post("/admin/bazos/query/"), Query.objects.all()
+        )
+
+    assert [call.args for call in async_task.call_args_list] == [(GEOCODE_POSTAL_CODE, "11000")]
+    assert "Queued 1" in captured[0][1]
