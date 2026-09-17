@@ -258,6 +258,14 @@ ZERO_ROWS_ALERT_THRESHOLD = env("ZERO_ROWS_ALERT_THRESHOLD", default=2)
 # genuinely quiet market is indistinguishable — so the threshold is high.
 ZERO_NEW_ADS_ALERT_THRESHOLD = env("ZERO_NEW_ADS_ALERT_THRESHOLD", default=10)
 
+# Consecutive passes in which ONE query failed every attempt, before alerting about that
+# query by name. The two canaries above are pass-wide and aggregate only over *successful*
+# queries, so a single marketplace dying contributes nothing to either: Vinted returned 404
+# on every query for eight days (2026-09-08 to 09-16) and neither fired, because the Bazos
+# queries kept parsing rows normally. Low threshold on purpose — a query that fails a whole
+# pass has already spent MAX_BLACKLIST_RETRIES attempts, so three in a row is not bad luck.
+QUERY_FAILURE_ALERT_THRESHOLD = env("QUERY_FAILURE_ALERT_THRESHOLD", default=3)
+
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -339,11 +347,27 @@ SENTRY_DSN: str = env("SENTRY_DSN", default="")
 # integration would ship every one of those to Sentry as a real error.
 RUNNING_TESTS: Final[bool] = "pytest" in sys.modules
 
+#: Defaults to "development", NOT "production", and that asymmetry is the point. Without an
+#: explicit environment the SDK labels everything "production", so any machine with a
+#: SENTRY_DSN in its .env reports as production — six of ten issues in one 24h window were
+#: really `manage.py shell` sessions against a dev database, indistinguishable from the Pi.
+#: Production sets this in `.env` from `deploy.yml`, so the only way to be labelled
+#: production is to have been deployed.
+SENTRY_ENVIRONMENT: str = env("SENTRY_ENVIRONMENT", default="development")
+#: The deployed tag, written into `.env` by `deploy.yml`. Empty off the Pi, because a
+#: working tree has no release — a release is a thing that was deployed, and guessing one
+#: from `git describe` would attribute a developer's uncommitted state to a real version.
+SENTRY_RELEASE: str = env("SENTRY_RELEASE", default="")
+
 if SENTRY_DSN and not RUNNING_TESTS:
     import sentry_sdk
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         traces_sample_rate=0.0,  # error tracking only, no performance tracing
+        environment=SENTRY_ENVIRONMENT,
+        # None rather than "": the SDK treats an empty string as a release named "", which
+        # then shows up in the UI as a real release that nothing belongs to.
+        release=SENTRY_RELEASE or None,
     )
 
 
