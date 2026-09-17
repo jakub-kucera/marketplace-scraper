@@ -1,8 +1,8 @@
 ---
 title: Generic Job Queue — Exploration & Proposal
-status: proposal
-updated: 2026-07-26
-verified: 2026-07-26
+status: active
+updated: 2026-09-17
+verified: 2026-09-17
 ---
 
 # Generic Job Queue — Exploration & Proposal
@@ -17,6 +17,50 @@ verified: 2026-07-26
 > keep doing that per job type, or build one generic thing." `DISCOVERY_PIPELINE.md`
 > (seller enrichment, repost detection) and `LLM_AD_REVIEW.md` (per-ad LLM judge) add
 > further candidates — see §4.
+
+> ## ✅ Decided 2026-09-17 — **Option B (`django-q2`)**, not Option A
+>
+> The recommendation below is Option A, a hand-rolled `Job` model. It was not taken. What
+> changed the decision was a requirement this document never states: **the schedule has to be
+> editable and every run has to be visible in the admin.** Option A delivers both only after
+> §6's Phase 1 *plus* a scheduler on top; `django-q2` ships them.
+>
+> Evidence gathered before committing, rather than assumed:
+>
+> | package | latest | released | verdict |
+> |---|---|---|---|
+> | `django-cron` | 0.6.0 | **2022-05-11** | ruled out — four years stale, declares no Django support, and this project is on Django 5.2 |
+> | **`django-q2`** | 1.11.1 | **2026-08-26** | adopted — `requires django>=5.2`, pure-Python wheel, two runtime deps |
+>
+> `django-q2` requiring Django ≥5.2 is why this was not possible a month ago. The ORM broker
+> keeps §1.2's best property — the infrastructure is still just Postgres and Tor.
+>
+> **§2's blocker was resolved by taking §2's own escape hatch**: `Q_CLUSTER["workers"] = 1`,
+> i.e. "constraining them to a single-concurrency worker" rather than building the
+> `requires_bazos_session` lock. The lock becomes necessary the moment that number rises, and
+> a test pins it so the constraint cannot be tuned away by accident.
+>
+> **What shipped**: the cluster, `bazos/jobs.py`, `manage.py ensure_schedules`, the
+> `marketplace_qcluster` service, and two schedules — the delisting sweep and a heartbeat.
+> **What did not**: §6 Phase 4 (per-`Query` scrape jobs), which is where the Tor lock stops
+> being avoidable.
+>
+> **Two carve-outs that survive the decision.** Backups stay on their systemd timer — CLAUDE.md
+> is explicit that they must survive the app being broken, and `qcluster` runs inside the app
+> image. And §1.4's "broker down = nothing runs" objection to Celery applies here in weaker
+> form: one process now owns all background work, so the heartbeat schedule exists to make its
+> silence visible.
+>
+> **The payoff this document undersells.** §4.2 lists on-demand jobs triggered by Discord
+> buttons as a nice-to-have. It is stronger than that: most of `DISCORD_BOT.md`'s catalog
+> ("check seller", "seller's other listings", "full description", "watch this ad",
+> "/force-run") needs a *Bazos* request, and §2 says the shared session cannot take a second
+> concurrent caller. Without a queue the bot needs its own Tor circuit — doubling the
+> fingerprint surface against a marketplace that already 403s ~half our exits. With one, the
+> bot validates, enqueues, acks, and the worker that already owns the session does the work.
+> The queue is what makes that proposal buildable, not merely tidier.
+
+---
 
 ## 0. The idea, as floated
 
