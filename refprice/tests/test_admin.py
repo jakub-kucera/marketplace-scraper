@@ -82,9 +82,9 @@ def test_the_reference_inline_is_attached_to_the_ad_admin():
 def test_bazos_admin_does_not_import_refprice():
     """The dependency points inward. `bazos` must stay deletable-independent of this app,
     so the wiring lives here and mutates AdAdmin rather than the reverse."""
-    import pathlib
-    source = pathlib.Path(__import__("bazos").__file__).parent / "admin.py"
-    assert "refprice" not in source.read_text(encoding="utf-8")
+    from refprice.tests.import_direction import modules_imported_by
+
+    assert "refprice" not in modules_imported_by("admin.py")
 
 
 def test_the_lookup_action_is_available_on_the_ad_changelist():

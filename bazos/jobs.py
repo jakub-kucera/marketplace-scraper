@@ -29,6 +29,8 @@ SWEEP_DELISTED = "bazos.jobs.sweep_delisted"
 HEARTBEAT = "bazos.jobs.heartbeat"
 PRUNE_STATUS_LOGS = "bazos.jobs.prune_status_logs"
 PRUNE_QUERY_RUNS = "bazos.jobs.prune_query_runs"
+SCORE_AD = "bazos.jobs.score_ad"
+RESCORE_ADS = "bazos.jobs.rescore_ads"
 
 
 # ---------------------------------------------------------------------------
@@ -182,3 +184,54 @@ def prune_query_runs(days: int | None = None) -> str:
     deleted = prune(days)
     logger.info("Pruned %d query runs", deleted)
     return f"deleted {deleted} query runs"
+
+
+# ---------------------------------------------------------------------------
+# Price scoring — CPU only, so these cannot be stuck behind a Bazos job
+# ---------------------------------------------------------------------------
+
+def score_ad(ad_pk: int) -> str:
+    """Predict what one ad is worth and persist the `AdPriceScore`.
+
+    `PriceModel.predict` is CPU-only by contract — no network, no pacing, no block
+    handling — so this is one of the few tasks that never waits on a circuit.
+
+    `refresh=True`: the only reason to ask for one ad by hand is that the stored answer is
+    suspect or absent, and `score_ad`'s freshness check keys on the *artifact* version, so
+    without this a row written by older code short-circuits and comes back unchanged.
+
+    Three outcomes, all reported rather than collapsed to "done": no registered model claims
+    the ad, a model declined (gates, damage words, a non-EXACT price), or a real number.
+    "A model looked and had no opinion" is a different fact from "nothing looked".
+    """
+    from bazos.models import Ad
+    from bazos.pricing.scoring import score_ad as predict
+
+    ad = Ad.objects.get(pk=ad_pk)
+    score = predict(ad, refresh=True)
+    if score is None:
+        return f"ad {ad_pk}: no model claims it"
+    if score.declined_reason:
+        return f"ad {ad_pk}: {score.model_name} declined — {score.declined_reason}"
+    return f"ad {ad_pk}: {score.model_name} predicts {score.predicted} ({score.discount_pct:+.0f}%)"
+
+
+def rescore_ads(model: str | None = None, missing_features: bool = False) -> str:
+    """Re-predict every stored score. The backfill after a persisted field is added.
+
+    Wraps `manage.py rescore_ads` rather than reimplementing it — that command is the
+    documented entry point and carries the `--dry-run` and `--missing-features` narrowing.
+
+    ⚠️ Not scheduled, and should not be: it walks every scored ad, and there is nothing
+    periodic about "the code that writes these columns changed".
+    """
+    from io import StringIO
+
+    out = StringIO()
+    kwargs: dict[str, object] = {"missing_features": missing_features}
+    if model is not None:
+        kwargs["model"] = model
+    call_command("rescore_ads", stdout=out, **kwargs)
+    summary = out.getvalue().strip().replace("\n", " | ")
+    logger.info("Rescore finished: %s", summary)
+    return summary

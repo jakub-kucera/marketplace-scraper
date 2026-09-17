@@ -10,7 +10,9 @@ things that are ours and that fail *silently*:
 """
 from importlib import import_module
 from io import StringIO
+from types import SimpleNamespace
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
@@ -21,7 +23,9 @@ from bazos.jobs import (
     HEARTBEAT,
     PRUNE_QUERY_RUNS,
     PRUNE_STATUS_LOGS,
+    RESCORE_ADS,
     SCHEDULES,
+    SCORE_AD,
     SWEEP_DELISTED,
     heartbeat,
 )
@@ -37,7 +41,8 @@ def resolve(dotted: str):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
-    "dotted", [SWEEP_DELISTED, HEARTBEAT, PRUNE_STATUS_LOGS, PRUNE_QUERY_RUNS]
+    "dotted",
+    [SWEEP_DELISTED, HEARTBEAT, PRUNE_STATUS_LOGS, PRUNE_QUERY_RUNS, SCORE_AD, RESCORE_ADS],
 )
 def test_every_task_path_resolves(dotted):
     """django-q2 stores the path as a string, so a rename fails at *run* time, in a worker,
@@ -278,3 +283,105 @@ class _CountOnly:
 
     def count(self) -> int:
         return self._count
+
+
+# ---------------------------------------------------------------------------
+# Price scoring
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def saved_ad(db):
+    """`make_ad` returns an *unsaved* Ad and takes a query it no longer stores; these tasks
+    take a pk, so they need a row."""
+    from bazos.models import Ad, Marketplace
+
+    def _factory(external_id=901):
+        return Ad.objects.create(
+            external_id=external_id, marketplace=Marketplace.BAZOS,
+            url=f"https://pc.bazos.cz/inzerat/{external_id}/test.php",
+            name="MacBook Pro 14 M1", price_raw="31 000 Kč", price=31000,
+            location="Praha, 110 00", short_description="", publisher_name="Seller",
+        )
+    return _factory
+
+
+@pytest.mark.django_db
+def test_score_ad_reports_no_model_separately_from_a_decline(saved_ad):
+    """Three outcomes, not two. "No registered model claims this ad" and "a model looked
+    and had no opinion" are different facts, and only one of them is worth revisiting."""
+    from bazos import jobs
+
+    ad = saved_ad()
+
+    with patch("bazos.pricing.scoring.score_ad", return_value=None):
+        assert "no model claims it" in jobs.score_ad(ad.pk)
+
+    declined = SimpleNamespace(
+        declined_reason="damage words", model_name="macbook", predicted=None, discount_pct=None
+    )
+    with patch("bazos.pricing.scoring.score_ad", return_value=declined):
+        assert "declined" in jobs.score_ad(ad.pk)
+
+    scored = SimpleNamespace(
+        declined_reason=None, model_name="macbook", predicted=31000, discount_pct=-12.0
+    )
+    with patch("bazos.pricing.scoring.score_ad", return_value=scored):
+        assert "31000" in jobs.score_ad(ad.pk)
+
+
+@pytest.mark.django_db
+def test_score_ad_forces_a_refresh(saved_ad):
+    """The freshness check keys on the ARTIFACT version, so a row written by older code
+    short-circuits and comes back unchanged. The only reason to ask for one ad by hand is
+    that the stored answer is suspect."""
+    from bazos import jobs
+
+    ad = saved_ad()
+    with patch("bazos.pricing.scoring.score_ad", return_value=None) as predict:
+        jobs.score_ad(ad.pk)
+
+    assert predict.call_args.kwargs["refresh"] is True
+
+
+@pytest.mark.django_db
+def test_rescore_omits_model_when_not_given():
+    """`--model` defaults to None in the command; passing it explicitly is harmless, but
+    passing a *different* falsy value would silently narrow the backfill to nothing."""
+    from bazos import jobs
+
+    with patch.object(jobs, "call_command") as call:
+        jobs.rescore_ads()
+
+    assert "model" not in call.call_args.kwargs
+    assert call.call_args.kwargs["missing_features"] is False
+
+
+@pytest.mark.django_db
+def test_the_admin_action_queues_one_task_per_ad(saved_ad, monkeypatch):
+    from django.contrib import admin as dj_admin
+    from django.contrib.messages import INFO
+    from django.test import RequestFactory
+
+    from bazos.jobs import SCORE_AD
+    from bazos.models import Ad
+
+    first, second = saved_ad(901), saved_ad(902)
+    model_admin = dj_admin.site._registry[Ad]
+    captured: list[tuple[int, str]] = []
+    monkeypatch.setattr(
+        model_admin, "message_user",
+        lambda req, msg, level=INFO, **kw: captured.append((level, msg)),
+    )
+
+    with patch("bazos.admin.async_task") as async_task, \
+         patch("bazos.pricing.scoring.score_ad") as predict:
+        model_admin.score_selected_ads(
+            RequestFactory().post("/admin/bazos/ad/"),
+            Ad.objects.filter(pk__in=[first.pk, second.pk]),
+        )
+
+    assert {call.args for call in async_task.call_args_list} == {
+        (SCORE_AD, first.pk), (SCORE_AD, second.pk)
+    }
+    predict.assert_not_called()
+    assert "Queued 2" in captured[0][1]
