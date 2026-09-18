@@ -297,6 +297,24 @@ full-description, reference-price and rescore on `AdAdmin`. Results render as re
 on the change page next to `comparables` and `seller_ad_counts`, which is already this
 project's established shape for "computed context about this row".
 
+### 6.0 …and a page for when all you have is an id
+
+An action needs a row on screen. Sometimes you just have an id — from a log line, a
+notification, a Discord message later — and finding the row to select it is the long way
+round.
+
+**Admin → Jobs → Run a job** is that: a dropdown built from `JOB_CATALOG` and one argument
+field. It exists because the generic alternative is bad, not because a form is nice.
+django-q2's Schedule admin already enqueues anything with `schedule_type=Once` — but the
+dotted path is typed by hand, so a typo becomes a `Failure` row in a worker nobody is
+watching (the exact trap `bazos/jobs.py` declares its constants to avoid); the id is not
+checked either; and it leaves a stray schedule row behind.
+
+So the path comes from the registry, and **the argument is resolved before anything is
+queued**. An ad id that does not exist, an unusable postal code, or a seller given as a bare
+number — a seller is a *pair* of ids across two tables, so `42` alone is ambiguous and
+`email:42` is not — all fail on the page you are looking at.
+
 ### 6.1 The bot, later, changes nothing here
 
 A bot button calls the same `async_task` with the same arguments. The only addition is telling
