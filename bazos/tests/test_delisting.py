@@ -15,7 +15,7 @@ import pytest
 from django.core.management import call_command
 from django.utils import timezone
 
-from bazos.const import DELIST_BATCH_SIZE, DELIST_MAX_AGE_DAYS
+from bazos.const import API_PAGE_SIZE, DELIST_BATCH_SIZE, DELIST_MAX_AGE_DAYS
 from bazos.delisting import apply_batch, due_for_check, recheck_interval_days
 from bazos.exceptions import MarketplaceBlockedError
 from bazos.models import Ad, AdDelivery, AdStatus, Marketplace, PriceChange
@@ -439,3 +439,109 @@ def test_deleting_an_ad_takes_its_outcome(make_live_ad):
     ad.delete()
 
     assert AdOutcome.objects.count() == 0
+
+
+def test_fetch_by_ids_asks_for_a_page_big_enough_to_hold_the_whole_batch():
+    """The request must carry `limit`, because the server pages this endpoint at 30.
+
+    Shipped without it, `ads.php` answered a 210-id batch with its default 30 rows and
+    `apply_batch` read the 180 absent ids as removals - 19 008 rows, measured 56% false on a
+    random sample of 200 re-checked against the live API (2026-09-19). Nothing in the
+    response distinguishes "truncated" from "gone", so the only defence is asking for a page
+    that cannot truncate.
+
+    This asserts the outgoing params, not the parsed result: a stubbed response returns the
+    same dict either way, so a test that only reads the return value passes on the bug.
+    """
+    scraper = _scraper()
+
+    with patch.object(scraper, "run_request", return_value=_response(payload=[])) as run_request:
+        scraper.fetch_by_ids(list(range(1000, 1210)))
+
+    params = run_request.call_args.kwargs["params"]
+    assert params["limit"] >= 210, f"batch of 210 asked for limit={params.get('limit')!r}"
+
+
+def test_fetch_by_ids_refuses_a_batch_larger_than_one_page():
+    """Truncation is prevented by construction, not by a constant happening to match.
+
+    `DELIST_BATCH_SIZE == API_PAGE_SIZE` is what makes the caller safe today, and nothing
+    pins the two together. A batch past one page must fail loudly rather than come back
+    silently short and be written as removals.
+    """
+    scraper = _scraper()
+
+    with patch.object(scraper, "run_request") as run_request:
+        with pytest.raises(ValueError, match="page"):
+            scraper.fetch_by_ids(list(range(API_PAGE_SIZE + 1)))
+
+    run_request.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# repair_false_removals - undoing what the mis-paginated sweep wrote
+# ---------------------------------------------------------------------------
+
+def _repair_command():
+    from bazos.management.commands.repair_false_removals import Command
+
+    return Command()
+
+
+@pytest.fixture
+def removed_ad(make_live_ad):
+    """An ad the sweep has already marked removed, two days ago."""
+    def _factory():
+        ad = make_live_ad()
+        when = timezone.now() - timedelta(days=2)
+        Ad.objects.filter(pk=ad.pk).update(removed_at=when, last_seen_at=when)
+        ad.refresh_from_db()
+        return ad
+    return _factory
+
+
+def _run_repair(command, found, **opts):
+    options = {"since": None, "limit": None, "dry_run": False, **opts}
+    with patch.object(command, "_fetch", return_value=found), \
+            patch("bazos.management.commands.repair_false_removals.build_ip_changer"):
+        command.handle(**options)
+
+
+@pytest.mark.django_db
+def test_repair_clears_removed_at_only_for_ads_that_come_back(removed_ad):
+    """The whole point: a still-listed ad is un-removed, a genuinely gone one is left alone.
+
+    Its original `removed_at` is a better estimate of when it went than `now()` is, so a
+    confirmed-gone ad must not be re-stamped.
+    """
+    alive, gone = removed_ad(), removed_ad()
+    gone_at = gone.removed_at
+
+    _run_repair(_repair_command(), {alive.external_id: {"id": alive.external_id}})
+
+    alive.refresh_from_db()
+    gone.refresh_from_db()
+    assert alive.removed_at is None and alive.last_seen_at is not None
+    assert gone.removed_at == gone_at
+
+
+@pytest.mark.django_db
+def test_repair_writes_nothing_on_a_failed_batch(removed_ad):
+    """No usable answer is not evidence, exactly as in the sweep. A possibly-false removal
+    survives a failed run rather than being cleared on no information."""
+    ad = removed_ad()
+
+    _run_repair(_repair_command(), None)
+
+    ad.refresh_from_db()
+    assert ad.removed_at is not None
+
+
+@pytest.mark.django_db
+def test_repair_dry_run_writes_nothing(removed_ad):
+    ad = removed_ad()
+
+    _run_repair(_repair_command(), {ad.external_id: {"id": ad.external_id}}, dry_run=True)
+
+    ad.refresh_from_db()
+    assert ad.removed_at is not None
