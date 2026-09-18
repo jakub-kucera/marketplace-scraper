@@ -149,3 +149,109 @@ def test_the_description_is_fetched_through_the_ads_own_marketplace(bazos_ad):
     assert get_scraper.call_args.args[0] == Marketplace.BAZOS
     bazos_ad.refresh_from_db()
     assert bazos_ad.full_description == "a long description"
+
+
+# ---------------------------------------------------------------------------
+# fetch_seller_listings — provenance, and the marketplace-value trap
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def seller(db):
+    from bazos.models import EmailPublisher
+
+    return EmailPublisher.objects.create(bazos_id=4788860)
+
+
+def inventory_row(external_id):
+    return {
+        "id": str(external_id),
+        "title": f"Listing {external_id}",
+        "price_formatted": "1 500 Kč",
+        "url": f"https://pc.bazos.cz/inzerat/{external_id}/x.php",
+        "locality": "Praha 10",
+        "from": "2026-09-01 10:00:00",
+        "topped": "false",
+        "views": "3",
+    }
+
+
+@pytest.mark.django_db
+def test_new_listings_are_stored_as_bazos_not_bazos_api(seller):
+    """`Ad` is unique on (marketplace, external_id), so writing the API's own marketplace
+    value would create a SECOND row for a listing the HTML scraper has already seen or will
+    see tomorrow — two rows for one real ad, each with half its history, both swept for
+    delisting. The transport used to fetch a listing is not a property of the listing.
+    """
+    from bazos.enrichment import fetch_seller_listings
+
+    with patch("bazos.enrichment.BazosApiScraper") as scraper_cls:
+        scraper_cls.return_value.fetch_publisher_listings.return_value = [inventory_row(7001)]
+        fetch_seller_listings(seller, MagicMock())
+
+    ad = Ad.objects.get(external_id=7001)
+    assert ad.marketplace == Marketplace.BAZOS
+
+
+@pytest.mark.django_db
+def test_created_ads_carry_provenance_and_no_delivery(seller):
+    """A seller-sweep ad is in the database because we asked about a person, not because a
+    query matched it. Inventing a delivery would put ads nobody searched for into a
+    notification stream."""
+    from bazos.enrichment import fetch_seller_listings
+    from bazos.models import AdSource
+
+    with patch("bazos.enrichment.BazosApiScraper") as scraper_cls:
+        scraper_cls.return_value.fetch_publisher_listings.return_value = [inventory_row(7002)]
+        fetch_seller_listings(seller, MagicMock())
+
+    ad = Ad.objects.get(external_id=7002)
+    assert ad.source == AdSource.SELLER_SWEEP
+    assert not AdDelivery.objects.filter(ad=ad).exists()
+    assert ad.email_publisher == seller
+
+
+@pytest.mark.django_db
+def test_an_ad_we_already_have_is_left_alone(seller, bazos_ad):
+    """Counted, not overwritten: the existing row may carry a full description, a delivery
+    and a price history that the thin inventory payload knows nothing about."""
+    from bazos.enrichment import fetch_seller_listings
+
+    with patch("bazos.enrichment.BazosApiScraper") as scraper_cls:
+        scraper_cls.return_value.fetch_publisher_listings.return_value = [inventory_row(4242)]
+        result = fetch_seller_listings(seller, MagicMock())
+
+    assert result.already_known == 1 and result.created == 0
+    bazos_ad.refresh_from_db()
+    assert bazos_ad.email_publisher is None
+
+
+@pytest.mark.django_db
+def test_no_usable_inventory_response_raises(seller):
+    from bazos.enrichment import fetch_seller_listings
+
+    with patch("bazos.enrichment.BazosApiScraper") as scraper_cls:
+        scraper_cls.return_value.fetch_publisher_listings.return_value = None
+        with pytest.raises(RuntimeError):
+            fetch_seller_listings(seller, MagicMock())
+
+    assert not Ad.objects.filter(source="seller_sweep").exists()
+
+
+@pytest.mark.django_db
+def test_a_seller_with_nothing_listed_is_not_an_error(seller):
+    from bazos.enrichment import fetch_seller_listings
+
+    with patch("bazos.enrichment.BazosApiScraper") as scraper_cls:
+        scraper_cls.return_value.fetch_publisher_listings.return_value = []
+        result = fetch_seller_listings(seller, MagicMock())
+
+    assert result.fetched == 0 and result.created == 0
+
+
+@pytest.mark.django_db
+def test_existing_ads_default_to_query_provenance(bazos_ad):
+    """The default has to be QUERY: every pre-existing row was found by a query, and
+    backfilling anything else would be a claim the data cannot support."""
+    from bazos.models import AdSource
+
+    assert bazos_ad.source == AdSource.QUERY

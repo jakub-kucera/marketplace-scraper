@@ -661,6 +661,21 @@ class AdStatus(models.TextChoices):
     FAILED        = "FAILED"        # send failed after retries
 
 
+class AdSource(models.TextChoices):
+    """How this ad got into the database.
+
+    Until seller-inventory fetches existed, every row was here because a `Query` matched it,
+    and "how many ads do we have" and "how many did our queries find" were the same number.
+    They are not any more, and the difference is invisible without this column: a
+    seller-sweep ad has no `AdDelivery` at all, so it is absent from every per-query count
+    while still inflating every total.
+
+    Recording it is cheap; discovering the ambiguity six months into an analysis is not.
+    """
+    QUERY = "query", "Found by a query"
+    SELLER_SWEEP = "seller_sweep", "Pulled from a seller's inventory"
+
+
 class Ad(TimeStampedModel):
     external_id = models.BigIntegerField(db_index=True)
     marketplace = models.CharField(max_length=20, choices=Marketplace.choices, default=Marketplace.BAZOS, db_index=True)
@@ -709,6 +724,14 @@ class Ad(TimeStampedModel):
             "Structured specs as the marketplace stated them, verbatim, e.g. "
             '{"computer_ram": "16 GB"}. Empty when the marketplace publishes none.'
         ),
+    )
+
+    # Defaults to QUERY so every pre-existing row keeps the meaning it was written with —
+    # they were all found by a query, and backfilling any other value would be a claim the
+    # data cannot support.
+    source = models.CharField(
+        max_length=20, choices=AdSource.choices, default=AdSource.QUERY, db_index=True,
+        help_text="How this ad entered the database. Only 'query' ads have deliveries.",
     )
 
     publisher_name = models.CharField(max_length=100)
