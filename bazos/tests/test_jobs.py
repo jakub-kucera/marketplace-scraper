@@ -12,7 +12,7 @@ from importlib import import_module
 from io import StringIO
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.core.management import call_command
@@ -533,3 +533,99 @@ def test_an_unknown_publisher_kind_raises():
 
     with pytest.raises(ValueError):
         jobs.fetch_seller_ratings("carrier-pigeon", 1)
+
+
+# ---------------------------------------------------------------------------
+# The session-based wrappers
+#
+# Thin by design, but they were the least-covered code here and the only part a
+# 2026-09-17 live run exercised before CI did. What they must get right: resolve the
+# right row, hand `with_rotation` a session-taking callable, and report an outcome
+# rather than a bare "done".
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def publishers(db):
+    from bazos.models import EmailPublisher, PhonePublisher
+
+    return (
+        EmailPublisher.objects.create(bazos_id=111),
+        PhonePublisher.objects.create(bazos_id=222),
+    )
+
+
+def _straight_through(changer, operation, **kwargs):
+    """Stand in for `with_rotation`, running the operation once against a dummy session."""
+    return operation(MagicMock())
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind,index,param", [("email", 0, "email_id"), ("phone", 1, "phone_id")])
+def test_ratings_resolves_the_publisher_the_kind_names(publishers, kind, index, param):
+    """A seller is a *pair* of ids in two tables, so the pk alone does not say which."""
+    from bazos import jobs
+
+    publisher = publishers[index]
+    with patch("bazos.scraping.session.build_ip_changer"), \
+         patch("bazos.scraping.session.with_rotation", side_effect=_straight_through), \
+         patch("bazos.ratings.fetch_seller_ratings") as fetch:
+        fetch.return_value = "2+ / 0- / 1~"
+        out = jobs.fetch_seller_ratings(kind, publisher.pk)
+
+    assert fetch.call_args.args[0].pk == publisher.pk
+    assert fetch.call_args.args[0].ratings_param == param
+    assert str(publisher.bazos_id) in out
+
+
+@pytest.mark.django_db
+def test_seller_listings_reports_what_was_created(publishers):
+    from bazos import jobs
+
+    with patch("bazos.scraping.session.build_ip_changer"), \
+         patch("bazos.scraping.session.with_rotation", side_effect=_straight_through), \
+         patch("bazos.enrichment.fetch_seller_listings", return_value="210 listed, 210 new, 0 already known"):
+        out = jobs.fetch_seller_listings("email", publishers[0].pk)
+
+    assert "210 new" in out
+
+
+@pytest.mark.django_db
+def test_refresh_ad_passes_the_enrichment_result_straight_through(saved_ad):
+    from bazos import jobs
+
+    ad = saved_ad(910)
+    with patch("bazos.scraping.session.build_ip_changer"), \
+         patch("bazos.scraping.session.with_rotation", side_effect=_straight_through), \
+         patch("bazos.enrichment.refresh_ad", return_value=f"ad {ad.pk}: still listed"):
+        assert jobs.refresh_ad(ad.pk) == f"ad {ad.pk}: still listed"
+
+
+@pytest.mark.django_db
+def test_a_successful_detail_fetch_reports_size_and_seller(saved_ad):
+    from bazos import jobs
+    from bazos.models import EmailPublisher
+
+    ad = saved_ad(911)
+
+    def fetched(a, session):
+        a.full_description = "x" * 2346
+        a.email_publisher = EmailPublisher.objects.create(bazos_id=333)
+        return a
+
+    with patch("bazos.scraping.session.build_ip_changer"), \
+         patch("bazos.scraping.session.with_rotation", side_effect=_straight_through), \
+         patch("bazos.enrichment.fetch_full_description", side_effect=fetched):
+        out = jobs.fetch_full_description(ad.pk)
+
+    assert "2346 chars" in out and "seller resolved" in out
+
+
+@pytest.mark.django_db
+def test_detect_reposts_resolves_the_publisher_and_counts_links(publishers):
+    from bazos import jobs
+
+    with patch("bazos.reposts.detect_reposts", return_value=3) as detect:
+        out = jobs.detect_reposts("phone", publishers[1].pk)
+
+    assert detect.call_args.args[0].pk == publishers[1].pk
+    assert "3 relist(s)" in out
