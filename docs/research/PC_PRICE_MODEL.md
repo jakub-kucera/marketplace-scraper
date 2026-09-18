@@ -1,7 +1,7 @@
 ---
 title: Desktop PC price prediction — feasibility on the Počítače corpus
 status: reference
-updated: 2026-09-12
+updated: 2026-09-17
 verified: 2026-09-12
 ---
 
@@ -567,6 +567,28 @@ Still not tested: an **external performance benchmark** (3DMark / PassMark) as a
 ordinal. That is genuinely not derivable from the name — it would place `rx 6700 xt` against
 `rtx 3060 ti` on one scale — and remains the only version of this idea worth trying. It is P27
 item 2 and nothing in this re-measurement touched it.
+
+### 6.1 A separate reason not to reach for component *prices* — noted 2026-09-06
+
+A neighbouring idea keeps coming up and deserves its own refusal: baseline a build by summing
+the **current retail prices** of its parts. It fails on an assumption nobody states — that
+components depreciate monotonically.
+
+Observed while hand-valuing a listing on 2026-09-06: **new DDR4 is end-of-life**, manufacturers
+having moved production to DDR5, and its street price has been *rising*. A used machine on an
+older platform can therefore contain memory that costs more to replace now than it did two years
+ago, while the machine as a whole is worth less. The sign of the relationship inverts.
+
+⚠️ **This is a spot check against retail listings, not a measurement over the corpus**, and the
+specific prices are deliberately not recorded here — they are perishable in a way nothing else in
+this document is, and a stale number in a research doc reads as a finding. What is durable is the
+shape: a component-price baseline inherits the volatility of *every* component market it sums,
+including ones in supply shock, and those shocks are uncorrelated with what a used PC sells for.
+The corpus-internal baseline §5 fits has no such exposure — it learns what these machines actually
+fetch, which already prices the platform's obsolescence in.
+
+This does not touch P27 item 2: a **benchmark** ordinal is a fixed physical property of a part,
+not a price, and nothing above argues against it.
 
 ## 7. What a deal alert would look like
 
