@@ -1023,8 +1023,60 @@ class PublisherMixin:
         )
 
 
-class PhonePublisher(PublisherMixin, TimeStampedModel):
+class SellerRatingFields(models.Model):
+    """Aggregate rating counts for one publisher id. Abstract; both publisher models get it.
+
+    **Counts, never identities, and that is the whole design.** `ratings.php` is public and
+    unauthenticated, and it returns each reviewer's `name`, real unmasked `phone` and the
+    free-text `message` — private individuals who left feedback, not the seller.
+    `HIDDEN_API.md` §6.2(5) flagged that as "a step up in what we'd be collecting" and asked
+    for a deliberate decision; §6.4b then recommended its own answer, which this adopts.
+
+    Three reasons, in the order to re-litigate them if anyone wants to change it:
+
+    - The counts answer the question. "Does this seller have negative feedback, how much,
+      how recent" is the decision input; a reviewer's name and number contribute nothing.
+    - `./backups/` is gitignored because dumps already hold *seller* PII. Adding
+      *third-party* PII widens a leak to people with no relationship to this project.
+    - `MONETIZATION.md` §6 outranks convenience here: the reviewer data has no lawful basis
+      that the seller ids do not already have.
+
+    ⚠️ What is given up is the text of negative reviews — "never shipped" is more actionable
+    than `negative: 3`. If that turns out to matter, the move is a setting defaulting to
+    off, mirroring `PRICE_MODEL_SHADOW_MODE` and `LLM_PROVIDER=NULL`. Do not quietly start
+    storing third-party free text because it was convenient.
+
+    An abstract model rather than fields on `PublisherMixin`: that mixin is deliberately
+    plain ("it adds no fields, so it needs no migration"), and declaring these six twice to
+    preserve the property would be worse than adding a second, honest base.
+    """
+
+    ratings_positive = models.PositiveIntegerField(default=0)
+    ratings_negative = models.PositiveIntegerField(default=0)
+    ratings_neutral = models.PositiveIntegerField(default=0)
+    #: Bounds of the rating history. A seller with three negatives from 2019 is a different
+    #: proposition from one with three from last month, and the counts alone cannot say.
+    ratings_first_at = models.DateTimeField(null=True, blank=True)
+    ratings_last_at = models.DateTimeField(null=True, blank=True)
+    #: Null means nobody has looked — distinct from "looked, found none", which is zeroes
+    #: with a timestamp. Same distinction `AdPriceScore`'s declined rows exist to keep.
+    ratings_fetched_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When ratings.php was last read for this id. Null = never looked.",
+    )
+
+    class Meta:
+        abstract = True
+
+    @property
+    def ratings_total(self) -> int:
+        return self.ratings_positive + self.ratings_negative + self.ratings_neutral
+
+
+class PhonePublisher(PublisherMixin, SellerRatingFields, TimeStampedModel):
     partner_ad_field = "email_publisher"
+    #: `ratings.php` takes one of two mutually exclusive params; this names ours.
+    ratings_param = "phone_id"
 
     bazos_id = models.IntegerField(db_index=True, unique=True)
     # Todo use phone number field. Have some conversion with prefix, so it matches FB DB. Has to be valid ob Bazos?
@@ -1039,8 +1091,9 @@ class PhonePublisher(PublisherMixin, TimeStampedModel):
         return f"{self.phone} | {self.bazos_id}" if self.phone else f"phone id {self.bazos_id}"
 
 
-class EmailPublisher(PublisherMixin, TimeStampedModel):
+class EmailPublisher(PublisherMixin, SellerRatingFields, TimeStampedModel):
     partner_ad_field = "phone_publisher"
+    ratings_param = "email_id"
 
     bazos_id = models.IntegerField(db_index=True, unique=True)
     # Todo use email field
