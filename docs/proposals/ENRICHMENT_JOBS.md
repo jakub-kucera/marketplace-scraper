@@ -1,21 +1,28 @@
 ---
 title: Enrichment jobs — on-demand lookups, triggered from the admin today and the bot later
-status: proposal
+status: shipped
+shipped_in: bazos/jobs.py, bazos/enrichment.py, bazos/ratings.py, bazos/reposts.py, llm/extraction.py
 updated: 2026-09-17
 verified: 2026-09-17
 ---
 
 # Enrichment jobs — on-demand lookups, triggered from the admin today and the bot later
 
-> Written 2026-09-17, days after [`JOB_QUEUE.md`](JOB_QUEUE.md)'s decision landed and
-> `django-q2` shipped. Nothing here is built. It answers one question — *what would
-> "🔍 Check seller" actually be, as a job?* — and generalises the answer, because the same
-> shape covers most of [`DISCORD_BOT.md`](DISCORD_BOT.md) §2's catalog plus several things
-> that catalog never mentions.
+> ✅ **Built, 2026-09-17 — this is now the spec the code was written from, not open work.**
+> Every job below exists, with an admin action where one made sense and a schedule where the
+> work is periodic. What actually shipped differs from the plan in three places, each noted
+> inline: §4.3's watch flag was **not** built (the delisting sweep already does that work and
+> nothing yet asks for a priority tier), §5 gained the housekeeping and canary jobs that were
+> only mentioned in passing, and §7's build order was followed exactly.
 >
-> **Prerequisites, already shipped**: `django-q2`, `bazos/jobs.py`, `ensure_schedules`, and
-> the `marketplace_qcluster` service. Without a queue none of this is buildable without
-> giving the caller its own Tor circuit — see §1.
+> Written days after [`JOB_QUEUE.md`](JOB_QUEUE.md)'s decision landed. It answers one question
+> — *what would "🔍 Check seller" actually be, as a job?* — and generalises the answer, because
+> the same shape covers most of [`DISCORD_BOT.md`](DISCORD_BOT.md) §2's catalog plus several
+> things that catalog never mentions.
+>
+> **Prerequisites**: `django-q2`, `bazos/jobs.py`, `ensure_schedules`, and the
+> `marketplace_qcluster` service. Without a queue none of this is buildable without giving the
+> caller its own Tor circuit — see §1.
 
 ---
 
@@ -299,19 +306,43 @@ an admin click and a Discord button without branching.
 
 ---
 
-## 7. What would have to be true before starting
+## 7. The build order — followed as written
 
-1. **Port `lookup_reference_price` first.** It is an existing action with an existing test
-   suite, it needs no new model and no new endpoint, and it converts the pattern in §6 from a
-   proposal into something running in production. If the conventions in §1.1 are wrong, this
-   is where that surfaces cheaply.
-2. **Chunk the delisting sweep** (§1.2) before adding any interactive Bazos job, or the first
-   admin-triggered lookup will sit behind a backfill and the feature will feel broken.
-3. **Then §3 alone.** `fetch_seller_ratings` is the smallest complete *new* example: one
-   endpoint, a handful of fields, one admin action, one PII decision — with the browser check
-   in §3.1 done first.
-4. **Do not build §4.1 until `Ad` can say where a row came from.** Creating ads with no
-   delivery silently changes what every existing ad count means.
+1. ✅ **`lookup_reference_price` ported first.** Existing action, existing tests, no new model
+   or endpoint, and no Bazos session — so it could not be blocked behind a sweep while the
+   conventions in §1.1 were being proved.
+2. ✅ **The delisting sweep chunks** before any interactive Bazos job existed. `sweep_delisted`
+   now works a slice, yields the single worker and re-enqueues itself, with two independent
+   stops — a round budget, and "this chunk cleared nothing", the second being what stops a
+   blocked sweep re-queueing itself against a marketplace that is refusing us.
+3. ✅ **`fetch_seller_ratings` next**, and the PII decision in §3.1 was adopted unchanged.
+   ⚠️ **The five-minute browser check in §3.1 was NOT done** — whether bazos.cz shows reviewer
+   names and phones on a public profile page is still unknown. It does not change the
+   recommendation either way, and the cautious option was taken regardless, so nothing is
+   blocked on it. It would still be worth grounding.
+4. ✅ **`Ad.source` shipped in the same change as §4.1**, so "ads we have" never silently
+   stopped meaning "ads our queries found".
+
+### 7.1 What shipped beyond the plan
+
+- **A shared `bazos/scraping/session.py`.** Two commands already had their own copy of "pick
+  the IPChanger, rotate on a 403"; four more callers made it a pattern. Exhaustion raises
+  `AllCircuitsBlocked` rather than returning `None`, because callers here already use `None`
+  for their own meanings and a third would be the conflation that wrote 180 false removals.
+- **Housekeeping.** `StatusLog` and `QueryRun` were the only two tables growing with the
+  clock rather than the market, and nothing pruned either.
+- **`Ad.reposted_from`.** §5 listed `detect_reposts` with nowhere to put the answer; a
+  nullable self-FK is one link per ad, visible on the ad page, and needs no new table.
+- **`AdSpecExtraction`.** §5's `extract_specs_with_llm` needed a home, and `Ad.attributes`
+  is explicitly not it — that column means "as the marketplace *stated* it".
+
+### 7.2 What did not ship, and why
+
+- **§4.3's watch flag.** The reasoning still holds — a watch is one `Q()` clause in
+  `_priority_expression()`, not a fourth poller — but nothing yet asks for a priority tier,
+  and the sweep already re-checks every live ad. Build it when something wants it.
+- **A Discord path for any of this.** Out of scope by decision: results land in database rows,
+  and the admin reads them. §6.1 still describes what changes when a bot exists — nothing.
 
 ## 8. Explicitly out of scope
 
