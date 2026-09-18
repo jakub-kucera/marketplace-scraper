@@ -216,6 +216,43 @@ class BazosApiScraper:
             return None
         return {int(row["id"]): row for row in rows if isinstance(row, dict) and "id" in row}
 
+    def fetch_ratings(self, param: str, publisher_id: int) -> list[dict] | None:
+        """One seller's whole rating history. `param` is "email_id" or "phone_id".
+
+        Public, unauthenticated, and **unpaginated** — HIDDEN_API.md §6.4b: one request
+        returns everything. Every id it needs is already stored on `EmailPublisher` /
+        `PhonePublisher`, so the back catalogue is enrichable with no discovery step.
+
+        ⚠️ Each entry carries the *reviewer's* real `name`, `phone` and `message`. Nothing
+        here filters that — this is the transport, and it returns what the endpoint said.
+        `bazos/ratings.py` is where the decision to keep only counts is enforced, and the
+        raw entries must not be persisted on the way past.
+
+        Same `None` vs `[]` contract as `fetch_by_ids`: `None` is "no usable answer",
+        `[]` is "this seller genuinely has no ratings". Conflating them would record a
+        well-reviewed seller as unrated on a single failed request.
+        """
+        response = self.run_request(
+            f"{BAZOS_API_BASE_URL}/ratings.php", params={param: publisher_id}
+        )
+        if response is None:
+            logger.warning("Ratings fetch failed after %d attempts", MAX_ATTEMPTS)
+            return None
+        if response.status_code in (403, 429):
+            raise MarketplaceBlockedError.from_response(response)
+        if response.status_code != 200:
+            logger.warning("Ratings fetch returned status=%d", response.status_code)
+            return None
+        try:
+            rows = response.json()
+        except ValueError:
+            logger.warning("Ratings fetch returned non-JSON")
+            return None
+        if not isinstance(rows, list):
+            logger.warning("Ratings fetch returned %s, not a list", type(rows).__name__)
+            return None
+        return [row for row in rows if isinstance(row, dict)]
+
     def check_blacklisted(self) -> bool:
         response = self.run_request(f"{BAZOS_API_BASE_URL}/ads.php", params={"query": "iphone", "limit": 1, "offset": 0})
         if response is None:
