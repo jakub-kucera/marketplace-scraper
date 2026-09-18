@@ -1,8 +1,8 @@
 ---
 title: Backlog Ideas — Not Yet in Any Stage
 status: active
-updated: 2026-08-30
-verified: 2026-08-23
+updated: 2026-09-17
+verified: 2026-09-17
 ---
 
 # Backlog Ideas — Not Yet in Any Stage
@@ -16,8 +16,8 @@ verified: 2026-08-23
 > Unlike the numbered `PIPELINE_REFACTOR.md` stages, these are **not sequenced** — they're
 > independent candidates. Pick them up individually; none blocks another except where noted.
 >
-> **Numbers are stable and never reused.** #1, #7 and #11 have shipped and are collapsed to a
-> stub pointing at [`SHIPPED.md`](../SHIPPED.md) — the numbers stay so the cross-references to
+> **Numbers are stable and never reused.** #1, #4, #7, #9 and #11 have shipped and are
+> collapsed to a stub pointing at [`SHIPPED.md`](../SHIPPED.md) — the numbers stay so the cross-references to
 > them from other docs still land.
 
 ---
@@ -27,10 +27,11 @@ verified: 2026-08-23
 Ranked by effort vs. actual relevance to what this scraper does (find deals, notify fast, stay
 under the radar), not by order of appearance below.
 
-> **⚠️ Re-ranked 2026-08-23.** Four of the rows that used to sit at the top of this table have
-> **shipped** — database backups, the `Ad`/`AdDelivery` split (#1), #7's AND/OR probe, and #11's
-> seller identity — and #4's "unresearched" premise is no longer true. What has *not* changed is
-> the thing that governs the order:
+> **⚠️ Re-ranked 2026-08-23, pruned 2026-09-17.** Rows that used to sit at the top of this table
+> have **shipped** — database backups, the `Ad`/`AdDelivery` split (#1), #7's AND/OR probe, #11's
+> seller identity, then **#4 (as `refprice/`) and #9 (`AdOutcome`) on 2026-09-16/17**. The last
+> two are gone from the table below; their sections survive as stubs. What has *not* changed in
+> any of those revisions is the thing that governs the order:
 >
 > **Detection latency is still the binding constraint on the whole "find deals" goal.** The
 > interval is still 15–45 min, i.e. a **~15 minute median**, while competing services poll every
@@ -47,14 +48,12 @@ under the radar), not by order of appearance below.
 | — | **IP guards can still raise** — no request timeouts in `ip_changer/`, two unguarded call sites | **XS** (~1 hr) | nothing | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P20.** One dropped socket still costs a whole pass. |
 | — | **Latency, the half that's left** — tunable API page size + production cutover + interval to ~10 min | **S/M** (~1–2 days) | nothing; designed in `../research/proxies/` + `../research/bazos-api/`, scraper already built | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P21a Parts 1 + 4a.** ~3× latency win at *unchanged* Bazos request volume, no cost. |
 | — | **Rotating proxy** — replace Tor | **M** (~1–2 days + ~$3–6/mo) | P21a, plus a benchmark never yet run | **[`PROMPTS.md`](PROMPTS.md) P21b.** The only part needing money and an unvalidated assumption — and the durable fix for Tor's ongoing failures. |
-| 9 | `AdOutcome` — record what you actually did about an ad | **S** (~half day) | nothing | **Do soon** — cheapest item here, and the only source of ground truth |
 | 3a | Thumbnail in Discord embed | **S/M** (~1-2 days) | nothing | **Do soon** — and see #10, which wants the same notification rework |
 | 10 | Distance / travel-cost-aware scoring | **M** (~1-2 days) | nothing (`zip.php` already probed) | 🟡 radius **shipped**; travel-cost scoring still open, and now blocked on a margin estimate |
 | 8 | Full-listing rescan flag (comprehensive price-drop detection) | **S** structurally (~1hr); **M** with the cap/throttle guardrail it needs | nothing, but must ship with a page cap/throttle | **Do soon, but scope narrowly** |
 | 6 | Posting-time-of-day → interval tuning | **S** (~half day) *once unblocked* | ⚠️ **blocked** — needs second-resolution timestamps (see §6) | **Blocked, and superseded in value by the latency chain** |
 | 2 | asyncio scraping | **M/L**, but only as part of a scraper you haven't built yet | the API cutover | **Still not independently actionable** — and *less* attractive after P21a (see §2 note) |
 | 3b | Self-host image mirror | **L** (storage + serving + retention) | 3a | **Defer** |
-| 4 | External price cross-referencing (Heureka / Zboží) | **M** for an explicit, admin-triggered lookup | re-probed ✅ 2026-09-16 | **Reconsider** — §4's REJECT is superseded. Robots-allowed join + `productNo` + ~24 months of price history ([`ZBOZI_API.md`](../research/marketplaces/ZBOZI_API.md)); design in [`PRICE_REFERENCE_SERVICE.md`](../proposals/PRICE_REFERENCE_SERVICE.md). |
 | 5 | Computer-vision item recognition | **L**, speculative | idea #3 (images) + vendor pick | **Defer, lowest** |
 
 **Why this order:**
@@ -63,10 +62,10 @@ under the radar), not by order of appearance below.
   the difference between arriving first and arriving 15 minutes late (the entire premise of "find
   deals"), and the other is the difference between a dropped socket costing one query and costing
   an entire pass. Both are execution of work already designed elsewhere, not new design.
-- **#9 is the cheapest thing in this document and the only one that creates ground truth** —
-  without it, no threshold in #5 or `PROMPTS.md` P23's price-anomaly rule can ever be tuned
-  against reality, and you can't compute what a flip actually earned. **P22 landing makes this
-  materially more valuable**: there is now a real integer `Ad.price` to compute a margin against.
+- **#9 was the cheapest thing in this document and the only one that creates ground truth. It
+  shipped 2026-09-17** — and the constraint it existed to remove has *changed shape rather than
+  gone*: no threshold in #5 or `PROMPTS.md` P23 can be tuned until the logbook and the delisting
+  sweep have accumulated some history. The wait is now for data, not for code.
 - **#3a is still the best "visible payoff" item** — Discord notifications get noticeably nicer for
   a bounded, well-understood cost. Doesn't need the API cutover to start. Worth building
   together with **#10**, since both rewrite the same notification-formatting path.
@@ -208,7 +207,25 @@ storage/serving cost against an unconfirmed benefit.
 
 ---
 
-## 4. External price cross-referencing (Heureka / price-comparison APIs)
+## 4. External price cross-referencing (Heureka / price-comparison APIs) — ✅ **shipped 2026-09-16**
+
+> **Built as `refprice/`.** The ladder this section argued toward — normalise → suggest →
+> validate every candidate → optional LLM adjudication — shipped on 2026-09-16 with four
+> tables, an admin action, an inline and `manage.py lookup_reference_price`, over the
+> `/api/v3` surface measured in [`ZBOZI_API.md`](../research/marketplaces/ZBOZI_API.md).
+> It is **invoked explicitly** — nothing on the scrape/filter/send path calls it — and the
+> `reference_price` rule reads only persisted links, never the network. Details in
+> [`SHIPPED.md`](../SHIPPED.md); design in
+> [`PRICE_REFERENCE_SERVICE.md`](../proposals/PRICE_REFERENCE_SERVICE.md).
+>
+> The section below is kept **as the record of how the verdict moved** — REJECT on
+> 2026-08-22, superseded on three of four points on 2026-09-16, built the same day. That
+> sequence is the useful part: the first probe's blocker ("no identifier to join on") was a
+> grep that missed `productNo` on spelling, and its second ("needs per-ad LLM extraction")
+> was answered by making the LLM adjudicate a closed set rather than extract from free text.
+> ⚠️ What did **not** move: eBay is still unavailable to a non-partner, Heureka.cz is still
+> Cloudflare-blocked, and coverage is still uneven — current-production goods resolve well,
+> discontinued electronics do not.
 
 **Source**: [#36](https://github.com/jakub-kucera/marketplace-scrapper/issues/36) ("search product
 name in Heureka / Price API"), [#56](https://github.com/jakub-kucera/marketplace-scrapper/issues/56)
@@ -275,6 +292,9 @@ still uneven — current-production goods resolve well (tools best), discontinue
 [`PRICE_REFERENCE_SERVICE.md`](../proposals/PRICE_REFERENCE_SERVICE.md). The *internal* rolling price
 baseline (`PROMPTS.md` P23's `PriceAnomalyRule`, now possible because P22 gave `Ad` a real integer
 price) is still the cheaper win and should not be displaced by this.
+
+*(That recommendation was followed on 2026-09-16 — see the banner at the top of this section. The
+internal baseline it defers to, P23, is **still open**.)*
 
 ---
 
@@ -436,56 +456,31 @@ Build it as a narrowly-scoped opt-in, not a general-purpose toggle:
 
 ---
 
-## 9. `AdOutcome` — record what you actually did about an ad
+## 9. `AdOutcome` — record what you actually did about an ad — ✅ **shipped 2026-09-17**
 
-> **Source**: internal analysis 2026-07-29, prompted by [`MONETIZATION.md`](../MONETIZATION.md)
-> §4.2. Not from the issue tracker. **The cheapest idea in this document, and a dependency of
-> every scoring/tuning idea in it.**
-
-### The gap
-
-Nothing in the schema records the *result* of a notification. `Ad.status` tracks pipeline
-mechanics (`PENDING → APPROVED → SENT`) — it says the Discord message was delivered, not whether
-the ad was any good. So today there is no answer to: did I message this seller? did I buy it? for
-how much? did I resell it, and for what? if I passed, why?
-
-**Why that matters more than it sounds.** Every "find better deals" idea in this document and in
-`DISCOVERY_PIPELINE.md` needs a threshold or a model — the price-anomaly filter's
-percentile cut-off (discovery doc §2 stage 2), #4's reference-price margin, #5's classifier
-confidence, the discovery doc's own "deal-velocity as a model-quality feedback loop" (§3.4). **All
-of them are untunable without labelled outcomes.** You can measure whether a flagged ad
-*disappeared* (that's delisting detection), but disappearing tells you someone bought it — not
-whether *you* should have, or what it was actually worth. Only you can supply that label.
-
-It's also the only way to know whether the pipeline earns anything. `MONETIZATION.md` §4.2 models
-~1,200 CZK net per flip on assumptions; `AdOutcome` replaces the assumptions with your numbers.
-
-### Shape
-
-Deliberately minimal — this is a logbook, not a CRM:
-
-```
-AdOutcome(ad FK, action, price_paid, price_sold, sold_at, note, created)
-   action ∈ {IGNORED, CONTACTED, NO_REPLY, REJECTED_ON_INSPECTION, BOUGHT, SOLD, LOST_TO_OTHER_BUYER}
-```
-
-- One row per state change (append-only) rather than mutable fields, so the *timeline* survives —
-  time-from-notification-to-contact is itself the latency metric that
-  [`MONETIZATION.md`](../MONETIZATION.md) §7.1 argues is the binding constraint, and you cannot
-  measure it retroactively.
-- `LOST_TO_OTHER_BUYER` is worth its own value rather than folding into `NO_REPLY`: it is the
-  direct evidence of whether latency is still costing you deals after P21.
-- Entry point is an **admin action on `AdAdmin`** (select rows → set outcome), not a new UI. If
-  the Discord bot proposal (`DISCORD_BOT.md`) is ever built, its per-ad buttons are the
-  natural second entry point — and that doc's §2.1 button set is close to this action enum
-  already, so keep the vocabularies aligned if both land.
-
-### Recommendation
-
-Build it early and cheaply, before any scoring work. It is ~half a day, has no dependencies, and
-it is the difference between a notifier and something you can actually improve. Note the honest
-caveat: its value depends entirely on you actually filling it in — a logbook nobody writes to is
-worse than none, because it looks like data.
+> Shipped alongside P24's delisting sweep, in one change, because neither is worth much without
+> the other: `Ad.removed_at` measures *time to disappear*, which is a confounded proxy — expiry
+> looks identical to a sale — and this table is the only thing that can calibrate it. Entry point
+> is an **editable inline on the `Ad` page plus a cross-ad changelist**, since the questions it
+> answers are aggregate. Details in [`SHIPPED.md`](../SHIPPED.md).
+>
+> ⚠️ **The shipped shape is narrower than the one proposed here, deliberately.** This section
+> argued for an append-only log — one row per state change, `(action, price_paid, price_sold,
+> sold_at, note)` — so the *timeline* survives and time-from-notification-to-contact becomes
+> measurable. What shipped is **one row per ad**: `OneToOneField`, `kind`, a single
+> `realised_price`, `note`. The argument for the timeline is not wrong and is preserved in this
+> file's history; it lost to the caveat in this section's own Recommendation — *a logbook nobody
+> writes to is worse than none, because it looks like data* — and a form asking for one verdict
+> gets filled in where a form asking for a sequence does not. If the logbook does get used, the
+> append-only version is the natural second version, and `AdDelivery.sent_at` still pins the
+> start of the latency interval.
+>
+> Two details worth keeping: `realised_price` stays **null unless a price was genuinely agreed,
+> including for `BOUGHT`** — an asking price copied in would poison the one table meant to hold
+> truth; and `LOST_TO_OTHER_BUYER` survived as its own value rather than folding into
+> `NO_REPLY`, because it is the direct evidence of whether latency is still costing deals.
+>
+> The number is kept so cross-references to "`BACKLOG_IDEAS.md` #9" still land.
 
 ---
 

@@ -1,8 +1,9 @@
 ---
 title: Reference-price service and provider-agnostic LLM layer
-status: proposal
-updated: 2026-09-16
-verified: 2026-09-16
+status: shipped
+shipped_in: llm/, refprice/
+updated: 2026-09-17
+verified: 2026-09-17
 ---
 
 # Reference-price service and provider-agnostic LLM layer
