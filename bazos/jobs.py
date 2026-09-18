@@ -85,6 +85,69 @@ SCHEDULES: dict[str, ScheduleSpec] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# The catalog — what the admin's "Run a job" page offers
+# ---------------------------------------------------------------------------
+#
+# A job is reachable three ways: a changelist action (when you are already looking at the
+# row), a schedule (when it is periodic), and this catalog (when all you have is an id).
+#
+# It exists because the generic alternative is bad. django-q2's own Schedule admin will
+# enqueue anything — type a dotted path, type `args`, set "Once" — but nothing checks the
+# path, so a typo becomes a Failure row in a worker nobody is watching, which is the exact
+# trap the dotted-path constants above exist to avoid. Nothing checks the id either, so a
+# wrong one fails the same way. Here the path comes from the registry and **the argument is
+# resolved before anything is queued**, so a mistake is a form error rather than a silent
+# failure ten seconds later.
+
+#: Argument kinds. The value is what the admin form knows how to validate.
+NO_ARG, AD_PK, PUBLISHER_REF, POSTAL_CODE = "", "ad", "publisher", "postal_code"
+
+
+@dataclass(frozen=True)
+class JobSpec:
+    func: str
+    label: str
+    arg: str = NO_ARG
+    help: str = ""
+
+
+#: func -> spec. Other apps add theirs at `AppConfig.ready()`, same seam as schedules.
+JOB_CATALOG: dict[str, JobSpec] = {}
+
+
+def register_job(spec: JobSpec) -> None:
+    """Offer a job on the admin's Run-a-job page. Registering twice is a no-op."""
+    JOB_CATALOG.setdefault(spec.func, spec)
+
+
+def _register_own_jobs() -> None:
+    for spec in (
+        JobSpec(SWEEP_DELISTED, "Delisting sweep (chunked)",
+                help="Works a slice and re-queues itself while ads remain due."),
+        JobSpec(HEARTBEAT, "Cluster heartbeat"),
+        JobSpec(PRUNE_STATUS_LOGS, "Prune log rows"),
+        JobSpec(PRUNE_QUERY_RUNS, "Prune query runs"),
+        JobSpec(RESCORE_ADS, "Re-score every stored price score",
+                help="The backfill after a persisted field is added. Walks every scored ad."),
+        JobSpec(SYNC_VINTED_CATALOGS, "Sync Vinted catalog tree"),
+        JobSpec(COMPARE_BAZOS_SCRAPERS, "Compare HTML vs API scrapers"),
+        JobSpec(SCORE_AD, "Score one ad", AD_PK),
+        JobSpec(FETCH_FULL_DESCRIPTION, "Fetch an ad's full description", AD_PK),
+        JobSpec(REFRESH_AD, "Re-read an ad's listing", AD_PK,
+                help="Bazos only — the other marketplaces have no bulk-id endpoint."),
+        JobSpec(GEOCODE_POSTAL_CODE, "Geocode a postal code", POSTAL_CODE),
+        JobSpec(FETCH_SELLER_RATINGS, "Fetch a seller's ratings", PUBLISHER_REF),
+        JobSpec(FETCH_SELLER_LISTINGS, "Fetch a seller's current listings", PUBLISHER_REF,
+                help="Creates Ad rows with no delivery, marked source='seller_sweep'."),
+        JobSpec(DETECT_REPOSTS, "Find a seller's relisted items", PUBLISHER_REF),
+    ):
+        register_job(spec)
+
+
+_register_own_jobs()
+
+
 def register_schedule(name: str, spec: ScheduleSpec) -> None:
     """Add a schedule from another app, at that app's `AppConfig.ready()`.
 
