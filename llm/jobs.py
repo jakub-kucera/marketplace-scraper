@@ -13,6 +13,7 @@ from django.core.management import call_command
 logger = logging.getLogger(__name__)
 
 LLM_CHECK = "llm.jobs.llm_check"
+EXTRACT_AD_SPECS = "llm.jobs.extract_ad_specs"
 
 
 def llm_check() -> str:
@@ -42,3 +43,27 @@ def llm_check() -> str:
     summary = out.getvalue().strip().replace("\n", " | ")
     logger.info("LLM check (%s): %s", provider, summary)
     return f"{provider}: {summary}"
+
+
+def extract_ad_specs(ad_pk: int) -> str:
+    """Read one ad's specs out of its free text and store them.
+
+    `PRICE_MODEL_BENCHMARK.md` §3.1: two extractor regexes were worth more R² than the entire
+    choice of estimator, so extraction is the measured bottleneck and Czech prose is where
+    regexes top out.
+
+    Inert under `LLM_PROVIDER=NULL` — the shipped default — where `complete()` declines and
+    this stores a declined row rather than raising. That row is still worth writing: "the
+    model looked and had no opinion" is a different fact from "nothing looked".
+    """
+    from bazos.models import Ad
+
+    from llm.extraction import extract_specs
+
+    ad = Ad.objects.get(pk=ad_pk)
+    row = extract_specs(ad)
+    if row.declined_reason:
+        return f"ad {ad_pk}: declined — {row.declined_reason}"
+    if not row.specs:
+        return f"ad {ad_pk}: no specs found (not hardware, or the ad states none)"
+    return f"ad {ad_pk}: {', '.join(sorted(row.specs))}"

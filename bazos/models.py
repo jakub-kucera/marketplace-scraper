@@ -957,6 +957,52 @@ class AdOutcome(TimeStampedModel):
         return f"{self.get_kind_display()} — {self.ad}"
 
 
+class AdSpecExtraction(TimeStampedModel):
+    """Specs an LLM read out of one ad's free text, and which prompt version read them.
+
+    **A separate table, and deliberately not `Ad.attributes`.** That column means "specs as
+    the marketplace *stated* them, verbatim", and its own comment forbids writing derived
+    values into it: doing so destroys the stated-vs-derived distinction it exists for, and
+    leaves nothing to re-derive from when extraction improves. A Bazos ad states nothing —
+    every spec is in prose — so anything read out of it is derived by construction.
+
+    Why this is worth building at all: `PRICE_MODEL_BENCHMARK.md` §3.1 measured **two
+    extractor regexes as worth more R² than the entire choice of estimator**. Extraction, not
+    model class, is the bottleneck, and regexes are where the current extractor tops out.
+
+    Versioned on the prompt, like `AdPriceScore` is on the artifact: re-running v1 updates
+    its row, and a v2 is a new one, so "what did v1 think" survives the upgrade. A declined
+    extraction is stored with `specs` empty and a reason, because "the model looked and had
+    no opinion" is a different fact from "nothing looked" — the same call `AdPriceScore`
+    makes.
+
+    ⚠️ **Nothing consumes this yet.** It ships the way `llm/` did: inert, with its first
+    consumer a separate decision. Wiring it into a `PriceModel` means deciding what happens
+    when an extraction disagrees with the regexes, which is not a question to answer in
+    passing.
+    """
+    ad = models.ForeignKey(Ad, on_delete=models.CASCADE, related_name="spec_extractions")
+    specs = models.JSONField(
+        default=dict, blank=True,
+        help_text='Derived specs, e.g. {"ram_gb": 16, "cpu": "i5-10400"}. Empty when declined.',
+    )
+    provider = models.CharField(max_length=20)
+    model_name = models.CharField(max_length=60)
+    prompt_version = models.CharField(max_length=10)
+    declined_reason = models.CharField(max_length=200, null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("ad", "prompt_version"), name="unique_extraction_per_ad_prompt"
+            )
+        ]
+        ordering = ("-created",)
+
+    def __str__(self) -> str:
+        return f"{self.ad} — {self.prompt_version} ({len(self.specs)} specs)"
+
+
 class AdPriceScore(TimeStampedModel):
     """What a price model thinks one ad is worth, and how unusual its asking price is.
 
