@@ -26,6 +26,7 @@ demand.
 import re
 from itertools import islice
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
@@ -36,7 +37,7 @@ from bs4 import BeautifulSoup
 from bazos.tests import conftest
 
 from bazos.exceptions import MarketplaceBlockedError
-from bazos.models import Ad, EmailPublisher, PhonePublisher, Query
+from bazos.models import Ad, EmailPublisher, Marketplace, PhonePublisher, Query
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 
 MANUAL_CASSETTES = Path(__file__).parent / "cassettes" / "manual"
@@ -230,6 +231,51 @@ def test_load_full_description_populates_the_field(scraper, notebook_query):
 
     assert ad.full_description
     assert ad.full_description.strip()
+
+
+@pytest.mark.django_db
+def test_a_blocked_detail_page_raises_instead_of_parsing_the_block_body():
+    """Found by running `fetch_full_description` against a real ad on 2026-09-17.
+
+    `run_request` returns a 403 rather than retrying — a block is a *response*, not an
+    exception — and this method parsed that body as if it were a listing page, so
+    `soup.find(class_='popisdetail').text` raised AttributeError. That is not a
+    `DatabaseError`, so it escaped `_tolerating_one_bad_ad`, and not a
+    `MarketplaceBlockedError`, so nothing rotated: **a single blocked detail circuit aborted
+    the entire query for that pass**, on any query with `load_full_description=True`, with
+    roughly half of Tor exits blocked. `run_query` had always made this check.
+    """
+    scraper = BazosScraper(MagicMock())
+    blocked = MagicMock(status_code=403, text="... permission to access this server. IP: 1.2.3.4")
+
+    with patch.object(scraper, "run_request", return_value=blocked), \
+         patch("bazos.scraping.bazos.bazos_scraper.sleep"):
+        with pytest.raises(MarketplaceBlockedError):
+            scraper.load_full_description(_detail_ad())
+
+
+@pytest.mark.django_db
+def test_a_page_with_no_description_block_returns_the_ad_unchanged():
+    """A removed listing, or a page shape this parser does not know. "No description
+    available" has to be an ordinary outcome, not an exception that costs the caller its
+    whole walk — the `# TODO FIX, CAN BE NONE?` this replaces had been there since the
+    method was written."""
+    scraper = BazosScraper(MagicMock())
+    page = MagicMock(status_code=200, text="<html><body>gone</body></html>")
+
+    with patch.object(scraper, "run_request", return_value=page), \
+         patch("bazos.scraping.bazos.bazos_scraper.sleep"):
+        ad = scraper.load_full_description(_detail_ad())
+
+    assert ad.full_description is None
+
+
+def _detail_ad() -> Ad:
+    return Ad(
+        external_id=1, marketplace=Marketplace.BAZOS,
+        url="https://reality.bazos.cz/inzerat/1/x.php", name="x", price_raw="1 Kč",
+        location="Praha", short_description="", publisher_name="",
+    )
 
 
 # ---------------------------------------------------------------------------
