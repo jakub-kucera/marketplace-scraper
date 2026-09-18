@@ -36,6 +36,7 @@ COMPARE_BAZOS_SCRAPERS = "bazos.jobs.compare_bazos_scrapers"
 GEOCODE_POSTAL_CODE = "bazos.jobs.geocode_postal_code"
 FETCH_FULL_DESCRIPTION = "bazos.jobs.fetch_full_description"
 REFRESH_AD = "bazos.jobs.refresh_ad"
+FETCH_SELLER_RATINGS = "bazos.jobs.fetch_seller_ratings"
 
 
 # ---------------------------------------------------------------------------
@@ -378,3 +379,33 @@ def refresh_ad(ad_pk: int) -> str:
         lambda session: refresh(ad, session),
         what=f"Refresh of ad {ad_pk}",
     )
+
+
+def fetch_seller_ratings(publisher_kind: str, publisher_pk: int) -> str:
+    """Read one seller's ratings and store the counts. See `bazos/ratings.py` for the
+    reviewer-PII decision, which is the whole design of this one.
+
+    `publisher_kind` is "email" or "phone" — a seller on Bazos is a *pair* of opaque ids and
+    each is queried separately, so the pk alone would not say which table to look in.
+    """
+    from bazos.models import EmailPublisher, PhonePublisher
+    from bazos.ratings import fetch_seller_ratings as fetch
+    from bazos.scraping.session import build_ip_changer, with_rotation
+
+    # Branched rather than looked up in a dict: the two managers are what is wanted here,
+    # and a dict of model classes erases both to their shared abstract base.
+    publisher: EmailPublisher | PhonePublisher
+    if publisher_kind == "email":
+        publisher = EmailPublisher.objects.get(pk=publisher_pk)
+    elif publisher_kind == "phone":
+        publisher = PhonePublisher.objects.get(pk=publisher_pk)
+    else:
+        raise ValueError(f"unknown publisher kind {publisher_kind!r}")
+
+    changer = build_ip_changer()
+    counts = with_rotation(
+        changer,
+        lambda session: fetch(publisher, session),
+        what=f"Ratings for {publisher_kind} id {publisher.bazos_id}",
+    )
+    return f"{publisher_kind} id {publisher.bazos_id}: {counts}"

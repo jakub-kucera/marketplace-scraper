@@ -22,6 +22,7 @@ from bazos.const import DELIST_MAX_CHUNK_ROUNDS
 from bazos.jobs import (
     COMPARE_BAZOS_SCRAPERS,
     FETCH_FULL_DESCRIPTION,
+    FETCH_SELLER_RATINGS,
     GEOCODE_POSTAL_CODE,
     REFRESH_AD,
     HEARTBEAT,
@@ -50,7 +51,7 @@ def resolve(dotted: str):
     [
         SWEEP_DELISTED, HEARTBEAT, PRUNE_STATUS_LOGS, PRUNE_QUERY_RUNS,
         SCORE_AD, RESCORE_ADS, SYNC_VINTED_CATALOGS, COMPARE_BAZOS_SCRAPERS,
-        GEOCODE_POSTAL_CODE, FETCH_FULL_DESCRIPTION, REFRESH_AD,
+        GEOCODE_POSTAL_CODE, FETCH_FULL_DESCRIPTION, REFRESH_AD, FETCH_SELLER_RATINGS,
     ],
 )
 def test_every_task_path_resolves(dotted):
@@ -519,3 +520,13 @@ def test_an_empty_detail_fetch_is_reported_not_raised(saved_ad):
         result = jobs.fetch_full_description(ad.pk)
 
     assert "no description returned" in result
+
+
+@pytest.mark.django_db
+def test_an_unknown_publisher_kind_raises():
+    """A seller is a *pair* of opaque ids, so the pk alone cannot say which table to read —
+    a typo in the kind must fail loudly rather than pick one."""
+    from bazos import jobs
+
+    with pytest.raises(ValueError):
+        jobs.fetch_seller_ratings("carrier-pigeon", 1)

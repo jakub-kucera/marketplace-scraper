@@ -33,7 +33,13 @@ from unfold.widgets import (
 )
 
 from bazos.comparables import find_comparables
-from bazos.jobs import FETCH_FULL_DESCRIPTION, GEOCODE_POSTAL_CODE, REFRESH_AD, SCORE_AD
+from bazos.jobs import (
+    FETCH_FULL_DESCRIPTION,
+    FETCH_SELLER_RATINGS,
+    GEOCODE_POSTAL_CODE,
+    REFRESH_AD,
+    SCORE_AD,
+)
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
 from bazos.models import AdOutcome, AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
@@ -1042,7 +1048,11 @@ class PublisherAdminBase(ModelAdmin):
     partner_model: type[models.Model] | None = None
 
     list_filter = ("blocked",)
-    actions = ["block_publishers", "unblock_publishers"]
+    actions = ["block_publishers", "unblock_publishers", "fetch_ratings"]
+
+    #: "email" or "phone" — `ratings.php` takes one of two mutually exclusive params, and a
+    #: pk alone would not say which table a task should look in.
+    publisher_kind: str = ""
 
     def get_queryset(self, request):
         # Annotated so the changelist column costs one query rather than one per row.
@@ -1108,15 +1118,47 @@ class PublisherAdminBase(ModelAdmin):
         updated = queryset.update(blocked=False)
         self.message_user(request, f"{updated} publisher(s) unblocked successfully.")
 
+    @admin.action(description="Fetch seller ratings")
+    def fetch_ratings(self, request, queryset):
+        """Queue one `ratings.php` read per publisher id.
+
+        What this makes possible is `blocked` becoming evidence-based rather than a hunch:
+        a seller with several recent negatives is a blocklist candidate you can confirm in
+        one click, instead of one discovered after wasting a trip.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(FETCH_SELLER_RATINGS, self.publisher_kind, pk)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} ratings lookup(s). Only counts are stored — reviewer "
+            f"names, numbers and review text are discarded.",
+            messages.INFO,
+        )
+
+    @admin.display(description="Ratings", ordering="ratings_negative")
+    def ratings_summary(self, obj):
+        """Null fetched_at means nobody has looked, which is not the same as no ratings."""
+        if obj.ratings_fetched_at is None:
+            return "—"
+        if not obj.ratings_total:
+            return "none"
+        return format_html(
+            '<span title="{}">{} + / <strong>{} -</strong> / {} ~</span>',
+            f"last rating {obj.ratings_last_at:%Y-%m-%d}" if obj.ratings_last_at else "date unknown",
+            obj.ratings_positive, obj.ratings_negative, obj.ratings_neutral,
+        )
+
 
 @admin.register(EmailPublisher)
 class EmailPublisherAdmin(PublisherAdminBase):
     own_ad_field = "email_publisher"
     partner_ad_field = "phone_publisher"
     partner_model = PhonePublisher
+    publisher_kind = "email"
 
-    list_display = ("bazos_id", "email", "blocked", "ad_count", "partner_count")
-    readonly_fields = ("ads_link", "partners")
+    list_display = ("bazos_id", "email", "blocked", "ad_count", "partner_count", "ratings_summary")
+    readonly_fields = ("ads_link", "partners", "ratings_summary")
 
 
 @admin.register(PhonePublisher)
@@ -1124,9 +1166,10 @@ class PhonePublisherAdmin(PublisherAdminBase):
     own_ad_field = "phone_publisher"
     partner_ad_field = "email_publisher"
     partner_model = EmailPublisher
+    publisher_kind = "phone"
 
-    list_display = ("bazos_id", "phone", "blocked", "ad_count", "partner_count")
-    readonly_fields = ("ads_link", "partners")
+    list_display = ("bazos_id", "phone", "blocked", "ad_count", "partner_count", "ratings_summary")
+    readonly_fields = ("ads_link", "partners", "ratings_summary")
 
 
 @admin.register(PostalCode)
