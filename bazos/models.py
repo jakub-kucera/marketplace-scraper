@@ -734,6 +734,14 @@ class Ad(TimeStampedModel):
         help_text="How this ad entered the database. Only 'query' ads have deliveries.",
     )
 
+    # Set by `bazos/reposts.py`, never by the scraper: it is a *conclusion* about two rows,
+    # not a fact either listing states. SET_NULL rather than CASCADE — deleting the older
+    # listing must not delete the one still for sale.
+    reposted_from = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="reposts",
+        help_text="The earlier listing this one appears to be a relist of. Inferred, not stated.",
+    )
+
     publisher_name = models.CharField(max_length=100)
     email_publisher = models.ForeignKey('EmailPublisher', on_delete=models.PROTECT, null=True, related_name='ads')
     phone_publisher = models.ForeignKey('PhonePublisher', on_delete=models.PROTECT, null=True, related_name='ads')

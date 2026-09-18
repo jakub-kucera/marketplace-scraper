@@ -38,6 +38,7 @@ FETCH_FULL_DESCRIPTION = "bazos.jobs.fetch_full_description"
 REFRESH_AD = "bazos.jobs.refresh_ad"
 FETCH_SELLER_RATINGS = "bazos.jobs.fetch_seller_ratings"
 FETCH_SELLER_LISTINGS = "bazos.jobs.fetch_seller_listings"
+DETECT_REPOSTS = "bazos.jobs.detect_reposts"
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +424,21 @@ def fetch_seller_listings(publisher_kind: str, publisher_pk: int) -> str:
         what=f"Inventory for {publisher_kind} id {publisher.bazos_id}",
     )
     return f"{publisher_kind} id {publisher.bazos_id}: {result}"
+
+
+def detect_reposts(publisher_kind: str, publisher_pk: int) -> str:
+    """Link this seller's ads to the earlier listings they appear to relist.
+
+    CPU-only — it reads our own archive and talks to nothing — so it never waits on a
+    circuit. Its usefulness depends on `fetch_seller_listings` having been run for the same
+    seller: a relist is only visible if both attempts are in the database, and before the
+    inventory pull existed a seller's past listings were only here by luck.
+    """
+    from bazos.reposts import detect_reposts as detect
+
+    publisher = _publisher(publisher_kind, publisher_pk)
+    linked = detect(publisher)
+    return f"{publisher_kind} id {publisher.bazos_id}: {linked} relist(s) linked"
 
 
 def _publisher(kind: str, pk: int):
