@@ -1,0 +1,36 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div class="px-4 py-4">
+  <p class="mb-4 text-font-subtle-light dark:text-font-subtle-dark">
+    Puts one job on the queue now. The worker picks it up in order — everything runs on a
+    single worker, so a job queued behind the delisting sweep waits for the current chunk.
+    The outcome lands in <a href="{{ schedules_url }}" class="underline">Scheduled tasks</a> →
+    Successful / Failed tasks, never here.
+  </p>
+
+  <form method="post">{% csrf_token %}
+    {{ form.as_div }}
+    <button type="submit" class="bg-primary-600 border border-transparent font-medium px-3 py-2 rounded-default text-white mt-4">
+      Queue it
+    </button>
+  </form>
+
+  <h2 class="mt-8 mb-2 font-semibold">What each job takes</h2>
+  <table class="border-collapse w-full text-left text-sm">
+    <thead><tr>
+      <th class="border-b py-2 pr-4">Job</th>
+      <th class="border-b py-2 pr-4">Argument</th>
+      <th class="border-b py-2">Notes</th>
+    </tr></thead>
+    <tbody>
+      {% for spec in catalog %}
+      <tr>
+        <td class="border-b py-2 pr-4">{{ spec.label }}</td>
+        <td class="border-b py-2 pr-4"><code>{{ spec.arg|default:"—" }}</code></td>
+        <td class="border-b py-2 text-font-subtle-light dark:text-font-subtle-dark">{{ spec.help }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -188,6 +188,23 @@ UNFOLD = {
                 ],
             },
             {
+                "title": "Jobs",
+                "separator": True,
+                "items": [
+                    # Not a changelist, so it would never appear here on its own — the
+                    # sidebar is hand-maintained (see CLAUDE.md's admin-theme note). Unfold
+                    # names an `actions_list` URL `<app>_<model>_<method>`; reversing that
+                    # rather than concatenating onto the changelist URL matters, because
+                    # `reverse_lazy(...) + "..."` resolves at import and settings are read
+                    # before the app registry is ready.
+                    {"title": "Run a job", "icon": "play_arrow",
+                     "link": reverse_lazy("admin:django_q_schedule_run_a_job")},
+                    {"title": "Scheduled tasks", "icon": "schedule", "link": reverse_lazy("admin:django_q_schedule_changelist")},
+                    {"title": "Successful tasks", "icon": "task_alt", "link": reverse_lazy("admin:django_q_success_changelist")},
+                    {"title": "Failed tasks", "icon": "error", "link": reverse_lazy("admin:django_q_failure_changelist")},
+                ],
+            },
+            {
                 "title": "History",
                 "separator": True,
                 "items": [

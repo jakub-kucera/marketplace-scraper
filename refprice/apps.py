@@ -36,3 +36,12 @@ class RefpriceConfig(AppConfig):
             "refresh-stale-reference-prices",
             ScheduleSpec(REFRESH_STALE_REFERENCE_PRICES, Schedule.WEEKLY),
         )
+        self._register_jobs()
+
+    def _register_jobs(self) -> None:
+        """Offer both tasks on the admin's Run-a-job page."""
+        from bazos.jobs import AD_PK, JobSpec, register_job
+        from refprice.jobs import LOOKUP_REFERENCE_PRICE, REFRESH_STALE_REFERENCE_PRICES
+
+        register_job(JobSpec(LOOKUP_REFERENCE_PRICE, "Look up an ad's reference price", AD_PK))
+        register_job(JobSpec(REFRESH_STALE_REFERENCE_PRICES, "Refresh stale reference prices"))

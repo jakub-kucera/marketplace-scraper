@@ -1323,7 +1323,19 @@ class ThemedScheduleAdmin(ScheduleAdmin, ModelAdmin):
     `manage.py ensure_schedules` creates these rows and owns the dotted `func`, but it
     deliberately does not reset a hand-edited cadence — otherwise this page would be a
     control that a deploy silently overrides.
+
+    Also hosts the **Run a job** page. This is where someone looking for "run that job now"
+    already is, and it is the page whose generic alternative — add a Schedule with
+    `schedule_type=Once` — that page exists to replace: see `bazos/admin_jobs.py`.
     """
+
+    actions_list = ["run_a_job"]
+
+    @unfold_action(description="Run a job now", icon="play_arrow", url_path="run-job")
+    def run_a_job(self, request):
+        from bazos.admin_jobs import run_job_view
+
+        return run_job_view(request)
     list_filter = (("schedule_type", ChoicesDropdownFilter),)
 
 
