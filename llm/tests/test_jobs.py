@@ -1,5 +1,6 @@
 """Tests for the LLM backend canary."""
 from importlib import import_module
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -58,3 +59,35 @@ def test_a_configured_provider_is_actually_checked():
 
     assert call.call_args.args[0] == "llm_check"
     assert "GEMINI" in result
+
+
+@pytest.mark.django_db
+def test_the_extraction_task_path_resolves():
+    from llm.jobs import EXTRACT_AD_SPECS
+
+    module_path, _, attribute = EXTRACT_AD_SPECS.rpartition(".")
+    assert callable(getattr(import_module(module_path), attribute))
+
+
+@pytest.mark.django_db
+def test_extraction_reports_the_three_outcomes_separately():
+    """"declined", "looked and the ad states nothing" and "here are the specs" are three
+    different facts, and a bare "done" would collapse them."""
+    from bazos.models import Ad, Marketplace
+    from llm.jobs import extract_ad_specs
+
+    ad = Ad.objects.create(
+        external_id=6100, marketplace=Marketplace.BAZOS, url="https://x.test/1",
+        name="Sedacka", price_raw="500 Kč", price=500, location="Praha",
+        short_description="", publisher_name="",
+    )
+
+    with patch("llm.extraction.extract_specs") as extract:
+        extract.return_value = SimpleNamespace(declined_reason="no provider", specs={})
+        assert "declined" in extract_ad_specs(ad.pk)
+
+        extract.return_value = SimpleNamespace(declined_reason=None, specs={})
+        assert "no specs found" in extract_ad_specs(ad.pk)
+
+        extract.return_value = SimpleNamespace(declined_reason=None, specs={"ram_gb": 16})
+        assert "ram_gb" in extract_ad_specs(ad.pk)
