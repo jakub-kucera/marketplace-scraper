@@ -14,7 +14,7 @@ import requests
 from django.utils import timezone
 
 from bazos.models import Ad, EmailPublisher, PhonePublisher, PriceType, Query
-from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
+from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper, parse_listing_item
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "bazos_api"
@@ -86,49 +86,49 @@ class TestBuildQueryParams:
 
 class TestParseListingItem:
     def test_external_id_is_int(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item())
+        parsed = parse_listing_item(make_listing_item())
         assert parsed["external_id"] == 221354384
         assert isinstance(parsed["external_id"], int)
 
     def test_name_from_title(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(title="Test Ad"))
+        parsed = parse_listing_item(make_listing_item(title="Test Ad"))
         assert parsed["name"] == "Test Ad"
 
     def test_price_raw_from_price_formatted(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
+        parsed = parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
         assert parsed["price_raw"] == "1 000 Kč"
 
     def test_price_and_type_parsed_from_price_formatted(self):
         """The listing payload has no price_type field (§5.1) — price_formatted is
         parsed the same way as the HTML scraper's price_raw."""
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
+        parsed = parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
         assert parsed["price"] == 1000
         assert parsed["price_type"] == PriceType.EXACT
 
     def test_price_and_type_parsed_for_placeholder(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(price_formatted="Dohodou"))
+        parsed = parse_listing_item(make_listing_item(price_formatted="Dohodou"))
         assert parsed["price"] is None
         assert parsed["price_type"] == PriceType.NEGOTIABLE
 
     def test_view_count_is_int(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(views="42"))
+        parsed = parse_listing_item(make_listing_item(views="42"))
         assert parsed["view_count"] == 42
         assert isinstance(parsed["view_count"], int)
 
     def test_topped_true_string_parses_to_bool_true(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(topped="true"))
+        parsed = parse_listing_item(make_listing_item(topped="true"))
         assert parsed["topped"] is True
 
     def test_topped_false_string_parses_to_bool_false(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(topped="false"))
+        parsed = parse_listing_item(make_listing_item(topped="false"))
         assert parsed["topped"] is False
 
     def test_publish_date_is_timezone_aware(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(**{"from": "2026-07-19 09:45:51"}))
+        parsed = parse_listing_item(make_listing_item(**{"from": "2026-07-19 09:45:51"}))
         assert timezone.is_aware(parsed["publish_date"])
 
     def test_publish_date_values(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(**{"from": "2026-07-19 09:45:51"}))
+        parsed = parse_listing_item(make_listing_item(**{"from": "2026-07-19 09:45:51"}))
         d = parsed["publish_date"]
         assert (d.year, d.month, d.day, d.hour, d.minute) == (2026, 7, 19, 9, 45)
 

@@ -35,6 +35,7 @@ from unfold.widgets import (
 from bazos.comparables import find_comparables
 from bazos.jobs import (
     FETCH_FULL_DESCRIPTION,
+    FETCH_SELLER_LISTINGS,
     FETCH_SELLER_RATINGS,
     GEOCODE_POSTAL_CODE,
     REFRESH_AD,
@@ -1048,7 +1049,7 @@ class PublisherAdminBase(ModelAdmin):
     partner_model: type[models.Model] | None = None
 
     list_filter = ("blocked",)
-    actions = ["block_publishers", "unblock_publishers", "fetch_ratings"]
+    actions = ["block_publishers", "unblock_publishers", "fetch_ratings", "fetch_listings"]
 
     #: "email" or "phone" — `ratings.php` takes one of two mutually exclusive params, and a
     #: pk alone would not say which table a task should look in.
@@ -1133,6 +1134,24 @@ class PublisherAdminBase(ModelAdmin):
             request,
             f"Queued {len(pks)} ratings lookup(s). Only counts are stored — reviewer "
             f"names, numbers and review text are discarded.",
+            messages.INFO,
+        )
+
+    @admin.action(description="Fetch this seller's current listings")
+    def fetch_listings(self, request, queryset):
+        """Queue an inventory pull per publisher id — one request each, the whole catalogue.
+
+        ⚠️ This creates `Ad` rows nobody searched for. They carry `source=SELLER_SWEEP` and
+        no delivery, so they never reach a notification, but they do land in the ad counts —
+        which is exactly what the provenance column exists to disambiguate.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(FETCH_SELLER_LISTINGS, self.publisher_kind, pk)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} inventory pull(s). New ads are stored with no delivery and "
+            f"source='seller_sweep' — they are not notified.",
             messages.INFO,
         )
 
