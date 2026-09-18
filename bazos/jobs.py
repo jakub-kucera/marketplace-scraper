@@ -15,9 +15,11 @@ Two rules this module keeps:
   only concurrency control required — see JOB_QUEUE.md §2.
 """
 import logging
+from dataclasses import dataclass
 
 from django.core.management import call_command
 from django.utils import timezone
+from django_q.models import Schedule
 
 logger = logging.getLogger(__name__)
 
@@ -25,21 +27,199 @@ logger = logging.getLogger(__name__)
 #: here so a rename breaks an import rather than silently orphaning a schedule.
 SWEEP_DELISTED = "bazos.jobs.sweep_delisted"
 HEARTBEAT = "bazos.jobs.heartbeat"
+PRUNE_STATUS_LOGS = "bazos.jobs.prune_status_logs"
+PRUNE_QUERY_RUNS = "bazos.jobs.prune_query_runs"
+SCORE_AD = "bazos.jobs.score_ad"
+RESCORE_ADS = "bazos.jobs.rescore_ads"
+SYNC_VINTED_CATALOGS = "bazos.jobs.sync_vinted_catalogs"
+COMPARE_BAZOS_SCRAPERS = "bazos.jobs.compare_bazos_scrapers"
+GEOCODE_POSTAL_CODE = "bazos.jobs.geocode_postal_code"
+FETCH_FULL_DESCRIPTION = "bazos.jobs.fetch_full_description"
+REFRESH_AD = "bazos.jobs.refresh_ad"
+FETCH_SELLER_RATINGS = "bazos.jobs.fetch_seller_ratings"
+FETCH_SELLER_LISTINGS = "bazos.jobs.fetch_seller_listings"
+DETECT_REPOSTS = "bazos.jobs.detect_reposts"
 
 
-def sweep_delisted(limit: int | None = None) -> str:
+# ---------------------------------------------------------------------------
+# Schedules
+# ---------------------------------------------------------------------------
+#
+# Declared here rather than in the management command so another app can contribute one
+# without `bazos` importing it. `refprice` already registers a filter rule this way; a
+# schedule is the same seam for the same reason — deleting that app must break nothing here.
+
+@dataclass(frozen=True)
+class ScheduleSpec:
+    func: str
+    schedule_type: str
+    minutes: int | None = None
+    kwargs: dict | None = None
+
+
+#: name -> spec. Cadence is editable in the admin afterwards; this only declares the row.
+SCHEDULES: dict[str, ScheduleSpec] = {
+    "delisting-sweep": ScheduleSpec(
+        SWEEP_DELISTED,
+        Schedule.DAILY,
+        # Daily is the right resolution: `removed_at` is stamped when the sweep notices, so
+        # finer cadence buys precision the question ("how many days to disappear") cannot
+        # use, at a linear cost in requests.
+        #
+        # No `limit` in kwargs, which is what puts the task in chunked mode: it works a
+        # slice, yields the single worker, and re-enqueues itself while ads remain due. A
+        # backlog run as one task would make every other job wait for the whole backfill.
+    ),
+    "cluster-heartbeat": ScheduleSpec(HEARTBEAT, Schedule.MINUTES, minutes=60),
+    # Weekly, not daily: both prunes are by age, so running more often deletes the same rows
+    # a few days earlier at the cost of a long DELETE competing with the scraper for locks.
+    "prune-status-logs": ScheduleSpec(PRUNE_STATUS_LOGS, Schedule.WEEKLY),
+    "prune-query-runs": ScheduleSpec(PRUNE_QUERY_RUNS, Schedule.WEEKLY),
+    # Monthly. Vinted's taxonomy is ~2 920 nodes that move rarely, and the whole tree
+    # arrives in ONE request — so this is not about cost, it is about not finding out a
+    # catalog id was retired by watching a query quietly return nothing.
+    "sync-vinted-catalogs": ScheduleSpec(SYNC_VINTED_CATALOGS, Schedule.MONTHLY),
+    # Weekly, matching contract-check.yml's cadence for the same kind of question. Read-only
+    # and cheap — a handful of queries against both transports.
+    "compare-bazos-scrapers": ScheduleSpec(COMPARE_BAZOS_SCRAPERS, Schedule.WEEKLY),
+}
+
+
+# ---------------------------------------------------------------------------
+# The catalog — what the admin's "Run a job" page offers
+# ---------------------------------------------------------------------------
+#
+# A job is reachable three ways: a changelist action (when you are already looking at the
+# row), a schedule (when it is periodic), and this catalog (when all you have is an id).
+#
+# It exists because the generic alternative is bad. django-q2's own Schedule admin will
+# enqueue anything — type a dotted path, type `args`, set "Once" — but nothing checks the
+# path, so a typo becomes a Failure row in a worker nobody is watching, which is the exact
+# trap the dotted-path constants above exist to avoid. Nothing checks the id either, so a
+# wrong one fails the same way. Here the path comes from the registry and **the argument is
+# resolved before anything is queued**, so a mistake is a form error rather than a silent
+# failure ten seconds later.
+
+#: Argument kinds. The value is what the admin form knows how to validate.
+NO_ARG, AD_PK, PUBLISHER_REF, POSTAL_CODE = "", "ad", "publisher", "postal_code"
+
+
+@dataclass(frozen=True)
+class JobSpec:
+    func: str
+    label: str
+    arg: str = NO_ARG
+    help: str = ""
+
+
+#: func -> spec. Other apps add theirs at `AppConfig.ready()`, same seam as schedules.
+JOB_CATALOG: dict[str, JobSpec] = {}
+
+
+def register_job(spec: JobSpec) -> None:
+    """Offer a job on the admin's Run-a-job page. Registering twice is a no-op."""
+    JOB_CATALOG.setdefault(spec.func, spec)
+
+
+def _register_own_jobs() -> None:
+    for spec in (
+        JobSpec(SWEEP_DELISTED, "Delisting sweep (chunked)",
+                help="Works a slice and re-queues itself while ads remain due."),
+        JobSpec(HEARTBEAT, "Cluster heartbeat"),
+        JobSpec(PRUNE_STATUS_LOGS, "Prune log rows"),
+        JobSpec(PRUNE_QUERY_RUNS, "Prune query runs"),
+        JobSpec(RESCORE_ADS, "Re-score every stored price score",
+                help="The backfill after a persisted field is added. Walks every scored ad."),
+        JobSpec(SYNC_VINTED_CATALOGS, "Sync Vinted catalog tree"),
+        JobSpec(COMPARE_BAZOS_SCRAPERS, "Compare HTML vs API scrapers"),
+        JobSpec(SCORE_AD, "Score one ad", AD_PK),
+        JobSpec(FETCH_FULL_DESCRIPTION, "Fetch an ad's full description", AD_PK),
+        JobSpec(REFRESH_AD, "Re-read an ad's listing", AD_PK,
+                help="Bazos only — the other marketplaces have no bulk-id endpoint."),
+        JobSpec(GEOCODE_POSTAL_CODE, "Geocode a postal code", POSTAL_CODE),
+        JobSpec(FETCH_SELLER_RATINGS, "Fetch a seller's ratings", PUBLISHER_REF),
+        JobSpec(FETCH_SELLER_LISTINGS, "Fetch a seller's current listings", PUBLISHER_REF,
+                help="Creates Ad rows with no delivery, marked source='seller_sweep'."),
+        JobSpec(DETECT_REPOSTS, "Find a seller's relisted items", PUBLISHER_REF),
+    ):
+        register_job(spec)
+
+
+_register_own_jobs()
+
+
+def register_schedule(name: str, spec: ScheduleSpec) -> None:
+    """Add a schedule from another app, at that app's `AppConfig.ready()`.
+
+    Mutating the registry rather than importing into it is what keeps the dependency
+    pointing inward — `bazos` never has to know which other apps exist. Registering twice is
+    a no-op so a double `ready()` (Django calls it once, test harnesses are less reliable)
+    cannot produce two rows for one job.
+    """
+    SCHEDULES.setdefault(name, spec)
+
+
+def sweep_delisted(limit: int | None = None, rounds_left: int | None = None) -> str:
     """Run the delisting sweep. See `bazos/delisting.py` for what it does and does not mean.
 
     Wraps the management command rather than reimplementing it: the command is the documented
     entry point and stays usable by hand (`--dry-run`, `--limit`) for the one-off backfill.
+
+    **Two modes, chosen by `limit`.**
+
+    - `limit` given — do exactly that much and stop. The explicit one-off.
+    - `limit` omitted — work in chunks of `DELIST_CHUNK_SIZE` and **re-enqueue itself** while
+      ads remain due. This is what the schedule uses.
+
+    Chunking is not throughput tuning; it is what stops a backfill monopolising the cluster.
+    `Q_CLUSTER["workers"] = 1` is a correctness constraint (the Tor session is not safe for
+    concurrent callers), so *every* other job waits behind this one. A ~29 000-ad backlog run
+    as a single task means an admin-triggered lookup sits behind the whole thing; run as
+    chunks, it waits about a minute.
+
+    No offset is threaded through, and that is deliberate: a swept ad has `last_seen_at`
+    stamped, so it drops out of `due_for_check()` on its own. Paginating instead would skip
+    exactly as many rows as the previous chunk removed from the result set.
+
+    **Two independent stops**, because a re-enqueueing task that cannot finish is a loop that
+    looks like progress: the round budget, and "this chunk cleared nothing". The second is
+    the one that matters — a chunk whose every batch was blocked leaves its ads due, and
+    without it the job would re-queue itself against a marketplace that is refusing us.
     """
     from io import StringIO
 
+    from django_q.tasks import async_task
+
+    from bazos.const import DELIST_CHUNK_SIZE, DELIST_MAX_CHUNK_ROUNDS
+    from bazos.delisting import due_for_check
+
+    one_off = limit is not None
+    chunk = limit if one_off else DELIST_CHUNK_SIZE
+    rounds_left = DELIST_MAX_CHUNK_ROUNDS if rounds_left is None else rounds_left
+
+    due_before = 0 if one_off else due_for_check().count()
+
     out = StringIO()
-    call_command("check_delisted", limit=limit, stdout=out)
+    call_command("check_delisted", limit=chunk, stdout=out)
     summary = out.getvalue().strip().replace("\n", " | ")
     logger.info("Delisting sweep finished: %s", summary)
-    return summary
+
+    if one_off:
+        return summary
+
+    due_after = due_for_check().count()
+    if due_after == 0:
+        return f"{summary} | nothing left due"
+    if due_after >= due_before:
+        # Every batch was skipped — blocked circuits, or a transport that cannot answer.
+        # Re-queueing would spend the round budget asking the same question.
+        logger.warning("Delisting chunk cleared nothing; %d still due", due_after)
+        return f"{summary} | {due_after} still due, chunk made no progress — stopping"
+    if rounds_left <= 1:
+        return f"{summary} | {due_after} still due, round budget spent — stopping"
+
+    async_task(SWEEP_DELISTED, rounds_left=rounds_left - 1)
+    return f"{summary} | {due_after} still due, next chunk queued"
 
 
 def heartbeat() -> str:
@@ -56,3 +236,285 @@ def heartbeat() -> str:
     now = timezone.now()
     logger.info("Job cluster heartbeat at %s", now.isoformat(timespec="seconds"))
     return f"alive at {now:%Y-%m-%d %H:%M:%S}"
+
+
+# ---------------------------------------------------------------------------
+# Housekeeping — the two tables that grow with the clock, not with the market
+# ---------------------------------------------------------------------------
+
+def prune_status_logs(days: int | None = None, error_days: int | None = None) -> str:
+    """Drop log rows past their horizon. See `bazos/housekeeping.py` for the two horizons."""
+    from bazos.housekeeping import prune_status_logs as prune
+
+    routine, serious = prune(days, error_days)
+    logger.info("Pruned %d routine and %d warning+ log rows", routine, serious)
+    return f"deleted {routine} routine, {serious} warning+"
+
+
+def prune_query_runs(days: int | None = None) -> str:
+    """Drop `QueryRun` rows past their horizon.
+
+    ⚠️ This is the table every block-rate measurement is computed from, and a deleted row is
+    gone — `exit_ip` is the only record of which egress the marketplace actually rejected.
+    """
+    from bazos.housekeeping import prune_query_runs as prune
+
+    deleted = prune(days)
+    logger.info("Pruned %d query runs", deleted)
+    return f"deleted {deleted} query runs"
+
+
+# ---------------------------------------------------------------------------
+# Price scoring — CPU only, so these cannot be stuck behind a Bazos job
+# ---------------------------------------------------------------------------
+
+def score_ad(ad_pk: int) -> str:
+    """Predict what one ad is worth and persist the `AdPriceScore`.
+
+    `PriceModel.predict` is CPU-only by contract — no network, no pacing, no block
+    handling — so this is one of the few tasks that never waits on a circuit.
+
+    `refresh=True`: the only reason to ask for one ad by hand is that the stored answer is
+    suspect or absent, and `score_ad`'s freshness check keys on the *artifact* version, so
+    without this a row written by older code short-circuits and comes back unchanged.
+
+    Three outcomes, all reported rather than collapsed to "done": no registered model claims
+    the ad, a model declined (gates, damage words, a non-EXACT price), or a real number.
+    "A model looked and had no opinion" is a different fact from "nothing looked".
+    """
+    from bazos.models import Ad
+    from bazos.pricing.scoring import score_ad as predict
+
+    ad = Ad.objects.get(pk=ad_pk)
+    score = predict(ad, refresh=True)
+    if score is None:
+        return f"ad {ad_pk}: no model claims it"
+    if score.declined_reason:
+        return f"ad {ad_pk}: {score.model_name} declined — {score.declined_reason}"
+    return f"ad {ad_pk}: {score.model_name} predicts {score.predicted} ({score.discount_pct:+.0f}%)"
+
+
+def rescore_ads(model: str | None = None, missing_features: bool = False) -> str:
+    """Re-predict every stored score. The backfill after a persisted field is added.
+
+    Wraps `manage.py rescore_ads` rather than reimplementing it — that command is the
+    documented entry point and carries the `--dry-run` and `--missing-features` narrowing.
+
+    ⚠️ Not scheduled, and should not be: it walks every scored ad, and there is nothing
+    periodic about "the code that writes these columns changed".
+    """
+    from io import StringIO
+
+    out = StringIO()
+    kwargs: dict[str, object] = {"missing_features": missing_features}
+    if model is not None:
+        kwargs["model"] = model
+    call_command("rescore_ads", stdout=out, **kwargs)
+    summary = out.getvalue().strip().replace("\n", " | ")
+    logger.info("Rescore finished: %s", summary)
+    return summary
+
+
+def sync_vinted_catalogs() -> str:
+    """Re-seed `MarketplaceCategory` from Vinted's live category tree.
+
+    One request for the whole tree, `update_or_create`, and **nothing is ever deleted** —
+    the command reports a retired node instead, along with any `Query` whose `extra_params`
+    still reference it. That report is the entire point of scheduling this: `catalog_ids`
+    live in a JSONField and are not an FK, so a retired id fails as an empty result rather
+    than as an error. Vinted queries have already gone silently dead for eight days once.
+    """
+    from io import StringIO
+
+    out = StringIO()
+    call_command("create_vinted_catalogs", stdout=out)
+    summary = out.getvalue().strip().replace("\n", " | ")
+    logger.info("Vinted catalog sync: %s", summary)
+    return summary
+
+
+def compare_bazos_scrapers(limit: int | None = None) -> str:
+    """Do the HTML and the hidden-API scraper still see the same listings?
+
+    Read-only — it never writes an `Ad`. This is the standing drift check for **P21a's
+    cutover**: `BazosApiScraper` is registered but no `Query` selects it, so today nothing
+    would notice if it quietly stopped agreeing with the HTML scraper, and the cutover is a
+    step nobody wants to take on a scraper last validated by hand weeks earlier.
+
+    The command rotates circuits per scrape, which matters more here than anywhere else: a
+    403 returns nothing, and "nothing" from one of the two transports reads exactly like the
+    drift this is looking for.
+    """
+    from io import StringIO
+
+    out = StringIO()
+    kwargs: dict[str, object] = {}
+    if limit is not None:
+        kwargs["limit"] = limit
+    call_command("compare_bazos_scrapers", stdout=out, **kwargs)
+    summary = out.getvalue().strip().replace("\n", " | ")
+    logger.info("Scraper parity check: %s", summary)
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# Jobs that need the Bazos session — these serialise behind the delisting sweep
+# ---------------------------------------------------------------------------
+
+def geocode_postal_code(code: str) -> str:
+    """Resolve one postal code into the `PostalCode` cache.
+
+    The gap this closes: `Query.filter_location_center` is typed by hand in the admin and
+    may name a code no listing has ever come from, so it has no creation moment of its own.
+    Until something geocodes it, `location_distance` PASSes for that whole query — which is
+    indistinguishable from "no filter configured". `ScrapeRunner` warms centres once per
+    pass, so the window is up to 45 minutes of a filter the admin says is on and isn't.
+
+    Returns "already cached" without a request when the row exists. That is the common case
+    when the action is used on a selection, and a no-op that says so is better than one that
+    looks like a lookup.
+    """
+    from bazos.geo import geocode_postal_code as geocode, normalize_postal_code
+    from bazos.models import PostalCode
+    from bazos.scraping.session import build_ip_changer, with_rotation
+
+    normalized = normalize_postal_code(code)
+    if not normalized:
+        # Not an exception: a code the parser cannot read is a data problem to report, not a
+        # transport failure to retry, and a Failure row would say the wrong thing about it.
+        return f"{code!r}: not a usable postal code"
+    if PostalCode.objects.filter(code=normalized).exists():
+        return f"{normalized}: already cached"
+
+    changer = build_ip_changer()
+    row = with_rotation(
+        changer,
+        lambda session: geocode(normalized, session, pace=True, raise_on_block=True),
+        what=f"Geocoding {normalized}",
+    )
+    if row is None:
+        # zip.php genuinely not knowing a code is a real answer, and a different one from
+        # "we were blocked" — which `with_rotation` raises rather than returns.
+        return f"{normalized}: unresolved (zip.php has no entry)"
+    return f"{normalized}: {row.city} ({row.latitude:.4f}, {row.longitude:.4f})"
+
+
+def fetch_full_description(ad_pk: int) -> str:
+    """Fetch one ad's full description on demand, whatever its marketplace.
+
+    Makes `Query.load_full_description` per-ad instead of per-query: today the choice is
+    "every ad on this query pays a detail request, or none do", and the question is always
+    about one listing.
+    """
+    from bazos.enrichment import fetch_full_description as fetch
+    from bazos.models import Ad
+    from bazos.scraping.session import build_ip_changer, with_rotation
+
+    ad = Ad.objects.get(pk=ad_pk)
+    changer = build_ip_changer()
+    fetched = with_rotation(
+        changer,
+        lambda session: fetch(ad, session),
+        what=f"Detail fetch for ad {ad_pk}",
+    )
+    if not fetched.full_description:
+        # A 410 on the API path, or a detail page that carried nothing. Not a failure — the
+        # request worked and the answer was "nothing here" — so it must not raise.
+        return f"ad {ad_pk}: no description returned"
+    seller = "seller resolved" if fetched.email_publisher or fetched.phone_publisher else "no seller ids"
+    return f"ad {ad_pk}: {len(fetched.full_description)} chars, {seller}"
+
+
+def refresh_ad(ad_pk: int) -> str:
+    """Re-read one listing's row — still up, and has the price moved?
+
+    This is `PROMPTS.md` P26 #2 (`_resolve_ad` never refreshes a rediscovered ad) turned
+    into something triggerable for a single listing. The price path goes through the
+    delisting sweep's `apply_batch`, so a change found here writes `PriceChange` history and
+    re-enters the filter exactly as one found by the sweep does.
+    """
+    from bazos.enrichment import refresh_ad as refresh
+    from bazos.models import Ad
+    from bazos.scraping.session import build_ip_changer, with_rotation
+
+    ad = Ad.objects.get(pk=ad_pk)
+    changer = build_ip_changer()
+    return with_rotation(
+        changer,
+        lambda session: refresh(ad, session),
+        what=f"Refresh of ad {ad_pk}",
+    )
+
+
+def fetch_seller_ratings(publisher_kind: str, publisher_pk: int) -> str:
+    """Read one seller's ratings and store the counts. See `bazos/ratings.py` for the
+    reviewer-PII decision, which is the whole design of this one.
+
+    `publisher_kind` is "email" or "phone" — a seller on Bazos is a *pair* of opaque ids and
+    each is queried separately, so the pk alone would not say which table to look in.
+    """
+    from bazos.ratings import fetch_seller_ratings as fetch
+    from bazos.scraping.session import build_ip_changer, with_rotation
+
+    publisher = _publisher(publisher_kind, publisher_pk)
+    changer = build_ip_changer()
+    counts = with_rotation(
+        changer,
+        lambda session: fetch(publisher, session),
+        what=f"Ratings for {publisher_kind} id {publisher.bazos_id}",
+    )
+    return f"{publisher_kind} id {publisher.bazos_id}: {counts}"
+
+
+def fetch_seller_listings(publisher_kind: str, publisher_pk: int) -> str:
+    """Pull one seller's whole current inventory in a single request.
+
+    Creates `Ad` rows with **no `AdDelivery`** and `source=SELLER_SWEEP` — no query asked
+    for them, so they must not enter anyone's notification stream, and the provenance column
+    is what keeps "ads we have" tellable from "ads our queries found" afterwards.
+
+    Also the missing input for repost detection: a seller's past-versus-current inventory is
+    what catches the same item relisted under a new `external_id`.
+    """
+    from bazos.enrichment import fetch_seller_listings as fetch
+    from bazos.scraping.session import build_ip_changer, with_rotation
+
+    publisher = _publisher(publisher_kind, publisher_pk)
+    changer = build_ip_changer()
+    result = with_rotation(
+        changer,
+        lambda session: fetch(publisher, session),
+        what=f"Inventory for {publisher_kind} id {publisher.bazos_id}",
+    )
+    return f"{publisher_kind} id {publisher.bazos_id}: {result}"
+
+
+def detect_reposts(publisher_kind: str, publisher_pk: int) -> str:
+    """Link this seller's ads to the earlier listings they appear to relist.
+
+    CPU-only — it reads our own archive and talks to nothing — so it never waits on a
+    circuit. Its usefulness depends on `fetch_seller_listings` having been run for the same
+    seller: a relist is only visible if both attempts are in the database, and before the
+    inventory pull existed a seller's past listings were only here by luck.
+    """
+    from bazos.reposts import detect_reposts as detect
+
+    publisher = _publisher(publisher_kind, publisher_pk)
+    linked = detect(publisher)
+    return f"{publisher_kind} id {publisher.bazos_id}: {linked} relist(s) linked"
+
+
+def _publisher(kind: str, pk: int):
+    """Resolve "email"/"phone" plus a pk to a publisher row.
+
+    A seller on Bazos is a *pair* of opaque ids living in two tables, so a pk alone does not
+    say which one to read. Branched rather than looked up in a dict because the two managers
+    are what is wanted, and a dict of model classes erases both to their shared abstract base.
+    """
+    from bazos.models import EmailPublisher, PhonePublisher
+
+    if kind == "email":
+        return EmailPublisher.objects.get(pk=pk)
+    if kind == "phone":
+        return PhonePublisher.objects.get(pk=pk)
+    raise ValueError(f"unknown publisher kind {kind!r}")

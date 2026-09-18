@@ -17,16 +17,13 @@ import logging
 from random import uniform
 from time import sleep
 
-from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from bazos.const import DELIST_BATCH_SIZE, DELIST_WAIT_TIME, MAX_BLACKLIST_RETRIES
+from bazos.const import DELIST_BATCH_SIZE, DELIST_WAIT_TIME
 from bazos.delisting import SweepResult, apply_batch, due_for_check
-from bazos.exceptions import MarketplaceBlockedError
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
-from ip_changer.dummy import DummyIPChanger
+from bazos.scraping.session import AllCircuitsBlocked, build_ip_changer, with_rotation
 from ip_changer.ip_changer import IPChanger
-from ip_changer.tor import TorIPChanger
 
 logger = logging.getLogger(__name__)
 
@@ -79,38 +76,32 @@ class Command(BaseCommand):
     # -- transport --------------------------------------------------------
 
     def _ip_changer(self) -> IPChanger:
-        changer_class = DummyIPChanger if settings.IP_CHANGER_TYPE == "DUMMY" else TorIPChanger
-        return changer_class()
+        return build_ip_changer()
 
     def _fetch_with_rotation(self, scraper, changer: IPChanger, batch) -> tuple[dict, bool]:
         """One batch, rotating the circuit on a 403. `(found, ok)` — `ok` False means skip.
 
-        Same shape as `ScrapeRunner._run_query_with_rotation` and `geocode_postal_codes`:
-        a block is a property of the exit IP, so without rotating, one bad circuit fails
+        A block is a property of the exit IP, so without rotating, one bad circuit fails
         every remaining batch identically.
         """
         ids = [ad.external_id for ad in batch]
-        for attempt in range(1, MAX_BLACKLIST_RETRIES + 1):
-            try:
-                scraper.session = changer.session
-                found = scraper.fetch_by_ids(ids)
-            except MarketplaceBlockedError as e:
-                logger.warning(
-                    "Delisting batch blocked on exit %s (attempt %d/%d)",
-                    e.exit_ip or "unknown", attempt, MAX_BLACKLIST_RETRIES,
-                )
-                if not changer.rotate_circuit():
-                    return {}, False
-                continue
-            # None is "no usable answer", NOT "none of them are listed". A timed-out or
-            # unparseable response must record nothing — writing `{}` here would mark all
-            # 210 ads in the batch as removed, which is what happened in production on
-            # 2026-09-17 against a Tor circuit that had not finished warming up.
-            if found is None:
-                logger.warning("Delisting batch got no usable response; skipping %d ads", len(ids))
-                return {}, False
-            return found, True
-        return {}, False
+
+        def fetch(session):
+            scraper.session = session
+            return scraper.fetch_by_ids(ids)
+
+        try:
+            found = with_rotation(changer, fetch, what=f"Delisting batch of {len(ids)}")
+        except AllCircuitsBlocked:
+            return {}, False
+        # None is "no usable answer", NOT "none of them are listed". A timed-out or
+        # unparseable response must record nothing — writing `{}` here would mark all
+        # 210 ads in the batch as removed, which is what happened in production on
+        # 2026-09-17 against a Tor circuit that had not finished warming up.
+        if found is None:
+            logger.warning("Delisting batch got no usable response; skipping %d ads", len(ids))
+            return {}, False
+        return found, True
 
 
 def _merge(a: SweepResult, b: SweepResult) -> SweepResult:

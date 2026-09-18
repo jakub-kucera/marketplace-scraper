@@ -7,14 +7,15 @@ detail).
 import copy
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 from django.utils import timezone
 
-from bazos.models import Ad, EmailPublisher, PhonePublisher, PriceType, Query
-from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
+from bazos.exceptions import MarketplaceBlockedError
+from bazos.models import Ad, EmailPublisher, Marketplace, PhonePublisher, PriceType, Query
+from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper, parse_listing_item
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "bazos_api"
@@ -86,49 +87,49 @@ class TestBuildQueryParams:
 
 class TestParseListingItem:
     def test_external_id_is_int(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item())
+        parsed = parse_listing_item(make_listing_item())
         assert parsed["external_id"] == 221354384
         assert isinstance(parsed["external_id"], int)
 
     def test_name_from_title(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(title="Test Ad"))
+        parsed = parse_listing_item(make_listing_item(title="Test Ad"))
         assert parsed["name"] == "Test Ad"
 
     def test_price_raw_from_price_formatted(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
+        parsed = parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
         assert parsed["price_raw"] == "1 000 Kč"
 
     def test_price_and_type_parsed_from_price_formatted(self):
         """The listing payload has no price_type field (§5.1) — price_formatted is
         parsed the same way as the HTML scraper's price_raw."""
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
+        parsed = parse_listing_item(make_listing_item(price_formatted="1 000 Kč"))
         assert parsed["price"] == 1000
         assert parsed["price_type"] == PriceType.EXACT
 
     def test_price_and_type_parsed_for_placeholder(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(price_formatted="Dohodou"))
+        parsed = parse_listing_item(make_listing_item(price_formatted="Dohodou"))
         assert parsed["price"] is None
         assert parsed["price_type"] == PriceType.NEGOTIABLE
 
     def test_view_count_is_int(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(views="42"))
+        parsed = parse_listing_item(make_listing_item(views="42"))
         assert parsed["view_count"] == 42
         assert isinstance(parsed["view_count"], int)
 
     def test_topped_true_string_parses_to_bool_true(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(topped="true"))
+        parsed = parse_listing_item(make_listing_item(topped="true"))
         assert parsed["topped"] is True
 
     def test_topped_false_string_parses_to_bool_false(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(topped="false"))
+        parsed = parse_listing_item(make_listing_item(topped="false"))
         assert parsed["topped"] is False
 
     def test_publish_date_is_timezone_aware(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(**{"from": "2026-07-19 09:45:51"}))
+        parsed = parse_listing_item(make_listing_item(**{"from": "2026-07-19 09:45:51"}))
         assert timezone.is_aware(parsed["publish_date"])
 
     def test_publish_date_values(self):
-        parsed = BazosApiScraper._parse_listing_item(make_listing_item(**{"from": "2026-07-19 09:45:51"}))
+        parsed = parse_listing_item(make_listing_item(**{"from": "2026-07-19 09:45:51"}))
         d = parsed["publish_date"]
         assert (d.year, d.month, d.day, d.hour, d.minute) == (2026, 7, 19, 9, 45)
 
@@ -397,3 +398,41 @@ class TestScraperRegistry:
         assert query.marketplace == "bazos"
         runner = QueryRunner(query, MagicMock())
         assert isinstance(runner.scraper, BazosScraper)
+
+
+# ---------------------------------------------------------------------------
+# load_full_description and the blocked detail page
+# ---------------------------------------------------------------------------
+
+class TestDetailFetchOnABlockedCircuit:
+    """Found by running `fetch_full_description` against a real ad on 2026-09-17.
+
+    `run_request` returns a 403 rather than retrying — a block is a *response* — so the
+    detail path has to check for it explicitly, the way `run_query` always has. Without the
+    check the API scraper reported "no description" for an ad nobody had actually looked at,
+    and the HTML scraper raised AttributeError on the block body.
+    """
+
+    @pytest.mark.parametrize("status", [403, 429])
+    def test_a_blocked_detail_response_raises_so_the_caller_can_rotate(self, status):
+        scraper = BazosApiScraper(MagicMock())
+        response = MagicMock(status_code=status, text="... IP: 1.2.3.4")
+        with patch.object(scraper, "run_request", return_value=response), \
+             patch("bazos.scraping.bazos.bazos_api_scraper.sleep"):
+            with pytest.raises(MarketplaceBlockedError):
+                scraper.load_full_description(make_ad_for_detail())
+
+    def test_an_unexpected_status_still_returns_the_ad_unchanged(self):
+        """Not every non-200 is retryable; only a block is."""
+        scraper = BazosApiScraper(MagicMock())
+        response = MagicMock(status_code=500)
+        with patch.object(scraper, "run_request", return_value=response), \
+             patch("bazos.scraping.bazos.bazos_api_scraper.sleep"):
+            ad = scraper.load_full_description(make_ad_for_detail())
+        assert ad.full_description is None
+
+
+def make_ad_for_detail() -> Ad:
+    return Ad(external_id=1, marketplace=Marketplace.BAZOS_API, url="https://x.test/1",
+              name="x", price_raw="1 Kč", location="Praha", short_description="",
+              publisher_name="")

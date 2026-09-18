@@ -73,9 +73,9 @@ def test_a_query_can_name_it_explicitly():
 def test_bazos_filters_does_not_import_refprice():
     """Registration happens in refprice's AppConfig.ready, so the dependency points
     inward and deleting this app leaves the pipeline intact."""
-    import pathlib
-    source = pathlib.Path(__import__("bazos").__file__).parent / "filters.py"
-    assert "refprice" not in source.read_text(encoding="utf-8")
+    from refprice.tests.import_direction import modules_imported_by
+
+    assert "refprice" not in modules_imported_by("filters.py")
 
 
 # ---------------------------------------------------------------------------

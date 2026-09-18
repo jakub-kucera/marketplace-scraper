@@ -17,9 +17,10 @@ from unfold.admin import ModelAdmin, TabularInline
 
 from bazos.admin import AdAdmin
 from bazos.models import Ad
+from django_q.tasks import async_task
+
+from refprice.jobs import LOOKUP_REFERENCE_PRICE
 from refprice.models import LookupStatus, RefLookup, RefPricePoint, RefProduct, RefProductLink
-from refprice.results import ReferenceRequest
-from refprice.services import lookup_reference_price
 
 logger = logging.getLogger(__name__)
 
@@ -143,18 +144,29 @@ class ReferenceLinkInline(TabularInline):
 
 @admin.action(description="Look up reference price (Zboží)")
 def look_up_reference_price(modeladmin, request, queryset):
-    """Explicit, operator-triggered. Never runs on the scrape or filter path."""
-    counts: dict[str, int] = {}
-    for ad in queryset:
-        result = lookup_reference_price(
-            ReferenceRequest(title=ad.name, description=ad.short_description or ""),
-            ad=ad,
-        )
-        counts[result.status] = counts.get(result.status, 0) + 1
+    """Explicit, operator-triggered — and *queued*, not done inline.
 
-    summary = ", ".join(f"{n} {status.lower()}" for status, n in sorted(counts.items()))
-    level = messages.SUCCESS if counts.get(LookupStatus.MATCHED) else messages.WARNING
-    modeladmin.message_user(request, f"Reference lookup: {summary or 'nothing to do'}", level)
+    This used to call `lookup_reference_price` synchronously, once per selected ad, inside
+    the admin request. The posture was right (explicit invocation, never on the scrape or
+    filter path) and it predated the job cluster, but fifty selected ads meant fifty
+    sequential HTTP calls to Zboží while the browser waited: a gateway timeout, and the
+    results lost with it.
+
+    One task per ad, not one per selection, so a failure loses one lookup and each gets its
+    own row in the run log. The message says "queued", never "looked up" — the outcome lives
+    on the Success/Failure rows, and claiming otherwise here would be a lie the admin tells
+    every time the cluster is down.
+    """
+    pks = list(queryset.values_list("pk", flat=True))
+    for pk in pks:
+        async_task(LOOKUP_REFERENCE_PRICE, pk)
+
+    modeladmin.message_user(
+        request,
+        f"Queued {len(pks)} reference lookup(s). Results appear on each ad, and in "
+        f"Scheduled tasks → Successful/Failed tasks.",
+        messages.INFO,
+    )
 
 
 # Appended rather than imported by bazos: see the module docstring. mypy infers the

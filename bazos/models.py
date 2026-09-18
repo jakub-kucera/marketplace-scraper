@@ -661,6 +661,21 @@ class AdStatus(models.TextChoices):
     FAILED        = "FAILED"        # send failed after retries
 
 
+class AdSource(models.TextChoices):
+    """How this ad got into the database.
+
+    Until seller-inventory fetches existed, every row was here because a `Query` matched it,
+    and "how many ads do we have" and "how many did our queries find" were the same number.
+    They are not any more, and the difference is invisible without this column: a
+    seller-sweep ad has no `AdDelivery` at all, so it is absent from every per-query count
+    while still inflating every total.
+
+    Recording it is cheap; discovering the ambiguity six months into an analysis is not.
+    """
+    QUERY = "query", "Found by a query"
+    SELLER_SWEEP = "seller_sweep", "Pulled from a seller's inventory"
+
+
 class Ad(TimeStampedModel):
     external_id = models.BigIntegerField(db_index=True)
     marketplace = models.CharField(max_length=20, choices=Marketplace.choices, default=Marketplace.BAZOS, db_index=True)
@@ -709,6 +724,22 @@ class Ad(TimeStampedModel):
             "Structured specs as the marketplace stated them, verbatim, e.g. "
             '{"computer_ram": "16 GB"}. Empty when the marketplace publishes none.'
         ),
+    )
+
+    # Defaults to QUERY so every pre-existing row keeps the meaning it was written with —
+    # they were all found by a query, and backfilling any other value would be a claim the
+    # data cannot support.
+    source = models.CharField(
+        max_length=20, choices=AdSource.choices, default=AdSource.QUERY, db_index=True,
+        help_text="How this ad entered the database. Only 'query' ads have deliveries.",
+    )
+
+    # Set by `bazos/reposts.py`, never by the scraper: it is a *conclusion* about two rows,
+    # not a fact either listing states. SET_NULL rather than CASCADE — deleting the older
+    # listing must not delete the one still for sale.
+    reposted_from = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="reposts",
+        help_text="The earlier listing this one appears to be a relist of. Inferred, not stated.",
     )
 
     publisher_name = models.CharField(max_length=100)
@@ -926,6 +957,52 @@ class AdOutcome(TimeStampedModel):
         return f"{self.get_kind_display()} — {self.ad}"
 
 
+class AdSpecExtraction(TimeStampedModel):
+    """Specs an LLM read out of one ad's free text, and which prompt version read them.
+
+    **A separate table, and deliberately not `Ad.attributes`.** That column means "specs as
+    the marketplace *stated* them, verbatim", and its own comment forbids writing derived
+    values into it: doing so destroys the stated-vs-derived distinction it exists for, and
+    leaves nothing to re-derive from when extraction improves. A Bazos ad states nothing —
+    every spec is in prose — so anything read out of it is derived by construction.
+
+    Why this is worth building at all: `PRICE_MODEL_BENCHMARK.md` §3.1 measured **two
+    extractor regexes as worth more R² than the entire choice of estimator**. Extraction, not
+    model class, is the bottleneck, and regexes are where the current extractor tops out.
+
+    Versioned on the prompt, like `AdPriceScore` is on the artifact: re-running v1 updates
+    its row, and a v2 is a new one, so "what did v1 think" survives the upgrade. A declined
+    extraction is stored with `specs` empty and a reason, because "the model looked and had
+    no opinion" is a different fact from "nothing looked" — the same call `AdPriceScore`
+    makes.
+
+    ⚠️ **Nothing consumes this yet.** It ships the way `llm/` did: inert, with its first
+    consumer a separate decision. Wiring it into a `PriceModel` means deciding what happens
+    when an extraction disagrees with the regexes, which is not a question to answer in
+    passing.
+    """
+    ad = models.ForeignKey(Ad, on_delete=models.CASCADE, related_name="spec_extractions")
+    specs = models.JSONField(
+        default=dict, blank=True,
+        help_text='Derived specs, e.g. {"ram_gb": 16, "cpu": "i5-10400"}. Empty when declined.',
+    )
+    provider = models.CharField(max_length=20)
+    model_name = models.CharField(max_length=60)
+    prompt_version = models.CharField(max_length=10)
+    declined_reason = models.CharField(max_length=200, null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("ad", "prompt_version"), name="unique_extraction_per_ad_prompt"
+            )
+        ]
+        ordering = ("-created",)
+
+    def __str__(self) -> str:
+        return f"{self.ad} — {self.prompt_version} ({len(self.specs)} specs)"
+
+
 class AdPriceScore(TimeStampedModel):
     """What a price model thinks one ad is worth, and how unusual its asking price is.
 
@@ -1023,8 +1100,60 @@ class PublisherMixin:
         )
 
 
-class PhonePublisher(PublisherMixin, TimeStampedModel):
+class SellerRatingFields(models.Model):
+    """Aggregate rating counts for one publisher id. Abstract; both publisher models get it.
+
+    **Counts, never identities, and that is the whole design.** `ratings.php` is public and
+    unauthenticated, and it returns each reviewer's `name`, real unmasked `phone` and the
+    free-text `message` — private individuals who left feedback, not the seller.
+    `HIDDEN_API.md` §6.2(5) flagged that as "a step up in what we'd be collecting" and asked
+    for a deliberate decision; §6.4b then recommended its own answer, which this adopts.
+
+    Three reasons, in the order to re-litigate them if anyone wants to change it:
+
+    - The counts answer the question. "Does this seller have negative feedback, how much,
+      how recent" is the decision input; a reviewer's name and number contribute nothing.
+    - `./backups/` is gitignored because dumps already hold *seller* PII. Adding
+      *third-party* PII widens a leak to people with no relationship to this project.
+    - `MONETIZATION.md` §6 outranks convenience here: the reviewer data has no lawful basis
+      that the seller ids do not already have.
+
+    ⚠️ What is given up is the text of negative reviews — "never shipped" is more actionable
+    than `negative: 3`. If that turns out to matter, the move is a setting defaulting to
+    off, mirroring `PRICE_MODEL_SHADOW_MODE` and `LLM_PROVIDER=NULL`. Do not quietly start
+    storing third-party free text because it was convenient.
+
+    An abstract model rather than fields on `PublisherMixin`: that mixin is deliberately
+    plain ("it adds no fields, so it needs no migration"), and declaring these six twice to
+    preserve the property would be worse than adding a second, honest base.
+    """
+
+    ratings_positive = models.PositiveIntegerField(default=0)
+    ratings_negative = models.PositiveIntegerField(default=0)
+    ratings_neutral = models.PositiveIntegerField(default=0)
+    #: Bounds of the rating history. A seller with three negatives from 2019 is a different
+    #: proposition from one with three from last month, and the counts alone cannot say.
+    ratings_first_at = models.DateTimeField(null=True, blank=True)
+    ratings_last_at = models.DateTimeField(null=True, blank=True)
+    #: Null means nobody has looked — distinct from "looked, found none", which is zeroes
+    #: with a timestamp. Same distinction `AdPriceScore`'s declined rows exist to keep.
+    ratings_fetched_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When ratings.php was last read for this id. Null = never looked.",
+    )
+
+    class Meta:
+        abstract = True
+
+    @property
+    def ratings_total(self) -> int:
+        return self.ratings_positive + self.ratings_negative + self.ratings_neutral
+
+
+class PhonePublisher(PublisherMixin, SellerRatingFields, TimeStampedModel):
     partner_ad_field = "email_publisher"
+    #: `ratings.php` takes one of two mutually exclusive params; this names ours.
+    ratings_param = "phone_id"
 
     bazos_id = models.IntegerField(db_index=True, unique=True)
     # Todo use phone number field. Have some conversion with prefix, so it matches FB DB. Has to be valid ob Bazos?
@@ -1039,8 +1168,9 @@ class PhonePublisher(PublisherMixin, TimeStampedModel):
         return f"{self.phone} | {self.bazos_id}" if self.phone else f"phone id {self.bazos_id}"
 
 
-class EmailPublisher(PublisherMixin, TimeStampedModel):
+class EmailPublisher(PublisherMixin, SellerRatingFields, TimeStampedModel):
     partner_ad_field = "phone_publisher"
+    ratings_param = "email_id"
 
     bazos_id = models.IntegerField(db_index=True, unique=True)
     # Todo use email field

@@ -18,6 +18,7 @@ from django_db_logger.admin import StatusLogAdmin
 from django_db_logger.models import StatusLog
 from django_q.admin import FailAdmin, QueueAdmin, ScheduleAdmin, TaskAdmin
 from django_q.models import Failure as QFailure, OrmQ as QTask, Schedule as QSchedule, Success as QSuccess
+from django_q.tasks import async_task
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.filters.admin import (
     ChoicesDropdownFilter,
@@ -32,6 +33,15 @@ from unfold.widgets import (
 )
 
 from bazos.comparables import find_comparables
+from bazos.jobs import (
+    DETECT_REPOSTS,
+    FETCH_FULL_DESCRIPTION,
+    FETCH_SELLER_LISTINGS,
+    FETCH_SELLER_RATINGS,
+    GEOCODE_POSTAL_CODE,
+    REFRESH_AD,
+    SCORE_AD,
+)
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
 from bazos.models import AdOutcome, AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
@@ -419,7 +429,7 @@ class QueryAdmin(ModelAdmin):
     # str(Query) reads text/category/section, so without this the changelist does a
     # section+category lookup per row.
     list_select_related = ("category", "section", "sender")
-    actions = ["enable_queries", "disable_queries"]
+    actions = ["enable_queries", "disable_queries", "geocode_filter_centres"]
     actions_list = ["force_run_now"]
     autocomplete_fields = ["category", "section", "sender"]
     inlines = (QueryChangeInline,)
@@ -573,6 +583,33 @@ class QueryAdmin(ModelAdmin):
     def disable_queries(self, request, queryset):
         updated = queryset.update(enabled=False)
         self.message_user(request, f"{updated} query(ies) disabled successfully.")
+
+    @admin.action(description="Geocode the distance-filter centre")
+    def geocode_filter_centres(self, request, queryset):
+        """Queue a `zip.php` lookup for each selected query's `filter_location_center`.
+
+        A centre is typed by hand on this page and has no creation moment of its own, so
+        until something geocodes it `location_distance` PASSes for the whole query — which
+        looks exactly like "no filter configured". The runner warms centres once a pass, so
+        without this the window is up to 45 minutes of a filter this page says is on.
+
+        Queries with no centre are skipped and counted rather than passed through: a task
+        whose only possible outcome is "nothing to do" is noise in the run log.
+        """
+        centres = {
+            centre for centre in queryset.exclude(filter_location_center="")
+            .values_list("filter_location_center", flat=True) if centre
+        }
+        for centre in sorted(centres):
+            async_task(GEOCODE_POSTAL_CODE, centre)
+
+        skipped = queryset.count() - len(centres)
+        self.message_user(
+            request,
+            f"Queued {len(centres)} geocode(s)"
+            + (f"; {skipped} selected query(ies) have no filter centre." if skipped > 0 else "."),
+            messages.INFO,
+        )
 
     @unfold_action(description="Force Run Now", icon="bolt", url_path="force-run")
     def force_run_now(self, request):
@@ -747,6 +784,7 @@ class AdAdmin(ModelAdmin):
         "price_discount",
         "price_z",
         "listing_state",
+        "relist_of",
         "created",
     )
     # Plain "-publish_date" would put every Vinted ad (publish_date is always null —
@@ -773,6 +811,12 @@ class AdAdmin(ModelAdmin):
         "comparables",
     )
     inlines = (AdOutcomeInline, AdDeliveryInline, PriceChangeInline, AdPriceScoreInline)
+    # Annotated rather than left to inference: `refprice/admin.py` appends its own action
+    # to this tuple from outside (the dependency points inward, so `bazos` cannot import
+    # it), and a literal would be inferred as tuple[str] and reject the callable.
+    actions: tuple[Any, ...] = (
+        "score_selected_ads", "fetch_full_descriptions", "refresh_selected_ads",
+    )
     # query_count's Count(...) annotation forces a GROUP BY over the whole ad × addelivery
     # join. Without this, the changelist paginator's separate "N results" count query runs
     # that GROUP BY as a subquery aggregate over the FULL table on every page load — cheap
@@ -814,6 +858,77 @@ class AdAdmin(ModelAdmin):
     @admin.display(description="z", ordering=models.F("price_z").asc(nulls_last=True))
     def price_z(self, obj):
         return "—" if obj.price_z is None else f"{obj.price_z:+.2f}"
+
+    @admin.action(description="Re-score with the price model")
+    def score_selected_ads(self, request, queryset):
+        """Queue one scoring task per ad. Never scores inline.
+
+        CPU-only work, so it would in fact survive being done here — but a fifty-row
+        selection is fifty model evaluations plus fifty writes inside one admin request,
+        and routing it through the queue is what makes each one visible as its own row in
+        Successful/Failed tasks. The message says "queued" for the same reason it does on
+        the reference-price action: the outcome lives on those rows.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(SCORE_AD, pk)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} scoring task(s). Results appear on each ad, and in "
+            f"Scheduled tasks → Successful/Failed tasks.",
+            messages.INFO,
+        )
+
+    @admin.action(description="Fetch the full description")
+    def fetch_full_descriptions(self, request, queryset):
+        """Queue a detail fetch per ad, regardless of its query's `load_full_description`.
+
+        Ads that already have one are skipped and counted — this costs a paced request
+        against a marketplace that 403s about half our exits, so re-fetching something we
+        have is not a free no-op the way a cache hit is.
+        """
+        pks = list(queryset.filter(full_description__isnull=True).values_list("pk", flat=True))
+        for pk in pks:
+            async_task(FETCH_FULL_DESCRIPTION, pk)
+        skipped = queryset.count() - len(pks)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} detail fetch(es)"
+            + (f"; {skipped} already had a description." if skipped > 0 else "."),
+            messages.INFO,
+        )
+
+    @admin.action(description="Re-read the listing (price, still up?)")
+    def refresh_selected_ads(self, request, queryset):
+        """Queue a listing re-read per ad. Bazos only — see `enrichment.refresh_ad`.
+
+        Filtered here rather than left to fail in the worker: a Failure row per Vinted ad
+        would say "something broke" about a marketplace that simply has no bulk-id endpoint.
+        """
+        from bazos.delisting import SWEEPABLE_MARKETPLACES
+
+        refreshable = queryset.filter(marketplace__in=SWEEPABLE_MARKETPLACES)
+        pks = list(refreshable.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(REFRESH_AD, pk)
+        skipped = queryset.count() - len(pks)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} refresh(es)"
+            + (f"; {skipped} on a marketplace with no bulk-id endpoint." if skipped > 0 else "."),
+            messages.INFO,
+        )
+
+    @admin.display(description="Relist of")
+    def relist_of(self, obj):
+        """Inferred, never stated — see `bazos/reposts.py`. Blank is the common case."""
+        if obj.reposted_from_id is None:
+            return "—"
+        return format_html(
+            '<a href="{}" title="inferred, not stated by the marketplace">#{}</a>',
+            reverse("admin:bazos_ad_change", args=[obj.reposted_from_id]),
+            obj.reposted_from_id,
+        )
 
     @admin.display(description="Listing", ordering="removed_at")
     def listing_state(self, obj):
@@ -947,7 +1062,14 @@ class PublisherAdminBase(ModelAdmin):
     partner_model: type[models.Model] | None = None
 
     list_filter = ("blocked",)
-    actions = ["block_publishers", "unblock_publishers"]
+    actions = [
+        "block_publishers", "unblock_publishers",
+        "fetch_ratings", "fetch_listings", "detect_reposts",
+    ]
+
+    #: "email" or "phone" — `ratings.php` takes one of two mutually exclusive params, and a
+    #: pk alone would not say which table a task should look in.
+    publisher_kind: str = ""
 
     def get_queryset(self, request):
         # Annotated so the changelist column costs one query rather than one per row.
@@ -1013,15 +1135,77 @@ class PublisherAdminBase(ModelAdmin):
         updated = queryset.update(blocked=False)
         self.message_user(request, f"{updated} publisher(s) unblocked successfully.")
 
+    @admin.action(description="Fetch seller ratings")
+    def fetch_ratings(self, request, queryset):
+        """Queue one `ratings.php` read per publisher id.
+
+        What this makes possible is `blocked` becoming evidence-based rather than a hunch:
+        a seller with several recent negatives is a blocklist candidate you can confirm in
+        one click, instead of one discovered after wasting a trip.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(FETCH_SELLER_RATINGS, self.publisher_kind, pk)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} ratings lookup(s). Only counts are stored — reviewer "
+            f"names, numbers and review text are discarded.",
+            messages.INFO,
+        )
+
+    @admin.action(description="Fetch this seller's current listings")
+    def fetch_listings(self, request, queryset):
+        """Queue an inventory pull per publisher id — one request each, the whole catalogue.
+
+        ⚠️ This creates `Ad` rows nobody searched for. They carry `source=SELLER_SWEEP` and
+        no delivery, so they never reach a notification, but they do land in the ad counts —
+        which is exactly what the provenance column exists to disambiguate.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(FETCH_SELLER_LISTINGS, self.publisher_kind, pk)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} inventory pull(s). New ads are stored with no delivery and "
+            f"source='seller_sweep' — they are not notified.",
+            messages.INFO,
+        )
+
+    @admin.action(description="Find relisted items")
+    def detect_reposts(self, request, queryset):
+        """Queue repost detection per publisher. Reads our own archive; no requests.
+
+        Worth running right after "Fetch this seller's current listings" — before that, a
+        seller's past inventory is in the database only if a query happened to catch it.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(DETECT_REPOSTS, self.publisher_kind, pk)
+        self.message_user(request, f"Queued repost detection for {len(pks)} seller(s).", messages.INFO)
+
+    @admin.display(description="Ratings", ordering="ratings_negative")
+    def ratings_summary(self, obj):
+        """Null fetched_at means nobody has looked, which is not the same as no ratings."""
+        if obj.ratings_fetched_at is None:
+            return "—"
+        if not obj.ratings_total:
+            return "none"
+        return format_html(
+            '<span title="{}">{} + / <strong>{} -</strong> / {} ~</span>',
+            f"last rating {obj.ratings_last_at:%Y-%m-%d}" if obj.ratings_last_at else "date unknown",
+            obj.ratings_positive, obj.ratings_negative, obj.ratings_neutral,
+        )
+
 
 @admin.register(EmailPublisher)
 class EmailPublisherAdmin(PublisherAdminBase):
     own_ad_field = "email_publisher"
     partner_ad_field = "phone_publisher"
     partner_model = PhonePublisher
+    publisher_kind = "email"
 
-    list_display = ("bazos_id", "email", "blocked", "ad_count", "partner_count")
-    readonly_fields = ("ads_link", "partners")
+    list_display = ("bazos_id", "email", "blocked", "ad_count", "partner_count", "ratings_summary")
+    readonly_fields = ("ads_link", "partners", "ratings_summary")
 
 
 @admin.register(PhonePublisher)
@@ -1029,9 +1213,10 @@ class PhonePublisherAdmin(PublisherAdminBase):
     own_ad_field = "phone_publisher"
     partner_ad_field = "email_publisher"
     partner_model = EmailPublisher
+    publisher_kind = "phone"
 
-    list_display = ("bazos_id", "phone", "blocked", "ad_count", "partner_count")
-    readonly_fields = ("ads_link", "partners")
+    list_display = ("bazos_id", "phone", "blocked", "ad_count", "partner_count", "ratings_summary")
+    readonly_fields = ("ads_link", "partners", "ratings_summary")
 
 
 @admin.register(PostalCode)
@@ -1138,7 +1323,19 @@ class ThemedScheduleAdmin(ScheduleAdmin, ModelAdmin):
     `manage.py ensure_schedules` creates these rows and owns the dotted `func`, but it
     deliberately does not reset a hand-edited cadence — otherwise this page would be a
     control that a deploy silently overrides.
+
+    Also hosts the **Run a job** page. This is where someone looking for "run that job now"
+    already is, and it is the page whose generic alternative — add a Schedule with
+    `schedule_type=Once` — that page exists to replace: see `bazos/admin_jobs.py`.
     """
+
+    actions_list = ["run_a_job"]
+
+    @unfold_action(description="Run a job now", icon="play_arrow", url_path="run-job")
+    def run_a_job(self, request):
+        from bazos.admin_jobs import run_job_view
+
+        return run_job_view(request)
     list_filter = (("schedule_type", ChoicesDropdownFilter),)
 
 

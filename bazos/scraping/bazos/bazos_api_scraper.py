@@ -59,6 +59,40 @@ def _to_bool(value) -> bool:
     return str(value).lower() == "true"
 
 
+def _parse_listing_date(date_raw: str) -> datetime:
+    naive = datetime.strptime(date_raw, "%Y-%m-%d %H:%M:%S")
+    return timezone.make_aware(naive)
+
+
+def parse_listing_item(item: dict) -> dict:
+    """Pure parsing of one `ads.php` listing entry, as `Ad` field values.
+
+    Thin payload — no description, images, GPS or publisher ids, and no structured price
+    (HIDDEN_API.md §5.1). `price_formatted` follows the same string grammar as the HTML
+    scraper (§4), so it is parsed the same way; `load_full_description` upgrades this to the
+    API's own `price_type` when the detail call happens.
+
+    **Module-level, not a method**, because two callers outside this class need it —
+    `bazos/enrichment.py` parses seller-inventory rows with it — and a `@staticmethod`
+    reached through the class disappears the moment a test patches `BazosApiScraper`, taking
+    the parsing with it and yielding a `MagicMock` where an int should be.
+    """
+    price_raw = item["price_formatted"]
+    price, price_type = parse_price_and_type(price_raw)
+    return {
+        "external_id": int(item["id"]),
+        "name": item["title"],
+        "price_raw": price_raw,
+        "price": price,
+        "price_type": price_type,
+        "url": item["url"],
+        "location": item["locality"],
+        "publish_date": _parse_listing_date(item["from"]),
+        "topped": _to_bool(item.get("topped", False)),
+        "view_count": int(item["views"]),
+    }
+
+
 class BazosApiScraper:
     marketplace: str = Marketplace.BAZOS_API
 
@@ -94,36 +128,8 @@ class BazosApiScraper:
         return params
 
     @staticmethod
-    def _parse_listing_date(date_raw: str) -> datetime:
-        naive = datetime.strptime(date_raw, "%Y-%m-%d %H:%M:%S")
-        return timezone.make_aware(naive)
-
-    @staticmethod
-    def _parse_listing_item(item: dict) -> dict:
-        """Pure parsing of one `ads.php` listing entry — thin payload, no
-        description/images/GPS/publisher ids, and no structured price (see §5.1 of the
-        research doc) — `price_formatted` follows the same string grammar as the HTML
-        scraper (§4), so it's parsed the same way; `load_full_description` upgrades this
-        to the API's own `price_type` when the detail call happens.
-        """
-        price_raw = item["price_formatted"]
-        price, price_type = parse_price_and_type(price_raw)
-        return {
-            "external_id": int(item["id"]),
-            "name": item["title"],
-            "price_raw": price_raw,
-            "price": price,
-            "price_type": price_type,
-            "url": item["url"],
-            "location": item["locality"],
-            "publish_date": BazosApiScraper._parse_listing_date(item["from"]),
-            "topped": _to_bool(item.get("topped", False)),
-            "view_count": int(item["views"]),
-        }
-
-    @staticmethod
     def extract_product(item: dict) -> Ad:
-        parsed = BazosApiScraper._parse_listing_item(item)
+        parsed = parse_listing_item(item)
         return Ad(
             external_id=parsed["external_id"],
             marketplace=Marketplace.BAZOS_API,
@@ -216,6 +222,77 @@ class BazosApiScraper:
             return None
         return {int(row["id"]): row for row in rows if isinstance(row, dict) and "id" in row}
 
+    def fetch_publisher_listings(self, param: str, publisher_id: int) -> list[dict] | None:
+        """One seller's current active inventory. `param` is "email_id" or "phone_id".
+
+        Undocumented but confirmed working (HIDDEN_API.md §6.4g). Thin listing payloads, the
+        same shape `run_query` yields, so `parse_listing_item` reads them unchanged.
+
+        Capped at `API_PAGE_SIZE` — one request. A seller with more listings than that is a
+        dealer, and the first 210 already answer every question worth asking about one; a
+        pagination loop here would turn an on-demand lookup into a crawl.
+
+        `None` means no usable answer; `[]` means the seller genuinely has nothing listed.
+        """
+        response = self.run_request(
+            f"{BAZOS_API_BASE_URL}/ads.php",
+            params={param: publisher_id, "limit": API_PAGE_SIZE, "offset": 0},
+        )
+        if response is None:
+            logger.warning("Publisher listing fetch failed after %d attempts", MAX_ATTEMPTS)
+            return None
+        if response.status_code in (403, 429):
+            raise MarketplaceBlockedError.from_response(response)
+        if response.status_code != 200:
+            logger.warning("Publisher listing fetch returned status=%d", response.status_code)
+            return None
+        try:
+            rows = response.json()
+        except ValueError:
+            logger.warning("Publisher listing fetch returned non-JSON")
+            return None
+        if not isinstance(rows, list):
+            logger.warning("Publisher listing fetch returned %s, not a list", type(rows).__name__)
+            return None
+        return [row for row in rows if isinstance(row, dict)]
+
+    def fetch_ratings(self, param: str, publisher_id: int) -> list[dict] | None:
+        """One seller's whole rating history. `param` is "email_id" or "phone_id".
+
+        Public, unauthenticated, and **unpaginated** — HIDDEN_API.md §6.4b: one request
+        returns everything. Every id it needs is already stored on `EmailPublisher` /
+        `PhonePublisher`, so the back catalogue is enrichable with no discovery step.
+
+        ⚠️ Each entry carries the *reviewer's* real `name`, `phone` and `message`. Nothing
+        here filters that — this is the transport, and it returns what the endpoint said.
+        `bazos/ratings.py` is where the decision to keep only counts is enforced, and the
+        raw entries must not be persisted on the way past.
+
+        Same `None` vs `[]` contract as `fetch_by_ids`: `None` is "no usable answer",
+        `[]` is "this seller genuinely has no ratings". Conflating them would record a
+        well-reviewed seller as unrated on a single failed request.
+        """
+        response = self.run_request(
+            f"{BAZOS_API_BASE_URL}/ratings.php", params={param: publisher_id}
+        )
+        if response is None:
+            logger.warning("Ratings fetch failed after %d attempts", MAX_ATTEMPTS)
+            return None
+        if response.status_code in (403, 429):
+            raise MarketplaceBlockedError.from_response(response)
+        if response.status_code != 200:
+            logger.warning("Ratings fetch returned status=%d", response.status_code)
+            return None
+        try:
+            rows = response.json()
+        except ValueError:
+            logger.warning("Ratings fetch returned non-JSON")
+            return None
+        if not isinstance(rows, list):
+            logger.warning("Ratings fetch returned %s, not a list", type(rows).__name__)
+            return None
+        return [row for row in rows if isinstance(row, dict)]
+
     def check_blacklisted(self) -> bool:
         response = self.run_request(f"{BAZOS_API_BASE_URL}/ads.php", params={"query": "iphone", "limit": 1, "offset": 0})
         if response is None:
@@ -239,6 +316,12 @@ class BazosApiScraper:
         if response.status_code == 410:
             logger.info("Ad %s no longer available (410 deleted)", product.external_id)
             return product
+        # Raised rather than folded into the `!= 200` branch below: a block is retryable on
+        # a different circuit and every other path in this class treats it that way, while
+        # "unexpected status" is not. Returning the product unchanged for a 403 would report
+        # "this ad has no description" for an ad nobody actually looked at.
+        if response.status_code in (403, 429):
+            raise MarketplaceBlockedError.from_response(response)
         if response.status_code != 200:
             logger.warning("Unexpected status=%d loading detail for ad %s", response.status_code, product.external_id)
             return product

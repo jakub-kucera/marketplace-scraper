@@ -61,3 +61,54 @@ class LLMCallAdmin(ModelAdmin):
 
     def has_change_permission(self, request, obj=None) -> bool:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Wiring onto AdAdmin, from this side
+# ---------------------------------------------------------------------------
+#
+# Appended here rather than declared in `bazos/admin.py`, for the reason `refprice/admin.py`
+# gives: the dependency points inward, and deleting this app must break nothing in the
+# pipeline. Admin modules load in INSTALLED_APPS order, and `llm` sits after `bazos`.
+
+from django.contrib import messages  # noqa: E402
+from django_q.tasks import async_task  # noqa: E402
+from unfold.admin import TabularInline  # noqa: E402
+
+from bazos.admin import AdAdmin  # noqa: E402
+from bazos.models import Ad, AdSpecExtraction  # noqa: E402
+
+from llm.jobs import EXTRACT_AD_SPECS  # noqa: E402
+
+
+class AdSpecExtractionInline(TabularInline):
+    model = AdSpecExtraction
+    extra = 0
+    can_delete = False
+    fields = ("prompt_version", "specs", "provider", "model_name", "declined_reason", "created")
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None) -> bool:
+        return False
+
+
+@admin.action(description="Extract specs with the LLM")
+def extract_ad_specs(modeladmin, request, queryset):
+    """Queue one extraction per ad. Inert while LLM_PROVIDER is NULL.
+
+    No filtering on "already extracted": a new prompt version is exactly when you would
+    re-run this over ads that already have a row, and the unique key is (ad, prompt_version),
+    so a re-run under the same version updates rather than duplicating.
+    """
+    pks = list(queryset.values_list("pk", flat=True))
+    for pk in pks:
+        async_task(EXTRACT_AD_SPECS, pk)
+    modeladmin.message_user(
+        request, f"Queued {len(pks)} spec extraction(s).", messages.INFO
+    )
+
+
+AdAdmin.inlines = (*AdAdmin.inlines, AdSpecExtractionInline)  # type: ignore[assignment]
+AdAdmin.actions = (*(AdAdmin.actions or ()), extract_ad_specs)
+admin.site.unregister(Ad)
+admin.site.register(Ad, AdAdmin)
