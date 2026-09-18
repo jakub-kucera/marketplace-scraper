@@ -34,6 +34,7 @@ from unfold.widgets import (
 
 from bazos.comparables import find_comparables
 from bazos.jobs import (
+    DETECT_REPOSTS,
     FETCH_FULL_DESCRIPTION,
     FETCH_SELLER_LISTINGS,
     FETCH_SELLER_RATINGS,
@@ -783,6 +784,7 @@ class AdAdmin(ModelAdmin):
         "price_discount",
         "price_z",
         "listing_state",
+        "relist_of",
         "created",
     )
     # Plain "-publish_date" would put every Vinted ad (publish_date is always null —
@@ -917,6 +919,17 @@ class AdAdmin(ModelAdmin):
             messages.INFO,
         )
 
+    @admin.display(description="Relist of")
+    def relist_of(self, obj):
+        """Inferred, never stated — see `bazos/reposts.py`. Blank is the common case."""
+        if obj.reposted_from_id is None:
+            return "—"
+        return format_html(
+            '<a href="{}" title="inferred, not stated by the marketplace">#{}</a>',
+            reverse("admin:bazos_ad_change", args=[obj.reposted_from_id]),
+            obj.reposted_from_id,
+        )
+
     @admin.display(description="Listing", ordering="removed_at")
     def listing_state(self, obj):
         """How long it stayed up — the one outcome-ish number in the database.
@@ -1049,7 +1062,10 @@ class PublisherAdminBase(ModelAdmin):
     partner_model: type[models.Model] | None = None
 
     list_filter = ("blocked",)
-    actions = ["block_publishers", "unblock_publishers", "fetch_ratings", "fetch_listings"]
+    actions = [
+        "block_publishers", "unblock_publishers",
+        "fetch_ratings", "fetch_listings", "detect_reposts",
+    ]
 
     #: "email" or "phone" — `ratings.php` takes one of two mutually exclusive params, and a
     #: pk alone would not say which table a task should look in.
@@ -1154,6 +1170,18 @@ class PublisherAdminBase(ModelAdmin):
             f"source='seller_sweep' — they are not notified.",
             messages.INFO,
         )
+
+    @admin.action(description="Find relisted items")
+    def detect_reposts(self, request, queryset):
+        """Queue repost detection per publisher. Reads our own archive; no requests.
+
+        Worth running right after "Fetch this seller's current listings" — before that, a
+        seller's past inventory is in the database only if a query happened to catch it.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(DETECT_REPOSTS, self.publisher_kind, pk)
+        self.message_user(request, f"Queued repost detection for {len(pks)} seller(s).", messages.INFO)
 
     @admin.display(description="Ratings", ordering="ratings_negative")
     def ratings_summary(self, obj):
