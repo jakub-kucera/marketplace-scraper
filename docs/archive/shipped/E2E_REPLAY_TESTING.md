@@ -1,8 +1,8 @@
 ---
 title: E2E / record-and-replay testing for the scraper — research
 status: shipped
-updated: 2026-08-23
-verified: 2026-08-23
+updated: 2026-09-18
+verified: 2026-09-18
 shipped_in: 60a7873
 ---
 
@@ -11,9 +11,34 @@ shipped_in: 60a7873
 **Status:** research written 2026-08-23. **All four steps in §8 have since been built** — see the
 four commits following this document. What landed differs from the plan in two places, both
 recorded below: §4.8 (a `vcr_config` trap found during implementation) and §4.9 (Bazos serves
-page 1 of a category search with a 404). The §1a bug the research surfaced is fixed.
+page 1 of a category search with a 404). The §1a bug the research surfaced is fixed
+(`BazosScraper.create_url_general` now builds from `BAZOS_URL`, not `query.url`, and says so in
+its docstring).
 **Question asked:** *"Can we record real requests and replay them 1:1, so a refactor that breaks
 something fails a test?"*
+
+> **⚠️ Audited 2026-09-18. Three environment claims below have inverted since they were
+> measured, and each one changes a conclusion:**
+>
+> - **§4.1's "vcrpy 7.0.0, not 8.x" is now backwards.** The stack it was pinned by is gone:
+>   selenium is no longer a dependency at all and `requests` is `^2.32`, so urllib3 v2 is what
+>   resolves. `pyproject.toml` pins **`vcrpy = "^8.0"`** and its comment records the inversion:
+>   7.0's `urllib3<2; platform_python_implementation == "PyPy"` marker now drags the whole graph
+>   back to urllib3 v1 and no longer solves. Read §8's `vcrpy = "^7.0"` and §10's "vcrpy 7.0.0"
+>   the same way. The cassette format is unchanged between the two, so nothing was re-recorded.
+> - **The suite no longer runs on SQLite.** It runs on real Postgres (root `conftest.py`;
+>   `TEST_DB=sqlite` survives for one caller, `contract-check.yml`'s live job). That retires
+>   §6 row 6 and **§9.2 entirely**: `select_for_update(skip_locked=True, of=("self",))` now
+>   reaches the SQL, and so do the `max_length`/`int4` limits.
+> - **§9.5's Vinted paragraph is obsolete.** `VintedScraper` no longer runs on the
+>   `vinted-scraper` package or on `httpx`; it reads the catalog page over plain `requests`
+>   (commit `4cf35ec`, 2026-09-16), so the httpx-support objection to cassetting it has gone
+>   away. Nothing has been built on that yet.
+>
+> Renames since (2026-08-23, commit `0a91b9a`): `BazosRunner` is now `ScrapeRunner` in
+> `bazos/scraping/runner.py`, `BazosQueryRunner` is now `QueryRunner` in
+> `bazos/scraping/query_runner.py`, and `BazosBlacklistedError` is now
+> `MarketplaceBlockedError`.
 
 **Short answer: yes, and `vcrpy` is the right recorder — but the recording layer is the easy half.**
 The hard half is that "replay 1:1" only produces a *stable* test once six sources of
@@ -183,6 +208,10 @@ including the pages that actually broke the parser at 3am.
 All measured 2026-08-23 in an isolated venv pinned to this repo's versions.
 
 ### 4.1 Version compatibility — **vcrpy 7.0.0, not 8.x**
+
+> **⛔ Inverted since. The repo pins `vcrpy = "^8.0"` today.** Selenium is gone and `requests` is
+> `^2.32`, so urllib3 v2 is what resolves and 7.0's PyPy marker is what stops solving. See the
+> banner at the top of this file, and `pyproject.toml`'s comment, which cites this section.
 
 `vcrpy 8.0.0` dropped urllib3 v1. This repo cannot install it today:
 
@@ -560,17 +589,23 @@ breaks. Two complementary answers:
 
 1. **Cassette rot.** Green tests prove "the code still handles the HTML from 2026-08-23", not
    "the code handles bazos.cz". Only PR 4 or the canary closes this.
-2. **Postgres-specific behaviour.** Tests run on SQLite `:memory:`, which drops
+2. ~~**Postgres-specific behaviour.** Tests run on SQLite `:memory:`, which drops
    `select_for_update(skip_locked=True)` from the SQL entirely (documented in `CLAUDE.md`). Every
-   concurrency property of the queue remains untested, E2E or not.
+   concurrency property of the queue remains untested, E2E or not.~~
+   **No longer true.** The suite moved to real Postgres, so the locking clause reaches the SQL
+   and the width limits are enforced. `TEST_DB=sqlite` remains only for `contract-check.yml`'s
+   live job, which has no database to reach.
 3. **Tor / IP rotation / blacklist recovery under real conditions.** Cassettes are recorded
    un-proxied by necessity (§4.6).
 4. **Rate limits, bans, and the site's behaviour under load** — the failure modes that actually
    take this scraper down in production.
-5. **Vinted.** `VintedScraper` ignores the injected session and builds its own `httpx` client
+5. ~~**Vinted.** `VintedScraper` ignores the injected session and builds its own `httpx` client
    inside the `vinted-scraper` package. vcrpy supports httpx, but 7.x's support predates the 8.0
    httpcore rewrite and is the shakiest part of the library. Bazos and Sbazar (both plain
-   `requests`) are the good targets; leave Vinted on its current fixture-dict tests.
+   `requests`) are the good targets; leave Vinted on its current fixture-dict tests.~~
+   **Obsolete.** The 2026-09-16 rewrite dropped the library and `httpx`: `VintedScraper` still
+   ignores the injected session, but its own client is plain `requests`, so the httpx objection
+   is gone. Vinted is now as cassettable as Bazos and Sbazar. Nothing has been built on that.
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: Vertical marketplaces + Remix — Pass 1 triage
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -290,7 +290,10 @@ reservation/basket-lock state distinct from sold. **⚠️ ASSUMED, not measured
 single seller with owned, unique, one-of-one inventory, an item *disappearing* is far more likely to
 mean **sold** than it does on Bazos, where disappearance conflates sold / withdrawn / expired. If
 that holds, then last-seen-price-at-disappearance ≈ **realised price** — the §6a prize, and the
-thing `PROMPTS.md` P24 wants. I did **not** verify this: confirming it needs two samples 24h apart,
+thing `PROMPTS.md` P24 wants (P24 shipped 2026-09-17 and does **not** make that distinction:
+`Ad.removed_at` conflates sold, withdrawn, deleted and expired, so a single-seller inventory where
+disappearance means sold is worth *more* now, as calibration for it). I did **not** verify this:
+confirming it needs two samples 24h apart,
 which §2b method 3 correctly notes a single session cannot span. I also saw CSS classes named
 `discount-info` and Czech `SLEVA` ("discount") text, which *hints* at a time-based markdown
 mechanic, but I **did not measure any old-vs-current price pair** and am explicitly not asserting

@@ -1,7 +1,7 @@
 ---
 title: Aukro.cz — feasibility assessment
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -12,6 +12,25 @@ verified: 2026-08-22
 > Egress: residential Czech ISP (T-Mobile CZ, AS13036). **Everything below was unobtainable from a
 > datacenter VPN IP** — see §4.1. Pass 1 concluded the opposite of this document on that basis;
 > §1.1 explains the reversal.
+>
+> **Update 2026-09-18 - still unbuilt, and two of the prerequisites it names are no longer
+> prerequisites.** P22 shipped 2026-08-23 (`Ad.price` + `Ad.price_type`, migrations `0032`/`0033`)
+> and `Ad.attributes` (§5c item 5) shipped 2026-09-16 with the Vinted rewrite, so the "breaking"
+> half of §5c and §7 is done. The float trap itself is unchanged: `parse_price` in
+> `bazos/filters.py` still does `re.sub(r"\D", "", …)`, so an Aukro scraper must convert at its
+> own edge. The one live gate is still §4.1.1 - Aukro 403s Tor. **Nothing below has been
+> re-probed**; the measurements are 2026-08-22 and a Cloudflare-fronted site is exactly the kind
+> that moves.
+>
+> **What changed around it.** P24 shipped 2026-09-17, so the project now records
+> `Ad.last_seen_at` / `Ad.removed_at` - but `removed_at` deliberately conflates sold, withdrawn,
+> deleted and expired, and the `AdOutcome` logbook that would calibrate it holds **0 rows**
+> (production, 2026-09-18: 19,008 ads carry a `removed_at`, and ~86 % of those removals never
+> happened - the sweep's bulk id fetch omits `limit`, so it asks about 210 ads and is answered
+> about 30 and writes off the rest, and a removed ad is never re-checked. Open, not fixed).
+> §6a's `biddersCount > 0` is
+> still the only *stated* realised price any marketplace in this study exposes, which is exactly
+> what an uncalibrated proxy needs - so read §6a.1's ~11% density before pricing that hope.
 
 ## 1. Verdict and why
 
@@ -259,7 +278,9 @@ Sources: `searchItemsCommon` listing (L) and `offerDetail` (D), items `713073244
    Additionally there are **two prices** (`price` = current bid, `buyNowPrice`) whose meaning
    depends on `itemType`, and `price` is `None` on `BUYNOW` items. `price_raw` (CharField 30)
    cannot express this. **This is what `PROMPTS.md` P22 (`price_raw` → real integer + `price_type`)
-   was written for; Aukro makes P22 a prerequisite rather than a nice-to-have.**
+   was written for; Aukro makes P22 a prerequisite rather than a nice-to-have.** *(P22 shipped
+   2026-08-23; `Ad.price`/`Ad.price_type` exist. The float itself still has to be handled in the
+   scraper's own `_format_price`, the way `VintedScraper._price` uses `Decimal`.)*
 4. **Newest-first ordering?** ✅ Exists publicly (`MOBILE_SORTING_THE_LATEST`). ⚠️ Parameter name
    not resolved — default is relevance-sorted, which **would silently break
    `run_existing_query`'s dedup walk** if not set. Must be resolved before building.
@@ -300,13 +321,16 @@ Sources: `searchItemsCommon` listing (L) and `offerDetail` (D), items `713073244
 2. `Ad.listing_type` (nullable Char) — `BIDDING` / `BUYNOW`.
 3. `Ad.bid_count` (nullable Int) — `biddersCount`.
 4. `MarketplaceSeller` table + nullable `Ad.seller` FK (§5b.6).
-5. `Ad.attributes` (nullable JSON) — structured `attributes[]`.
+5. ✅ `Ad.attributes` (nullable JSON) — structured `attributes[]`. **Already shipped 2026-09-16**
+   with the Vinted rewrite, as a non-null `JSONField` defaulting to `{}` and holding the
+   marketplace's own codes verbatim. An Aukro scraper inherits it.
 6. `Marketplace.AUKRO` choice + registry entry in `_build_scrapers()`.
 
 **Breaking / prerequisite:**
-7. **`PROMPTS.md` P22 — `price_raw` → integer + `price_type`.** Not optional for Aukro: the float
+7. ✅ **`PROMPTS.md` P22 — `price_raw` → integer + `price_type`.** Not optional for Aukro: the float
    silently corrupts by 10×, and two-prices-plus-type cannot be expressed in one CharField. Touches
-   Bazos and Vinted rows. **Do P22 first, then Aukro.**
+   Bazos and Vinted rows. ~~**Do P22 first, then Aukro.**~~ **Done - P22 shipped 2026-08-23**;
+   there is no breaking prerequisite left in this list.
 
 ## 6. New workflows unlocked
 
@@ -328,7 +352,10 @@ final price and bid count:
 sold for.** That is a genuine realised price — the thing `MONETIZATION.md` §7.2c says the project
 has never had.
 
-**It also solves the sold-vs-withdrawn problem** (`PROMPTS.md` P24) that Bazos structurally cannot:
+**It also solves the sold-vs-withdrawn problem** (`PROMPTS.md` P24 - shipped 2026-09-17 in the
+form Bazos allows, and it does *not* make this distinction: `Ad.removed_at` conflates sold,
+withdrawn, deleted and expired, and `AdOutcome`, the table meant to resolve that, is empty) that
+Bazos structurally cannot:
 Bazos delisting is ambiguous, whereas here `endingTime` + `biddersCount` distinguishes *sold* from
 *expired unsold* directly. **`biddersCount == 0` is itself a strong signal — an asking price the
 market refused**, which is arguably as valuable as the sale price for calibrating a deal threshold.
@@ -439,7 +466,7 @@ what makes this both easy and legally pointed.
 | Part | Size | Note |
 |---|---|---|
 | `AukroScraper` against the JSON API | **S** | No auth, clean JSON, protocol is 4 methods |
-| P22 price refactor (prerequisite) | **M–L** | Touches Bazos + Vinted; not optional |
+| ~~P22 price refactor (prerequisite)~~ | ~~**M–L**~~ | ✅ **Shipped 2026-08-23** - no longer part of the estimate |
 | `MarketplaceSeller` + migrations | **S–M** | Additive |
 | **Tor/proxy compatibility** | **?** | **The risky part** — see below |
 | Realised-price backfill | **M** | Plus a legal decision, not just engineering |

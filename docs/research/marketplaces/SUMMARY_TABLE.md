@@ -1,16 +1,22 @@
 ---
 title: All assessed marketplaces — summary table
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
 # All assessed marketplaces — summary table
 
-> Study completed 2026-08-22. Index to the 13 detail files in this directory.
+> Study completed 2026-08-22. Index to the 13 detail files the study produced - two later files
+> ([`VINTED.md`](VINTED.md), [`ZBOZI_API.md`](ZBOZI_API.md), both 2026-09-16) now sit in this
+> directory as well and are **not** part of the 13; see the Files section.
 > All figures measured live unless marked ⚠️. Bazos row is the comparison baseline, not a candidate.
 > Probes ran from two vantage points: a VPN datacenter IP (M247/AS9009) and a residential Czech
 > ISP (T-Mobile CZ/AS13036). Where those differ, it is called out — it changed several verdicts.
+>
+> **Status 2026-09-18:** Sbazar was built (2026-08-22) and is live; Aukro is still unbuilt and
+> still gated on egress, not on P22, which shipped 2026-08-23; the Track B Zboží row is
+> superseded - see the note under that table. No figure in this file has been re-measured.
 
 ## Track A — marketplaces to scrape
 
@@ -35,8 +41,17 @@ verified: 2026-08-22
 
 | Source | Verdict | What it gives | The blocker | Legal |
 |---|---|---|---|---|
-| **Heureka / Zboží.cz** | ⏸️ **DEFER** | Cross-merchant **new-price range** — Makita DHP484 → 4 canonical products, 2,920–5,391 Kč across **44 shops**; `brandName`, structured params, ratings | **The join is on our side** — `Ad` has no brand/model/GTIN. No EAN exposed. Discontinued goods fail *dangerously*: `Macbook Pro 13 2020` → **a phone case, 999 Kč** | Zboží allows the product page, **disallows the `/*?q=` search** that finds it |
+| **Heureka / Zboží.cz** | ⏸️ **DEFER** → ✅ **built 2026-09-16** (see note) | Cross-merchant **new-price range** — Makita DHP484 → 4 canonical products, 2,920–5,391 Kč across **44 shops**; `brandName`, structured params, ratings | **The join is on our side** — `Ad` has no brand/model/GTIN. No EAN exposed. Discontinued goods fail *dangerously*: `Macbook Pro 13 2020` → **a phone case, 999 Kč** | Zboží allows the product page, **disallows the `/*?q=` search** that finds it |
 | **eBay** sold listings | ⏸️ **DEFER — effectively unavailable** | Would be the canonical realised-price feed | **No route exists.** `findCompletedItems` decommissioned 2025-02-05; Marketplace Insights is Limited Release, *"not open to new users"* | ⚠️ Licence would let eBay **require deletion** — worse than scraping |
+
+> **Note 2026-09-18 on the Zboží row.** Both of its blocker cells were overtaken.
+> [`ZBOZI_API.md`](ZBOZI_API.md) (2026-09-16) found a *different* pair of endpoints -
+> `/suggestV2?phrase=` → `/api/v3/product/<slug>/` - that is **robots-allowed**, so "the search
+> that finds it is disallowed" describes only the `/*?q=` route this study happened to use; and it
+> found `productNo` (the manufacturer part number) plus a `medianPrice` that the mis-pairing
+> defect does not poison. The capability shipped as `refprice/` on 2026-09-16 - resolving from the
+> ad title through a validator, with no brand/model column on `Ad`. ⚠️ It holds **0 rows** in
+> production as of 2026-09-18. Heureka.cz itself is unchanged: still Cloudflare-blocked.
 
 ## Technical detail — the three Track A survivors
 
@@ -48,10 +63,10 @@ verified: 2026-08-22
 | **Page size** | `limit=1000` served whole (1.3 MB / 1.37 s) | `size=60` seen; cap not probed | 210 (server cap) |
 | **Newest-first** | ✅ **default** | ✅ exists (`MOBILE_SORTING_THE_LATEST`) ⚠️ param name unresolved | ✅ `sort=date` |
 | **`external_id`** | ✅ int (6.9M–233.3M) | ✅ int, 10-digit | ✅ int |
-| **Migrations needed** | ✅ **zero** | 6 additive + **P22 breaking** | zero |
+| **Migrations needed** | ✅ **zero** | 6 additive + ~~**P22 breaking**~~ (P22 shipped 2026-08-23) | zero |
 | **Price shape** | ✅ int whole CZK — no trap | ❌ **float `861.0` → `8610` (10×)**; two prices | ✅ as Bazos (EUR/PLN) |
 | **Promoted flag** | ✅ real boolean | ✅ 4 labelled booleans, honest `startingTime` | ⚠️ Bazos bump trap |
-| **Description** | detail-only, ⚠️ **overflows 300** (679 seen) | detail-only | detail-only |
+| **Description** | detail-only, ⚠️ ~~**overflows 300** (679 seen)~~ - column is a `TextField` since migration `0035` | detail-only | detail-only |
 | **View count** | ❌ absent | ✅ `displayedCount` (detail) | ✅ |
 | **Seller identity** | shop_url; no ratings | ✅ **accounts + reputation** (`rating`, `positiveFeedbackPercentage`, `starType`) | Bazos-shaped id pairs |
 | **Anti-bot** | Seznam consent wall on HTML; **API layer unaffected** | ⚠️ **Cloudflare by ASN** — may break Tor | 403 from datacenter, IP named in body |
@@ -82,3 +97,8 @@ verified: 2026-08-22
 `METHOD_CALIBRATION.md`, `pass1/AUKRO.md`, `pass1/SBAZAR.md`, `pass1/MINOR_CLASSIFIEDS.md`,
 `pass1/VERTICALS.md`, `pass1/BAZOS_SISTER_SITES.md`, `pass1/FACEBOOK_MARKETPLACE.md`,
 `EBAY.md`, `HEUREKA_ZBOZI.md`
+
+**Added after the study (2026-09-16), same directory, not part of the 13 above:**
+[`VINTED.md`](VINTED.md) - why the Vinted scraper broke and the catalog-page transport that
+replaced it; [`ZBOZI_API.md`](ZBOZI_API.md) - the measured Zboží `/api/v3` surface, which
+supersedes this table's Track B row (below) and `HEUREKA_ZBOZI.md`'s transport and join findings.

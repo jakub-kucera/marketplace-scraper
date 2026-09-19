@@ -2,8 +2,8 @@
 title: Enrichment jobs — on-demand lookups, triggered from the admin today and the bot later
 status: shipped
 shipped_in: bazos/jobs.py, bazos/enrichment.py, bazos/ratings.py, bazos/reposts.py, llm/extraction.py
-updated: 2026-09-17
-verified: 2026-09-17
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Enrichment jobs — on-demand lookups, triggered from the admin today and the bot later
@@ -241,7 +241,7 @@ touches that doc.
 
 | Job | Why | Needs the Bazos session? |
 |---|---|---|
-| `lookup_reference_price(ad_pk)` | **Already an admin action — and it does its HTTP inline, in the request.** See §6; this is the first thing to port, not a new idea. | No — Zboží |
+| `lookup_reference_price(ad_pk)` | **Was already an admin action, doing its HTTP inline in the request.** See §6; it was the first thing ported, not a new idea. | No — Zboží |
 | `rescore_ads(...)` | `manage.py rescore_ads` exists; as a job, an artifact bump becomes a one-click admin action instead of an SSH session | No |
 | `extract_specs_with_llm(ad_pk)` | `PRICE_MODEL_BENCHMARK.md` §3.1 is blunt: two extractor regexes were worth more R² than the entire model-class choice. `llm/` is built and inert (`LLM_PROVIDER=NULL`). | No — LLM API |
 | `geocode_postal_code(code)` | Closes the window where a hand-typed query centre is unusable until the next scrape pass warms the cache | Yes |
@@ -270,14 +270,14 @@ def fetch_ratings(modeladmin, request, queryset):
     )
 ```
 
-**The repo already has the counter-example, and it is worth looking at before writing another
-one.** `refprice/admin.py::look_up_reference_price` is an admin action that calls
-`lookup_reference_price` **synchronously, once per selected ad, inside the request**. Its
-posture is right — explicit operator invocation, never on the scrape path — and it predates
-the queue, so this is not a criticism of it. But select fifty ads and the admin request makes
-fifty sequential HTTP calls to Zboží while the browser waits. Porting it is the smallest
-possible proof that the pattern in this section works; it also needs no Bazos session, so it
-cannot be blocked behind a sweep.
+**The repo already had the counter-example, which is why §7 ports it first.**
+`refprice/admin.py::look_up_reference_price` called `lookup_reference_price`
+**synchronously, once per selected ad, inside the request**. Its posture was right — explicit
+operator invocation, never on the scrape path — and it predated the queue, so this is not a
+criticism of it. But select fifty ads and the admin request made fifty sequential HTTP calls to
+Zboží while the browser waited. It now enqueues one task per ad and says "Queued", which was
+the smallest possible proof that the pattern in this section works; it also needs no Bazos
+session, so it could not be blocked behind a sweep.
 
 Four things an enqueueing action must not do:
 

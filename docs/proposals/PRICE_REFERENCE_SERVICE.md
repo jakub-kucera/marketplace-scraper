@@ -2,14 +2,21 @@
 title: Reference-price service and provider-agnostic LLM layer
 status: shipped
 shipped_in: llm/, refprice/
-updated: 2026-09-17
-verified: 2026-09-17
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Reference-price service and provider-agnostic LLM layer
 
 > Designed 2026-09-16 against the live measurements in
-> [`ZBOZI_API.md`](../research/marketplaces/ZBOZI_API.md). **Nothing is built.**
+> [`ZBOZI_API.md`](../research/marketplaces/ZBOZI_API.md).
+>
+> ✅ **Built, 2026-09-16 (`llm/0001`, `refprice/0001`) - this is now the spec the code was
+> written from, not open work.** Both apps ship, with §4's six statuses, §5's five rungs, §6's
+> four tables and §7 rungs 1, 2, 3 and 5 all in place. Three places differ from the plan and
+> are noted inline: §2's provider list (Anthropic and Gemini shipped, not OpenAI/OpenRouter/
+> Ollama), §2b's `LLM_MODEL` default, and §3's `heureka.py` stub. §7 rung 4 (a reference-price
+> line on the Discord notification) is the one item that did **not** ship.
 >
 > Two deliverables that are deliberately separate apps: `llm/`, a reusable provider-agnostic
 > LLM layer with no knowledge of prices, and `refprice/`, which answers *"what does this
@@ -88,6 +95,12 @@ llm/
   services.py             # complete()
 ```
 
+**As built**, the providers are `anthropic.py`, `gemini.py` and `null.py` - Gemini rather than
+the three speculative backends, because §2f of [`LLM_AD_REVIEW.md`](LLM_AD_REVIEW.md) had
+already measured a free tier with an EEA carve-out that carries this workload. The layer also
+gained `extraction.py` and `jobs.py`, and a third prompt (`ad_specs/v1.md`) for the spec
+extractor §10 argues for; `AdSpecExtraction` ships inert, the way `llm/` itself did.
+
 ### 2a. The protocol
 
 ```python
@@ -124,12 +137,18 @@ somewhere else:
 ### 2b. Configuration, and why the default is `NULL`
 
 ```python
-LLM_PROVIDER      = env("LLM_PROVIDER", default="NULL")     # NULL | ANTHROPIC | OPENAI | OPENROUTER | OLLAMA
-LLM_MODEL         = env("LLM_MODEL", default="claude-haiku-4-5-20251001")
+LLM_PROVIDER      = env("LLM_PROVIDER", default="NULL")     # NULL | ANTHROPIC | GEMINI
+LLM_MODEL         = env("LLM_MODEL", default="")            # blank: each provider carries its own
 LLM_API_KEY       = env("LLM_API_KEY", default="")
 LLM_MONTHLY_BUDGET_USD = env("LLM_MONTHLY_BUDGET_USD", default=5.0)
 LLM_TIMEOUT       = (10, 60)
 ```
+
+**`LLM_MODEL` defaults to blank as built, and that is a bug fix, not a tidy-up.** The default
+written above is a *Claude* model name, so `LLM_PROVIDER=GEMINI` sent it to Gemini and 404'd in
+a way indistinguishable from a bad API key. Each provider now carries its own `DEFAULT_MODEL`
+and a blank setting means "whatever this provider's is". Provider-specific keys also win over
+`LLM_API_KEY`, so more than one backend can be configured at once.
 
 `NullProvider` always declines and costs nothing — exactly `DummyIPChanger`'s role, and it means
 the whole test suite and any dev checkout run with no key and no egress. `IP_CHANGER_TYPE`
@@ -174,6 +193,16 @@ refprice/
   admin.py
   management/commands/lookup_reference_price.py
 ```
+
+**As built**, `heureka.py` was not written at all - a stub for a transport that is
+Cloudflare-blocked is a file to maintain, and the Protocol is the extension point. The app
+gained `results.py` (the §4 dataclasses, kept out of `services.py` so the seam stays a single
+function), `rules.py` (the §7 rung-3 filter rule), `jobs.py`, and `resolution/llm_rungs.py`.
+⚠️ One defect worth carrying forward: `providers/__init__.py` was empty, so the `@register`
+decorator on `ZboziProvider` never ran in any process that had not already imported the module
+- the whole app was unusable from the day it landed, and every test masked it by importing the
+provider to build one. The package now imports its own implementations, as `_build_scrapers`
+does.
 
 ### The provider protocol
 
@@ -386,6 +415,12 @@ labelled outcomes beat any external signal. A fully automatic v1 would have gene
 
 A ladder, in the order it should be built. Rungs 1–2 are the ask; 3–5 cost nothing to leave unwired.
 
+**As built**: 1, 2, 3 and 5 all shipped. Rung 1's admin action no longer does its HTTP inline -
+it enqueues one django-q2 task per selected ad, which is what
+[`ENRICHMENT_JOBS.md`](ENRICHMENT_JOBS.md) §6 ported first. Rung 5's refresh is a weekly
+schedule (`refresh-stale-reference-prices`). **Rung 4 did not ship**: no reference-price line is
+appended to a Discord notification, so a lookup is visible on the ad page and nowhere else.
+
 1. **Admin action on `Ad` / `AdDelivery`** — *"Look up reference price"*, an Unfold `actions_list`
    entry, plus an inline showing the cached `RefProductLink`, the price snapshot and a sparkline of
    `RefPricePoint`. Precedent: the existing force-run button. This is the primary UI and it is
@@ -426,7 +461,9 @@ magnitude from that, and the budget ceiling in §2b caps whatever is left.
 - **This is an unsupported private API.** Field names, the `/api/v3` prefix and the pricetrend route
   can change without notice. Mitigation is the provider protocol and a contract test in the spirit
   of `contract-check.yml` — a weekly live job asserting the three endpoints still parse — not
-  optimism.
+  optimism. **Built**: `refprice/tests/test_zbozi_contract.py`, `pytest.mark.live`, picked up
+  by `contract-check.yml`'s repo-wide `-m live` glob, so it rides the existing weekly job
+  rather than adding one.
 - **Confident wrong matches are the main hazard**, not missing data. §4's six statuses, §5's gates
   and §6's `confirmed_by_human` all exist for this. A design that returned a float would be worse
   than useless.

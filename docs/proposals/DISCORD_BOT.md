@@ -1,16 +1,32 @@
 ---
 title: Discord Bot — Exploration & Proposal
 status: proposal
-updated: 2026-07-24
-verified: 2026-07-24
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Discord Bot — Exploration & Proposal
 
-> **Nothing here has been built, and it is not scheduled.** Not wired into `PIPELINE_REFACTOR.md`'s stage list or
-> `PROMPTS.md`. Nothing here has been built. This is a thorough exploration, written the same
-> way `DISCOVERY_PIPELINE.md` and `LLM_AD_REVIEW.md` were — grounded in what
+> **No bot has been built, and it is not scheduled.** Discord is still outbound-only:
+> `discord-notify` webhooks, no `discord.py`, no gateway process, no inbound surface. Not wired
+> into `PIPELINE_REFACTOR.md`'s stage list or `PROMPTS.md`. This is a thorough exploration,
+> written the same way `DISCOVERY_PIPELINE.md` and `LLM_AD_REVIEW.md` were — grounded in what
 > the code actually does today, not a generic "add a Discord bot" writeup.
+>
+> ⚠️ **Re-checked 2026-09-18: the bot is unbuilt but most of §2's catalog is not.** Two months
+> of pipeline work landed under this doc, and the parts that were never really about Discord
+> shipped without it. **The work behind these catalog items now exists** - as django-q2 jobs,
+> admin actions and readonly admin panels, per
+> [`ENRICHMENT_JOBS.md`](ENRICHMENT_JOBS.md): 🔍 check seller (`fetch_seller_ratings`),
+> 📦 seller's other listings (`fetch_seller_listings`), 📖 full description
+> (`fetch_full_description`), 🕵️ repost check (`detect_reposts`), 📊 price context
+> (`bazos/comparables.py`), 📍 distance (`bazos/geo.py` + the `location_distance` rule),
+> 📈 price history (a `PriceChange` inline), 🚫 blocklist seller (an admin action). What is
+> missing from each is only the *trigger and the reply* - which is the honest scope of this
+> doc now. §2.1's watcher and §3.2's `AdWatch` are **superseded** (see the note in §2.1), and
+> §3.4's action queue was answered by [`JOB_QUEUE.md`](JOB_QUEUE.md). Section-level
+> corrections are inline below; the architecture argument in §1 and the security argument in
+> §4 are untouched by any of it.
 
 ## 0. The idea, as floated
 
@@ -132,7 +148,7 @@ explicit sign-off `LLM_AD_REVIEW.md` §4 already flagged for seller outreach. Th
 | Per-ad button: **"📈 Price history"** | Formats and posts `ad.price_history.all()` — the `PriceChange` records P1 already builds. Zero new API calls, pure DB read; pairs naturally with the watcher (§2.1), which is what keeps this populated for ads no longer in a query's normal scan window. |
 | Per-ad button: **"📊 Price context"** | Where this ad's price falls against a rolling median/percentile for similar recent listings in the same category — the internal baseline `DISCOVERY_PIPELINE.md` §2 Stage 2 already designed for filtering, surfaced on demand instead of only running silently in the background. "Is this actually a good deal" as an answerable question, not just a filter's internal signal. |
 | Per-ad button: **"🕵️ Repost check"** | Has this seller posted this same item before, under a different `external_id`? Matches title/price/locality similarity against your own accumulated `Ad` archive for the same publisher — `DISCOVERY_PIPELINE.md` §3.3's same-seller-repost detection, fully designed, never built, and free — it only touches data already collected. |
-| Per-ad button: **"❓ Why rejected"** | For a `REJECTED` ad, surface `ad.filter_reason` (already a field, currently only visible in Django admin) directly. Makes the Stage 9 rules (`PROMPTS.md` P5, done) debuggable from the notification itself instead of needing to open admin every time a filter seems to have made a wrong call. |
+| Per-ad button: **"❓ Why rejected"** | For a `REJECTED` ad, surface the filter reason (already a field, currently only visible in Django admin) directly. *(2026-09-18: it is `AdDelivery.filter_reason`, not `Ad.filter_reason` - migrations 0026–0028 moved every piece of pipeline state off `Ad`, so this is per-(ad, query) and there can be more than one answer.)* Makes the Stage 9 rules (`PROMPTS.md` P5, done) debuggable from the notification itself instead of needing to open admin every time a filter seems to have made a wrong call. |
 | Per-ad button: **"📍 Distance"** | Using `zip.php` geocoding (`HIDDEN_API.md` §6.4d, designed/unused) plus a configured home location, show actual distance instead of just the raw locality string. |
 
 ### Tier 1 — self-directed state changes (affects only your own scraper config/data)
@@ -148,6 +164,19 @@ explicit sign-off `LLM_AD_REVIEW.md` §4 already flagged for seller outreach. Th
 | `/force-run [query_id]` | Global form mirrors the existing admin "Force run" button (`bazos/admin.py`'s `force_run_now`, touching `settings.FORCE_RUN_FLAG_PATH`). A **per-query** form is new — today's flag is a single global sentinel that wakes the whole runner; scoping it to one query needs a small addition (§3.3). |
 
 ### 2.1 The watcher — worth detailing, since it's the strongest idea in the original ask
+
+> 🗄 **Superseded 2026-09-18, on the mechanism only.** The need this section identifies is real
+> and was met: the **delisting sweep** (`bazos/delisting.py`, shipped 2026-09-17 as P24) re-checks
+> every live Bazos ad on an age-decayed schedule, whether or not it is still in a query's scan
+> window, diffs the price into `PriceChange`, and stamps `Ad.removed_at` when a listing goes.
+> So `AdWatch` + `run_ad_watch` (§3.2) should not be built: a watch is **one more `Q()` clause
+> in `bazos/delisting.py::_priority_expression()`**, which already promotes SENT and scored ads
+> to a faster band. A fourth polling process duplicates machinery that works, and a per-ad
+> `Schedule` row would put thousands of rows in a table meant to hold a handful. Reasoning in
+> [`ENRICHMENT_JOBS.md`](ENRICHMENT_JOBS.md) §4.3. Two details below are now wrong on the
+> facts: the `410`/removed capability *does* have a consumer, and `AdStatus.REMOVED` was not
+> the shape taken - removal is a timestamp on `Ad`, deliberately **not** a delivery status and
+> deliberately not called "sold", because it conflates sold, withdrawn, deleted and expired.
 
 **Why it's not redundant with the existing dedup/re-poll logic**: `run_existing_query`'s price-
 change detection (just built, `PROMPTS.md` P1) only fires when a query's *normal* scrape
@@ -200,6 +229,12 @@ A different category from per-ad actions: pipeline health, surfaced through the 
   faster channel for "something's broken" that doesn't depend on remembering to check Sentry —
   genuinely redundant in the way health monitoring should be, not a duplicate of the same signal.
 
+*(2026-09-18: **a heartbeat exists, but not as a channel a human watches.** `cluster-heartbeat`
+is an hourly django-q2 schedule whose job is to make the worker's silence visible in the admin;
+it posts nowhere. The dead-man's-switch argument above is therefore still unmet - nothing turns
+its absence into a notification. Per-query failure alerting did ship separately, so a query
+failing pass after pass is now announced.)*
+
 ### 2.3 Interaction UX alternatives
 
 Worth considering alongside plain buttons, not instead of them:
@@ -251,18 +286,38 @@ into that same gap. Not a blocker for a first version (still true today that que
 rare in practice), but at this point it's less "an idea in the backlog" and more "the thing
 three unrelated features all want" — worth weighting that when `#1` gets prioritized.
 
+*(2026-09-18: **the split shipped**, migrations 0026–0028. So the caveat is resolved and the
+consequence is concrete: `discord_message_id`/`discord_channel_id` belong on **`AdDelivery`**,
+not `Ad` - one real-world ad can now legitimately have been sent to two channels, and the
+message id is a property of the send, not of the listing. `favorite` and `muted` split the same
+way: favouriting is a fact about the listing, muting re-notifications is a fact about one
+query's interest in it.)*
+
 ### 3.1a What the new Tier 0 buttons do and don't need
 
 Worth noting explicitly since it's easy to assume every new button needs new schema: "price
 history," "why rejected," and "repost check" (§2) need **no new fields at all** — they read
-`PriceChange`, `Ad.filter_reason`, and the existing `Ad` table respectively. "Distance" needs
-one new piece of config (a home location — a setting, e.g. `HOME_ZIP_CODE`, not a model field,
-since it's a property of the deployment/user, not of any `Ad`/`Query` row). "Price context"
-needs no new fields either, just a query over existing `Ad.price_raw`/`created`/`query.category`
-— parsing `price_raw` into a comparable number can reuse `parse_price` (`bazos/filters.py`,
-`PROMPTS.md` P5, done).
+`PriceChange`, `AdDelivery.filter_reason`, and the existing `Ad` table respectively. "Distance"
+needs one new piece of config (a home location — a setting, e.g. `HOME_ZIP_CODE`, not a model
+field, since it's a property of the deployment/user, not of any `Ad`/`Query` row). "Price
+context" needs no new fields either, just a query over existing
+`Ad.price_raw`/`created`/`query.category` — parsing `price_raw` into a comparable number can
+reuse `parse_price` (`bazos/filters.py`, `PROMPTS.md` P5, done).
+
+*(2026-09-18: all four are now backed by shipped code, so a button would render rather than
+compute. Distance resolved the config question differently and better - the centre is
+`Query.filter_location_center`, a per-query field, not one global `HOME_ZIP_CODE`; `bazos/geo.py`
+holds the `PostalCode` cache and `distance_between_codes`. Price context is
+`bazos/comparables.py`, which does not re-parse `price_raw` - `Ad.price` has been a typed
+`BigIntegerField` since P22, and the comparable *bucket* is read off the subject's persisted
+`AdPriceScore.features`. Repost check is `bazos/reposts.py` + `Ad.reposted_from`.)*
 
 ### 3.2 New `AdWatch` model
+
+> 🗄 **Superseded - do not build this.** See the banner in §2.1: the delisting sweep does this
+> work, and a watch is a priority clause in `_priority_expression()`, not a model plus a
+> process. Kept for the shape it was going to have.
+
 ```python
 class AdWatch(TimeStampedModel):
     ad = models.ForeignKey(Ad, on_delete=models.CASCADE, related_name="watches")
@@ -288,6 +343,14 @@ something slow enough to visibly stall other users' commands — for a single-us
 bot this is very likely fine to do inline. If it ever isn't (e.g. an LLM call that's slow or
 rate-limited), the existing polling-queue pattern (a status field + a `run_*` command) is right
 there to reuse — no new pattern needs inventing, same as everywhere else in this pipeline.
+
+*(2026-09-18: **answered, and it is no longer "if it ever isn't".** [`JOB_QUEUE.md`](JOB_QUEUE.md)
+decided `django-q2` on 2026-09-17 and a cluster ships. Awaiting a Bazos call inline is now the
+wrong answer rather than a likely-fine one: `Q_CLUSTER["workers"] = 1` exists because the shared
+Tor session is not safe for concurrent callers, so a bot that fetched inline would need its own
+circuit and double the fingerprint surface against a marketplace that 403s roughly half our
+exits. The shape is fixed - the button validates, calls `async_task`, acks, and the single
+worker that already owns the session does the work; see `ENRICHMENT_JOBS.md` §1 and §6.1.)*
 
 ---
 
@@ -321,11 +384,16 @@ Worth being explicit about this, since it changes the efficient build order:
   three, instead of three overlapping partial implementations landing separately.
 - **`BACKLOG_IDEAS.md` #1** (`Ad`/`AdDelivery` split) keeps coming up — this is the third
   proposal to want per-(ad, query, channel) granularity that today's single `Ad` row can't
-  cleanly represent (§3.1).
+  cleanly represent (§3.1). *(2026-09-18: **shipped**, migrations 0026–0028. The granularity is
+  there; see §3.1 for where the bot's fields now belong.)*
 - **`HIDDEN_API.md`**'s sold/removed detection (§6.4a, `410 deleted`) and seller-
   reputation lookup (§6.4b, `ratings.php`) are both fully researched and confirmed live, but
   have **zero consumers** in the codebase today. The watcher (§2.1) and the "check seller"
-  button (Tier 0) are the first concrete use for each, respectively.
+  button (Tier 0) are the first concrete use for each, respectively. *(2026-09-18: **both now
+  have consumers, and neither is a bot.** Removal detection is `bazos/delisting.py` - over the
+  bulk `ads.php?ad_id[]=` route rather than per-ad `410`s, because 210 ids per request is what
+  makes watching every ad affordable. `ratings.php` is `bazos/ratings.py` +
+  `fetch_seller_ratings`, with counts kept and reviewer identities discarded.)*
 - **`BACKLOG_IDEAS.md` #2** (asyncio) noted Django's async ORM is unused in this codebase. The
   bot process (necessarily `asyncio`-native if built on `discord.py`) is the natural first
   adopter, not a forced retrofit.
@@ -348,7 +416,7 @@ Worth being explicit about this, since it changes the efficient build order:
 | Phase | Scope | Risk |
 |---|---|---|
 | 1 | Bot infra (`discord.py`, `run_discord_bot`, allowlist auth) + `DiscordSender` migration to bot-token sends with components + Tier 0/1 commands (`/query list`, `/stats`, `/health`, daily heartbeat, watch/mute/favorite/blocklist buttons, seller-lookup buttons, price-history/why-rejected/distance buttons, per-query force-run) | Low — all self-directed or read-only, and none of these need new data beyond what's already collected |
-| 2 | `AdWatch` + `run_ad_watch` process, wiring in sold/removed detection; repost-check and price-context buttons (`parse_price` already available from P5) | Low — extends already-built P1 logic and existing archive data |
+| 2 | ~~`AdWatch` + `run_ad_watch` process, wiring in sold/removed detection~~ **(superseded - the delisting sweep does this, §2.1)**; repost-check and price-context buttons, now both a trigger for shipped code (`bazos/reposts.py`, `bazos/comparables.py`) rather than new work | Low — extends already-built P1 logic and existing archive data |
 | 3 | `/watch <free text>` LLM-assisted query creation, with a confirm-before-create step | Medium — LLM interpreting intent into a live config, mitigated by requiring confirmation |
 | 4 | Draft-seller-message button (`LLM_AD_REVIEW.md` §4.2's actual delivery mechanism); outcome-tracking reaction as a follow-on once drafts exist | Medium — third-party-facing content, but human-drafted-and-reviewed, human-sent |
 | — | Auto-send via email/WhatsApp/SMS | **Explicitly not part of this plan** — same separate decision as `LLM_AD_REVIEW.md` §4.3 |

@@ -1,7 +1,7 @@
 ---
 title: Bazos Hidden Mobile API — Research & Scraping Assessment
 status: reference
-updated: 2026-08-26
+updated: 2026-09-18
 verified: 2026-08-26
 ---
 
@@ -25,6 +25,16 @@ verified: 2026-08-26
 > substring `LIKE`, not MySQL FULLTEXT boolean mode as initially suspected — no
 > wildcard/`+require`/`~rank` operators work, but substring matching means Czech
 > word declension is already handled for free with no special syntax needed.
+>
+> **Status note, 2026-09-18 - what this pass re-checked, and what it did not.** §8's
+> implementation status was re-read against the code and the production DB; §4-§5's
+> live-probe findings were **not** re-probed, which is why `verified:` still reads
+> 2026-08-26. Two things changed underneath this doc since it was written, and both are
+> corrected in place below: the API scraper is **no longer inert in production** - query 12
+> runs on `bazos_api` and holds 425 ads scraped between 2026-08-08 and 2026-09-18 - and
+> four of the §6.4 capabilities have shipped. The cutover of the remaining queries, plus
+> the three filter rules the thin payload degrades on the way, is specced in
+> [`API_CUTOVER.md`](../../backlog/API_CUTOVER.md).
 
 ---
 
@@ -58,9 +68,11 @@ an undocumented `email_id=`/`phone_id=` filter on `ads.php` that pulls any
 seller's entire current active inventory directly. See §6.4 and §8.
 
 **Recommendation: migrate Bazos scraping to the API**, implemented as a new
-`MarketplaceScraper` protocol implementation registered in
-`QueryRunner._build_scrapers()`, keeping the HTML scraper as a fallback.
-This fits the existing marketplace-abstraction layer with **zero pipeline changes**.
+`MarketplaceScraper` protocol implementation registered in `_build_scrapers()`
+(module-level in `bazos/scraping/query_runner.py`, not a `QueryRunner` method), keeping
+the HTML scraper as a fallback. This fits the existing marketplace-abstraction layer with
+**zero pipeline changes**. *Built 2026-07-24 and live on one query since 2026-08-08 - see
+§8 Stage B for what that changed.*
 
 ---
 
@@ -511,6 +523,19 @@ no `email_id`/`phone_id`, no `section`/`category` **objects**, no `price_type`, 
 bulk-by-id does **not** upgrade you to rich data, it's the same thin shape,
 just letting you re-check up to 210 known ads' price/views/topped/title in one call.
 
+**Re-confirmed from production, 2026-09-18 - and this is the part that has teeth.** All 425
+`Ad` rows scraped through `BazosApiScraper` (query 12, 2026-08-08 to 2026-09-18) are missing
+exactly the fields listed above, with no exceptions: 425/425 have an empty
+`short_description`, 425/425 have no publisher FK, and 425/425 have a `location` with no
+postal code in it (`"Praha 10"`, never `"Praha 10, 101 00"`). `BazosApiScraper.extract_product`
+writes `short_description=""` and `publisher_name=""` deliberately for this reason. Three
+filter rules read those fields and **every one degrades to permissive**, which is
+indistinguishable from "not configured" - `blocklist_keyword` and `required_keyword` fall back
+to name-only matching, and `location_distance` PASSes everything. Nothing errors and nothing
+logs. The per-field breakdown and what to do about it are
+[`API_CUTOVER.md`](../../backlog/API_CUTOVER.md) §2 and §4; do not cut a query over without
+reading them.
+
 **Correction — section is recoverable for free from `url` alone.** Every listing
 `url` is `https://{section-slug}.bazos.cz/inzerat/{id}/{title-slug}.php` —
 confirmed live across six different sections/categories (`mobil.`, `auto.`,
@@ -610,7 +635,8 @@ for description/images/GPS/reputation, same as today's `load_full_description` c
    the same shape as search — removes the separate `load_full_description` page GET.
 4. **Real pagination + total count, and a much bigger page.** `limit`/`offset` +
    `x-total-count` replaces "keep fetching pages until an empty one" (fixes the
-   existing "not working" pagination TODO at `bazos_scraper.py:230`) — and the
+   existing "not working" pagination TODO, still there at `bazos_scraper.py:303` as of
+   2026-09-18, it was line 230 when this was written) — and the
    server-confirmed **210 cap** (§4.0) means **~10.5x fewer HTTP requests** than
    the app's own `limit=20` for the same discovery pass.
 5. **Bulk re-check by id** (`ads.php?ad_id[]=`). Confirmed: up to 210 ids per call,
@@ -647,8 +673,16 @@ for description/images/GPS/reputation, same as today's `load_full_description` c
    20-request rapid burst returned `200` every time with no `429`/`Retry-After`
    (confirmed §7) — but that only rules out a very tight per-second limiter, not a
    longer sliding-window one. Treat the existing Tor IP rotation and `MAX_ATTEMPTS`
-   backoff as still necessary; watch for `403`/`429` in production and wire them
-   into `check_blacklisted`.
+   backoff as still necessary; watch for `403`/`429` in production.
+   **Corrected 2026-09-18 on the last clause:** there is no pre-flight probe to wire
+   anything into any more. `BazosApiScraper._fetch_page` and `load_full_description`
+   raise `MarketplaceBlockedError` off the real response's `403`/`429`, and
+   `ScrapeRunner._run_query_with_rotation` answers by rotating the circuit and retrying
+   the same query - the attempt *is* the probe. `check_blacklisted` survives as a
+   protocol member that only tests call (see CLAUDE.md's "Blacklist / IP guards"). What
+   production has actually seen is `403` only: 3,427 `MarketplaceBlockedError` rows in
+   the 7 days to 2026-09-18, and the 429 half of the pair is defensive, not
+   evidence-backed (`bazos/exceptions.py`, `MarketplaceBlockedError` docstring).
 4. **ToS.** Driving a private mobile API is still scraping; arguably a clearer ToS
    breach than fetching public web pages. No change to the legal posture we already
    accept, but worth acknowledging.
@@ -670,7 +704,32 @@ These aren't things the HTML scraper can do at all today, discovered/confirmed
 during live probing. Roughly ordered by how directly they extend the existing
 pipeline vs. how much new surface they'd add.
 
-#### a) Ad lifecycle / sold-removed detection (new `Ad` state, cheap)
+#### a) Ad lifecycle / sold-removed detection (new `Ad` state, cheap) - **shipped 2026-09-17**
+
+> **Built, and in a different shape than sketched below.** `bazos/delisting.py` +
+> `manage.py check_delisted` sweep known ads through bulk `ads.php?ad_id[]=` and treat an id
+> the response omits as gone, writing `Ad.last_seen_at` / `Ad.removed_at` - **not** a new
+> `AdStatus.REMOVED`, because delivery status belongs to `AdDelivery` and "the marketplace
+> stopped serving this listing" is a fact about the `Ad`. The 410-on-detail path is not what
+> runs; bulk omission is, because it costs one request per 210 ads instead of one per ad.
+> Two things the sweep is careful about and this section was not: **a failed request is not a
+> removal** (only a successful response whose payload omits an id counts - Tor 403s about
+> half of all attempts, so the naive version writes thousands of false deaths in one bad
+> hour), and **removed is not sold** (Bazos listings expire on their own, so there is no
+> `sold` boolean and past `DELIST_MAX_AGE_DAYS` an ad stops being watched with `removed_at`
+> left NULL, as a censored observation). ⚠️ **What it is careful about it is currently
+> getting wrong anyway.** `fetch_by_ids` sends `ad_id[]=` for a batch of 210 and **omits
+> `limit`** - the very parameter §4.0 documents as the page-size control, and which
+> `_fetch_page` does send - so `ads.php` answers with its default page and the sweep reads
+> the ids past it as gone. Measured 2026-09-18: 19,008 of 30,037 ads carry a `removed_at`,
+> and survivors per minute-bucket run 90, 30, 300, 420, 240, 60, 330, 360, 420, 390, 360,
+> 150 - all exact multiples of 30, i.e. each 210-id batch keeps 30 and falsely removes ~180,
+> about **86 % of everything it touches**. Nothing undoes it, since `due_for_check` skips
+> ads that already have a `removed_at`. **Open as of 2026-09-18**, and distinct from the
+> "a failed request is not a removal" guard above: here the request succeeds, it just
+> answers about fewer ids than it was asked about. The `AdOutcome` logbook that would calibrate
+> "removed ⇒ sold" also holds **0 rows**. The mechanism exists; the data it has produced so
+> far does not support a conclusion.
 Re-querying a **known, no-longer-listed** ad id via `ad-detail-2.php` returns:
 ```
 HTTP 410  {"idad":"1", "status":"deleted"}
@@ -686,7 +745,18 @@ as removed/sold — e.g. a new `AdStatus.REMOVED` — and optionally post a quie
 effort: same request shape as the already-planned `PRICE_CHANGED` bulk re-check,
 just also checking "did it disappear."
 
-#### b) Seller reputation & volume enrichment (new, public, no auth)
+#### b) Seller reputation & volume enrichment (new, public, no auth) - **ratings shipped 2026-09-18**
+
+> **Built, and the "aggregate, not raw PII" option below is the one that was taken.**
+> `BazosApiScraper.fetch_ratings` is the transport; `bazos/ratings.py::summarise` is the seam
+> where the reviewer's name, phone and message stop - it returns five numbers and two dates,
+> persisted as `ratings_positive`/`ratings_negative`/`ratings_neutral`/`ratings_fetched_at`
+> on `EmailPublisher`/`PhonePublisher`, and nothing downstream ever sees an entry. Run from
+> the publisher changelist as a queued job ("Fetch a seller's ratings", `JOB_CATALOG`).
+> **Not yet run against production data**: 0 publishers have a `ratings_fetched_at`
+> (2026-09-18), so nothing here has a measured hit rate yet. `user_ads_count` /
+> `user_reviews_count` are still *not* stored - `load_full_description` reads only
+> `description`, `price_type`/`price` and the publisher ids off the detail payload.
 Two independent, unauthenticated signals per seller, both confirmed live:
 - `ad-detail-2.php` → `user_ads_count` / `user_reviews_count` (e.g. `"292"` /
   `"10"` for a dealer) — a free, per-ad-detail-call signal for **listing
@@ -747,7 +817,17 @@ browsing the taxonomy. Also usable to make `Query.generate_random_queries` (toda
 picks a uniformly random `Category` row) weight toward categories with actual
 current listing volume, using `sections.php`/`categories.php` + a probe search.
 
-#### d) Geocoding for true distance-based search (`zip.php`)
+#### d) Geocoding for true distance-based search (`zip.php`) - **half shipped 2026-08-30**
+
+> `zip.php` is now a production dependency, but for the *other* half of this idea:
+> `bazos/geo.py` calls it to turn an ad's PSČ into coordinates in the `PostalCode` cache,
+> which the **notification-side** `location_distance` filter measures against
+> (`BAZOS_ZIP_API_URL` in `bazos/const.py`). The endpoint behaves as documented here. What
+> is still unbuilt is the *search-side* use - `latitude`+`longitude`+`sort=distance` on
+> `ads.php` for genuinely nearest-first results. Note the two do not compose for free on the
+> API path: the thin listing carries no postal code at all (§5.1), so a cut-over query's ads
+> cannot be measured by the filter until the locality string is resolved some other way
+> ([`API_CUTOVER.md`](../../backlog/API_CUTOVER.md) §4.2).
 Confirmed both directions: PSČ → `{lat, lon, city}` and `lat/lon` → nearest PSČ.
 `Query.location_center` is currently a raw PSC string matched against the HTML
 scraper's `hlokalita`/`humkreis` params. The API's `zip_code`+`distance` params are
@@ -854,7 +934,18 @@ site-wide, ~7-8/minute averaged out. This matches the unavoidable per-ad detail
 cost already established in §5.3; the sequential-id sweep only makes the
 *discovery* phase cheap and topped-immune, not the rich-data phase.
 
-#### g) Seller-scoped listing filter — `ads.php?email_id=`/`phone_id=` (undocumented, confirmed working)
+#### g) Seller-scoped listing filter — `ads.php?email_id=`/`phone_id=` (undocumented, confirmed working) - **shipped 2026-09-18**
+
+> **Built as `BazosApiScraper.fetch_publisher_listings(param, publisher_id)`**, called by
+> `bazos/enrichment.py::fetch_seller_listings` behind the "Fetch a seller's current listings"
+> job. Two deliberate narrowings versus the text below: it fetches **one page of
+> `API_PAGE_SIZE` and stops** rather than paginating to exhaustion (a seller with more than
+> 210 live listings is a dealer, and the first 210 answer every question worth asking about
+> one), which also sidesteps the missing `x-total-count` quirk; and `None` versus `[]` are
+> kept strictly apart - `None` is "no usable answer", `[]` is "this seller genuinely has
+> nothing listed". It is also what made same-seller repost detection possible
+> (`bazos/reposts.py`, `Ad.reposted_from`), since before it a seller's *past* inventory was
+> in the database only if a query happened to catch it.
 
 **The app itself never sends this** — `AdRetrofitDataSource.getFilteredAdsQueryParams()`
 (§4) builds its query map from `limit`/`offset`/`query`/`section`/`category`/
@@ -957,9 +1048,13 @@ under the project's real Tor-rotated load pattern before removing the existing
 
 ## 8. Proposed implementation plan (fits the existing architecture)
 
-The pipeline is already decoupled through `Ad.status`, and the marketplace layer
-already keys scrapers by `query.marketplace` in `QueryRunner._build_scrapers()`.
-So this is a **drop-in scraper implementation**, not a pipeline change.
+The pipeline is already decoupled through a status column, and the marketplace layer
+already keys scrapers by `query.marketplace` in `_build_scrapers()`. So this is a
+**drop-in scraper implementation**, not a pipeline change. (Two names below have moved
+since this plan was written: the queue column is **`AdDelivery.status`**, not `Ad.status`
+- migrations `0026`-`0028` took pipeline state off `Ad` - and `_build_scrapers` is
+module-level in `bazos/scraping/query_runner.py`, reached through `get_scraper`, not a
+`QueryRunner` method.)
 
 > **Two additional arguments for the migration, added 2026-07-29** — neither was captured
 > in §1's original case, and both are independently decisive:
@@ -979,10 +1074,19 @@ So this is a **drop-in scraper implementation**, not a pipeline change.
 > **b) Latency, not just request efficiency.** §1 argues the API case on structure and
 > request volume. The sharper point is cadence: a `limit≈10` steady-state dedup probe is
 > **~1.1 KB** (§4), which per `PROXY_ROTATION.md` §5 makes a **2-minute
-> cadence cost ~0.24 GB/month** — versus the ~15-minute median detection latency the
-> current HTML path is stuck with. See `MONETIZATION.md` §7.1 for why that gap decides
+> cadence cost ~0.24 GB/month** — versus the median detection latency the current HTML path
+> is stuck with. See `MONETIZATION.md` §7.1 for why that gap decides
 > whether the project captures deals or merely observes them, and
 > `PROMPTS.md` **P21** for the executable rollout.
+>
+> **Corrected 2026-09-18 on the latency figure.** "~15 minutes" was half the sleep interval,
+> and the sleep interval is not the cycle: a pass costs ~12 minutes of wall clock on top of
+> it, mostly on attempts that 403. Measured over 5,293 query-runs, the real median cycle is
+> **42 min**, so today's median detection latency is **~21 min**, not ~15, and the honest
+> post-cutover figure is ~7 min rather than the ~5 the prompt promises.
+> [`API_CUTOVER.md`](../../backlog/API_CUTOVER.md) §1 and §1.1 carry that arithmetic and are
+> the authority on it; `PROXY_ROTATION.md` §5, which this note leans on, omits pass duration
+> and is corrected there.
 
 ### Stage A — Spike & verify — **done, see §7**
 Live-confirmed 2026-07-19: auth-free (no `token`/`X-DeviceId` needed), real page
@@ -995,9 +1099,18 @@ under real Tor rotation before removing the existing backoff/blacklist safety ne
 ### Stage B — `BazosApiScraper` implementing the `MarketplaceScraper` protocol — **done, 2026-07-24**
 `bazos/scraping/bazos/bazos_api_scraper.py` implements this, satisfying
 `bazos/scraping/marketplace.py` as a peer of `BazosScraper`. Registered in
-`QueryRunner._build_scrapers()` under `marketplace = "bazos_api"` —
-**inert for production**, since no existing `Query` row uses that value, so
-`run_scraper` stays HTML-only until a `Query` is deliberately switched over.
+`_build_scrapers()` (`bazos/scraping/query_runner.py`) under `marketplace = "bazos_api"`.
+
+> ⚠️ **"Inert for production" expired. Corrected 2026-09-18.** This paragraph used to say no
+> `Query` row used that value; one does. **Query 12 is `bazos_api` and enabled**, and holds
+> **425 ads scraped between 2026-08-08 and 2026-09-18**, with 219 successful runs in the 7
+> days to 2026-09-18. So `run_scraper` is no longer HTML-only, the API path is carrying real
+> production traffic, and §5.1's thin-payload consequences are live on that query rather than
+> hypothetical - note it has a non-empty `filter_blocklist`, one of the two rules that
+> silently degrade to name-only matching there. Anything that reasons from "the API scraper
+> cannot affect production" is now wrong; the same stale claim is repeated in CLAUDE.md and
+> in `SHIPPED.md`'s 2026-07-24 row.
+
 Unit tests (`bazos/tests/test_bazos_api_scraper.py`) cover query-param mapping,
 listing/detail JSON parsing, pagination against `x-total-count`, the `410`
 sold/removed case, and blacklist detection, using real captured payloads in
@@ -1005,11 +1118,12 @@ sold/removed case, and blacklist detection, using real captured payloads in
 HTML scraper on real `Query` rows (read-only, no DB writes), run
 `python manage.py compare_bazos_scrapers`.
 
-Not yet implemented (left for a follow-up once Stage B is validated in
-production): the richer Stage D fields (`price_type`/`currency`/`images`/GPS/
-`user_ads_count`), `AdStatus.REMOVED` sold-detection sweep, and the
-`ratings.php` seller-reputation enrichment — all additive and independent of
-this scraper working at all.
+Not yet implemented, **as revised 2026-09-18** (the original list has largely shipped - see
+Stage D): the richer Stage D fields still absent are `currency`, `images`, GPS and
+`user_ads_count`/`user_reviews_count`. `price_type` **is** read from the detail payload now
+(`_API_PRICE_TYPE_MAP`, mapping the API's own `EXACT`/`NEGOTIATED`/`OFFERED`/`IN_TEXT`
+vocabulary onto `PriceType`); the sold/removed sweep shipped as `Ad.removed_at` rather than
+an `AdStatus` value (§6.4a); and `ratings.php` enrichment shipped as counts-only (§6.4b).
 
 Original plan, for reference:
 
@@ -1021,8 +1135,13 @@ Original plan, for reference:
     `section.<id>→section`, `category.<id>→category`, `sort=date`.
   - Page with **`limit=210`** (the confirmed server cap, §4.0 — not the app's 20)
     and `offset`; stop using `x-total-count`. This alone is the ~10.5x request
-    reduction (fixes the pagination TODO at `bazos_scraper.py:230`).
-  - Map the **thin listing JSON** (§5.1) → `Ad(status=PENDING)`, reusing
+    reduction (fixes the pagination TODO, `bazos_scraper.py:303` today). Note the shipped
+    scraper hardcodes `limit=API_PAGE_SIZE` on *every* page including the steady-state dedup
+    walk, which is the wrong size for a pass that exists to find 0-3 new ads;
+    [`API_CUTOVER.md`](../../backlog/API_CUTOVER.md) §3 is the fix.
+  - Map the **thin listing JSON** (§5.1) → an `Ad` plus an `AdDelivery(status=PENDING)`
+    (the plan predates migrations `0026`-`0028`, which moved pipeline state off `Ad`),
+    reusing
     `_resolve_publishers` — note listing has no `email_id`/`phone_id`, so
     publisher resolution has to happen at `load_full_description` time instead
     (or be treated as optional/deferred for ads that never get a detail fetch).
@@ -1036,32 +1155,48 @@ Original plan, for reference:
   wire up detection for when they do occur in production.
 - Reuse the existing Tor `requests.Session`/`PROXIES` and `run_request` retry/backoff.
 
-### Stage C — Register & select
-- Add to `QueryRunner._build_scrapers()` keyed by `query.marketplace`.
+### Stage C — Register & select - **started, not finished (status 2026-09-18)**
+- Add to `_build_scrapers()` keyed by `query.marketplace`. **Done.**
 - Roll out per-query: set `marketplace="bazos_api"` on a canary `Query`, compare
   results against the HTML scraper, then migrate the rest. HTML scraper stays as
-  fallback.
+  fallback. **Partly done** - query 12 has been on `bazos_api` since 2026-08-08, which
+  makes it the *reference*, not the canary. The remaining 16 Bazos queries are still HTML,
+  and the ordering, the parity criteria that make "compare results" testable, and the
+  three filter gaps to close first are [`API_CUTOVER.md`](../../backlog/API_CUTOVER.md)
+  §4-§7.
 
-### Stage D — Model & follow-ups (optional, incremental)
+### Stage D — Model & follow-ups (optional, incremental) - **status 2026-09-18 per item**
 - Add columns for the new structured data (nullable, additive): `price_type`,
   `currency`, `latitude`, `longitude`, `images` (JSON), `video`, `category`/`section`.
+  **`price_type` done** (and `price`, parsed from the listing string on the thin payload
+  and upgraded from the detail payload's own vocabulary); the rest still open.
 - Add `user_ads_count`/`user_reviews_count` (undocumented-but-confirmed, §5.2) to
   `EmailPublisher`/`PhonePublisher` — free seller-volume signal from every detail call.
-- Add `AdStatus.REMOVED` (or similar) and a periodic sweep of `SENT`/`APPROVED` ads
-  through bulk `ads.php?ad_id[]=` (cheap, 210 at a time) or `ad-detail-2.php`'s
-  `410` (§6.4a) to detect sold/removed ads — new capability, no HTML equivalent.
+  **Still open**, and still the missing input for the dealer threshold in
+  [`DISCOVERY_PIPELINE.md`](DISCOVERY_PIPELINE.md) §3.1.
+- ~~Add `AdStatus.REMOVED` (or similar)~~ and a periodic sweep of ads through bulk
+  `ads.php?ad_id[]=` (cheap, 210 at a time) to detect sold/removed ads.
+  **Shipped 2026-09-17 as `Ad.last_seen_at`/`Ad.removed_at` + `AdOutcome`, not as an
+  `AdStatus` value, and over every ad rather than only `SENT`/`APPROVED` ones - the
+  un-notified ads are the control group.** See §6.4a.
 - Replace `create_sections`/`create_categories` with a sync command backed by
-  `sections.php`/`categories.php`.
+  `sections.php`/`categories.php`. **Still open** - both management commands are still
+  hand-maintained.
 - `PRICE_CHANGED` re-scan: batch known ids through `ads.php?ad_id[]=` for cheap
   price refresh (confirmed: thin fields include `price_formatted` and `views`).
+  **Shipped as part of the delisting sweep** - the same bulk response it reads for
+  liveness also carries `price_formatted`, and a changed price writes a `PriceChange`
+  without a second request.
 
 ### New workflows the API unlocks (beyond parity) — see §6.4 for full detail
-- **Sold/removed detection** (§6.4a) — `ad-detail-2.php` → `410 deleted`, or bulk
-  `ad_id[]=` silent omission. New `Ad` lifecycle state, cheap to add.
+- **Sold/removed detection** (§6.4a) — ~~`ad-detail-2.php` → `410 deleted`, or~~ bulk
+  `ad_id[]=` silent omission. **Shipped 2026-09-17** as `Ad.last_seen_at`/`Ad.removed_at`.
 - **Seller reputation & volume enrichment** (§6.4b) — `ratings.php` (public, no
   auth) + `user_ads_count`/`user_reviews_count`, both keyed off ids already stored
-  on `Ad`. Feeds a future `RuleEngine` trust-score rule. Needs a deliberate call on
-  what to persist (aggregate score vs. raw reviewer PII).
+  on `Ad`. Feeds a future `RuleEngine` trust-score rule. **Ratings shipped 2026-09-18**,
+  and the deliberate call went to the aggregate: counts are persisted, reviewer PII is
+  discarded in `bazos/ratings.py` before anything is stored. `user_ads_count` is still
+  unread.
 - **Smart query-to-taxonomy mapping** (§6.4c) — `suggestionsnew.php` for an admin
   helper or smarter `generate_random_queries`.
 - **Precise geo filtering** (§6.4d) — `zip.php` geocoding + lat/long + `sort=distance`
@@ -1072,7 +1207,8 @@ Original plan, for reference:
   limit exists yet to motivate it.
 
 ### Non-goals
-- No changes to `run_filter` / `run_sender` or the `Ad.status` state machine.
+- No changes to `run_filter` / `run_sender` or the delivery state machine (which lives on
+  `AdDelivery.status` today, not `Ad.status`).
 - Write endpoints (post/edit/top/report) are out of scope for scraping.
 
 ---

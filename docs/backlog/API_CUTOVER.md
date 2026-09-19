@@ -1,8 +1,8 @@
 ---
 title: Bazos API Cutover and Cadence
 status: active
-updated: 2026-09-07
-verified: 2026-09-07
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Bazos API Cutover and Cadence
@@ -20,30 +20,48 @@ and the volume model. This doc does not restate them; it corrects one of them an
 
 ## 1. Measured baseline — and a correction to the volume model
 
-Measured against the production DB on the Pi, **2026-08-30 → 2026-09-06** (7 days):
+Measured against the production DB on the Pi, **2026-08-30 → 2026-09-06** (7 days), and
+**re-measured over 2026-09-11 → 2026-09-18** to check it had not drifted. It had not, except in
+one respect worth naming:
 
-| Measure | Value |
-|---|---|
-| Query-run attempts | 5,293 |
-| Failed | 2,637 — **49.8 %** |
-| …of which `MarketplaceBlockedError` | **2,635** (the other two: one `SSLError`, one `RuntimeError`) |
-| Distinct blocked exit IPs | 503 |
-| Enabled queries | 13 today (12 during the sample window) |
-| Median duration of a successful query | 19.8 s |
-| **Median cycle per query** | **42.2 min** (mean 45.2, p90 71.8) |
+| Measure | 2026-09-06 | 2026-09-18 |
+|---|---|---|
+| Query-run attempts | 5,293 | 6,462 |
+| Failed | 2,637 — **49.8 %** | 3,498 — **54.1 %** |
+| …of which `MarketplaceBlockedError` | **2,635** (the other two: one `SSLError`, one `RuntimeError`) | **3,427** (plus 67 `RuntimeError`, 2 `ReadTimeout`, 1 `SSLError`, 1 `AttributeError`) |
+| Distinct blocked exit IPs | 503 | 537 |
+| Enabled queries | 13 (12 during the sample window) | 14 |
+| Median duration of a successful query | 19.8 s | 6.1 s |
+| **Median cycle per query** | **42.2 min** (mean 45.2, p90 71.8) | **42.7 min** (mean 46.3, p90 74.0) |
 
 Two consequences, both load-bearing for this work:
 
-**The transport has exactly one failure mode.** 2,635 of 2,637 failures are Bazos 403-ing the
-exit IP. Nothing else is meaningfully broken, and the ~48 % coin flip that
+**The transport's dominant failure mode is still the only one that matters, but it is no longer
+the *only* one.** 3,427 of 3,498 failures are Bazos 403-ing the exit IP - 98.0 %, against 99.9 %
+in the first window. The ~48 % coin flip that
 [`PROXY_ROTATION.md`](../research/proxies/PROXY_ROTATION.md) inferred from two spot probes is
-confirmed at 49.8 % over 5,293 attempts and 503 distinct exits. It is no longer an estimate.
+confirmed and has if anything worsened: **54.1 % over 6,462 attempts and 537 distinct exits**.
+The new 2 % tail is **not** a Bazos transport fact and joining `bazos_queryrun` to
+`bazos_query.marketplace` says so outright: all 67 `RuntimeError` rows are Vinted's withdrawn
+`/api/v2/catalog/items` endpoint (last seen 2026-09-16, the day `v1.2.0` replaced that scraper),
+the two `ReadTimeout`/`SSLError` rows are Sbazar and Vinted, and the single `AttributeError`
+(`'NoneType' object has no attribute 'text'`, 2026-09-17) is the blocked-detail-fetch defect
+fixed in `a877177`. Bazos itself contributed **one** non-block failure in seven days.
+⚠️ **Do not quote "exactly one failure mode" without re-running the breakdown grouped by
+marketplace** - unqualified, it reads as a claim about the fleet.
+
+**The median successful-query duration fell 19.8 s → 6.1 s while the cycle did not move.** That
+is consistent with the two things that landed in between - the mobile-UA fix and the per-query
+failure alerting - trimming wasted work inside a query without touching the number of 403'd
+attempts a pass has to walk through. It is the block rate, not per-query parse cost, that sets
+pass duration, which is exactly §1.1's point.
 
 **`PROXY_ROTATION.md` §5's cadence model omits pass duration, and every latency number
 downstream inherits the error.** It computes `passes/day = 1200 / interval_minutes`, treating the
 sleep interval as the cycle. The real cycle is `sleep + pass duration`. Measured cycle is 42 min
 against a ~30 min average sleep, so **a pass costs ~12 minutes of wall clock**, roughly half of
-it spent on attempts that 403.
+it spent on attempts that 403. This is the most durable number in this section: two independent
+7-day windows twelve days apart give 42.2 and 42.7 min.
 
 So the honest current figure is a **~21 min median detection latency, not ~15**, and at p90 an ad
 sits ~36 min before discovery.
@@ -51,8 +69,8 @@ sits ~36 min before discovery.
 ### 1.1 What this work can and cannot buy
 
 `P21a`'s "~5 min median" assumes pass duration is zero. It is not, and this work does **not**
-reduce the 49.8 % block rate — that is P21b's job, and it is the term that dominates pass
-duration.
+reduce the block rate (49.8 % then, 54.1 % now) — that is P21b's job, and it is the term that
+dominates pass duration.
 
 | | Sleep | Pass | Cycle | Median latency |
 |---|---|---|---|---|
@@ -72,13 +90,15 @@ payload (`ads.php`, §5.1) carries strictly less than the HTML listing page, and
 rules read fields it omits. Every one degrades to *permissive*, which is indistinguishable from
 "not configured" — nothing errors, nothing logs, the query just quietly notifies more.
 
-Production evidence, all 273 existing `bazos_api` ads vs 19,904 `bazos` ads:
+Production evidence, **re-measured 2026-09-18**: all 425 existing `bazos_api` ads (was 273) vs
+27,568 `bazos` ads (was 19,904). Every proportion below is unchanged - the gaps are structural,
+not a sampling artifact of the small early corpus:
 
 | Field | `bazos` missing | `bazos_api` missing | What breaks |
 |---|---|---|---|
-| `short_description` | 0 | **273 / 273** | `blocklist_keyword`, `required_keyword` — their haystack is `f"{ad.name} {ad.short_description}"`, so both degrade to **name-only matching** |
-| `location` postcode | 0 | **273 / 273** | `location_distance` — it parses the PSČ out of `Ad.location`; the API sends `locality` (`"Praha 10"`) with no code, so the rule PASSes everything |
-| `publisher_name`, publisher FKs | 0 | **273 / 273** | `publisher_blocklist` can never fire; `Ad.message` renders `"Seller: unknown"`; `SellerAdCounts` is meaningless |
+| `short_description` | 0 / 27,568 | **425 / 425** | `blocklist_keyword`, `required_keyword` — their haystack is `f"{ad.name} {ad.short_description}"` (`filters.py:138,155`), so both degrade to **name-only matching** |
+| `location` postcode | 0 / 27,568 | **425 / 425** | `location_distance` — it parses the PSČ out of `Ad.location`; the API sends `locality` (`"Praha 10"`) with no code, so the rule PASSes everything |
+| `publisher_name`, publisher FKs | 0 / 27,568 | **425 / 425** | `publisher_blocklist` can never fire; `Ad.message` renders `"Seller: unknown"`; `SellerAdCounts` is meaningless |
 | `view_count`, `publish_date` | 0 | 0 | — fine, the API sends both |
 
 **None of these is a bug in `BazosApiScraper`.** They are all the same fact: `ads.php` is a thin
@@ -89,7 +109,7 @@ parity" without saying parity *of what*; §7 below makes that testable.
 
 ## 3. Part 1 — tunable page size
 
-`_fetch_page` (`bazos/scraping/bazos/bazos_api_scraper.py:161`) hardcodes `limit=API_PAGE_SIZE`
+`_fetch_page` (`bazos/scraping/bazos/bazos_api_scraper.py:166-167`) hardcodes `limit=API_PAGE_SIZE`
 (210). Measured wire sizes ([`PROXY_ROTATION.md`](../research/proxies/PROXY_ROTATION.md) §4):
 
 ```
@@ -165,7 +185,7 @@ resolvable location.
 
 `email_id`/`phone_id` are detail-only, exactly like the postcode. `publisher_blocklist` is a
 per-query opt-in that no production query currently relies on, and `Ad.message` already degrades
-honestly to `"Seller: unknown"` (`models.py:498-499`) rather than claiming a false zero.
+honestly to `"Seller: unknown"` (`models.py:623`) rather than claiming a false zero.
 
 **Recommendation: accept the loss for now, and record it.** Fixing it means a detail call per ad,
 which is P13's territory (filter-before-detail-fetch) and is the one thing
@@ -188,7 +208,7 @@ Do not enable `load_full_description` on cut-over queries just to recover seller
    rate on that query specifically.
 5. **Migrate the rest**, in batches, respecting §4.1's exclusion list.
 6. **Only then** lower `INTERVAL_LOWER`/`INTERVAL_UPPER` to ~600 s. These are already env-driven
-   (`scraper/settings.py:166-167`), so this is a `.env` edit and a
+   (`scraper/settings.py:263-264`), so this is a `.env` edit and a
    `docker compose up -d marketplace_scraper` — no deploy.
 7. **Watch for a few days**: the P19 zero-results canary, the block rate, and §8.1's cycle
    measurement. `PROXY_ROTATION.md` §5's table says request volume should land near today's;
@@ -259,7 +279,10 @@ SELECT count(*) FILTER (WHERE NOT success)::float / count(*) AS block_rate
 FROM bazos_queryrun WHERE run_start > now() - interval '2 days';
 ```
 
-Baseline is 0.498. A material rise means the cadence outran what one Tor circuit pool tolerates —
+Baseline is 0.498 (2026-09-06) or 0.541 (2026-09-18) - use the more recent, and re-run it
+immediately before the change rather than trusting either; it moved 4.3 pp in twelve days with
+no cadence change at all, so a stale baseline will read a normal drift as a regression.
+A material rise means the cadence outran what one Tor circuit pool tolerates —
 back the interval off before doing anything else.
 
 ---

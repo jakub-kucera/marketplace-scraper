@@ -1,7 +1,7 @@
 ---
 title: Heureka.cz / Zboží.cz — Track B assessment
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -18,6 +18,18 @@ verified: 2026-08-22
 > datacenter IP `185.242.6.116` (M247, AS9009, Prague CZ) — the same vantage point as
 > [`RANKING.md`](pass1/RANKING.md). Per RESEARCH_BRIEF §9: **no account was created, nothing was
 > registered for, no ToS was accepted, and no block was evaded.**
+>
+> **⚠️ Superseded in part - read [`ZBOZI_API.md`](ZBOZI_API.md) (2026-09-16) before acting on
+> anything below.** A re-probe from a third vantage point found a JSON surface this file never
+> located and measured three of its headline claims false: the join step is **not** the
+> robots-disallowed one (`/suggestV2?phrase=` → `/api/v3/product/<slug>/`, both allowed for
+> `User-agent: *`), `productNo` **does** carry a manufacturer part number (§4a grepped for
+> `mpn`/`partNumber` and missed it on spelling), and a discontinued MacBook Pro 13 **is** in the
+> catalogue - unreachable from typeahead, which is a different defect from absent. It also found a
+> `medianPrice` and ~24 months of price history, and the capability shipped as `refprice/` on
+> 2026-09-16. **What still stands here:** no official third-party read API, no EAN/GTIN, the
+> dangerous-not-empty failure on discontinued goods, and **Heureka.cz itself Cloudflare-blocked**,
+> re-confirmed 2026-09-16 from a third egress.
 
 ---
 
@@ -844,3 +856,10 @@ with tools the best-served category; useless for discontinued electronics; block
 validation step that does not exist yet.* Its value is still gated on the same prerequisite as
 everything else in Track B: `Ad` has no brand/model field to join *from*
 (`EBAY.md` §4). Fix that first and this becomes cheap; leave it and this stays unusable.
+
+> **Update 2026-09-18 - the gate turned out to be the validator, not the schema.** The "join
+> validation step that does not exist yet" was built: `refprice/resolution/validate.py` gates every
+> candidate on brand, model-code (prefix-tolerant, so `DHP484` matches `DHP484Z`), bundle words,
+> contrast tokens and `shopCount >= 2`, resolving from the ad's free-text title with **no**
+> brand/model column on `Ad`. Shipped 2026-09-16; ⚠️ 0 `RefProduct` and 0 `RefProductLink` rows in
+> production on 2026-09-18, so it is built and not yet exercised.

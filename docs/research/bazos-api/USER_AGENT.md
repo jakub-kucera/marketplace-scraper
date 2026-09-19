@@ -1,8 +1,8 @@
 ---
 title: Bazos User-Agents — the app's, and the trap on the HTML path
 status: shipped
-updated: 2026-09-17
-verified: 2026-09-17
+updated: 2026-09-18
+verified: 2026-09-18
 shipped_in: bazos/scraping/bazos/user_agent.py
 ---
 
@@ -81,6 +81,11 @@ Net effect: the final UA is **lowercase ASCII**.
 ```
 bazos/2.19.1 (cz.ackee.bazos; build:4630; android 13; model:pixel 7) okhttp/4.11.0
 ```
+
+(That exact string is the one the §7 live probes in
+[`HIDDEN_API.md`](HIDDEN_API.md) used. Note `default_user_agent()` does **not** emit it -
+`DEVICE_PROFILES[0]` is Pixel 7 on Android **14**, the first line below; re-ran
+2026-09-18.)
 
 More examples (varying only the device, verified via `python bazos/scraping/bazos/user_agent.py`):
 
@@ -180,9 +185,30 @@ re-read and update from the new decompiled app:
 ## 8. Confidence
 
 The construction, interceptor ordering, and the appended `okhttp/4.11.0` are read
-directly from the bytecode and are reliable. What remains **unverified without a live
-capture**: that the server actually accepts this UA and doesn't additionally gate on a
-TLS/HTTP2 fingerprint. One probe (through the project's Tor proxy) would confirm it.
+directly from the bytecode and are reliable.
+
+**The open question here is answered - updated 2026-09-18.** This section used to say the
+server's acceptance of this UA was unverified and wanted one probe. There have since been
+two kinds of evidence, and the second is the stronger one:
+
+- **Direct probes, 2026-07-19** - search, detail, taxonomy, geocoding, suggestions and
+  ratings all returned `200` with *only* this UA and no other headers
+  ([`HIDDEN_API.md`](HIDDEN_API.md) §7).
+- **Sustained production traffic through Tor** - `BazosApiScraper` sends
+  `default_user_agent()` on every request, and query 12 has run on it since 2026-08-08:
+  **219 successful query-runs in the 7 days to 2026-09-18**, 425 ads collected. A UA-level
+  gate could not produce that.
+
+So there is no TLS/HTTP2 fingerprint gate *that this UA fails* - a stricter claim would need
+an A/B against a deliberately mismatched client, which nobody has run. The failures this
+transport does see are IP blocks: a `403` whose body names the offending egress in as many
+words (`... permission to access this server. IP: x.x.x.x`, parsed by
+`MarketplaceBlockedError.from_response`). **Bazos attributes the refusal to the IP, not to
+the client string** - do not reach for the UA when diagnosing a 403.
+
+What stays genuinely unverified is §7's *maintenance* risk: whether an outdated
+`APP_VERSION_NAME`/`build:` pair is soft-treated differently. The pinned APK is v2.19.1 and
+nothing has re-checked whether that is still current.
 
 ---
 
@@ -221,7 +247,11 @@ locality inline inside `div.popis` and has no `inzeratycena` / `inzeratylok` / `
   days; `QUERY_FAILURE_ALERT_THRESHOLD` is what now covers it.
 
 **2 of 62 agents in the pool were mobile — about 3% of sessions.** Frequent enough to lose
-passes steadily, rare enough to read as ordinary Bazos flakiness.
+passes steadily, rare enough to read as ordinary Bazos flakiness. (Re-counted against the
+installed `requests_random_user_agent` on 2026-09-18: still 62 agents, still 2 mobile. The
+pool ships with the library and `poetry.lock` pins it at 2023.10.25, so the ratio does not
+drift on its own - but a dependency bump can move it, which is why
+`drop_mobile_user_agents()` filters by marker rather than by a hardcoded list.)
 
 ### 9.2 The fix, and the fix that would be wrong
 

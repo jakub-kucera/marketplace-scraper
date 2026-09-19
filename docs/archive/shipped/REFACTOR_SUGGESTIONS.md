@@ -1,17 +1,25 @@
 ---
 title: Refactor Suggestions
 status: shipped
-updated: 2026-07-19
-verified: 2026-07-19
+updated: 2026-09-18
+verified: 2026-09-18
 shipped_in: all nine items; completed changelog
 ---
 
 # Refactor Suggestions
 
 > **Archived — completed changelog.** All 9 items below are done (including #7,
-> confirmed live in `bazos/protocols.py` / `bazos/mixins.py`). Kept for history,
+> confirmed live in `bazos/protocols.py`). Kept for history,
 > not as an open task list. Current planning lives in
 > [`PIPELINE_REFACTOR.md`](PIPELINE_REFACTOR.md).
+>
+> **Audited 2026-09-18.** This is a changelog of a July 2026 state and later work has moved
+> three of its endings. `bazos/mixins.py` was described here as "now empty"; it has since been
+> deleted outright. #8's ending is recorded inline below. #9's `_is_known()` became
+> `_get_known_delivery()` in the `Ad`/`AdDelivery` split
+> ([`AD_DELIVERY_SPLIT.md`](AD_DELIVERY_SPLIT.md) §5.1), and `bazos_runner.py` /
+> `bazos_query_runner.py` in #5 are now `bazos/scraping/runner.py` /
+> `bazos/scraping/query_runner.py` (commit `0a91b9a`).
 
 Concrete improvements worth doing alongside the pipeline work. Ordered roughly by impact.
 
@@ -90,6 +98,11 @@ class Sendable(Protocol):
 ## ✅ 8. `DiscordSender._send` — remove silent infinite retry on connection errors
 
 Done. Added `MAX_CONNECTION_RETRIES = 10` cap on `URLError`: increments a counter per call, sleeps with backoff, and re-raises after the limit. Rate-limit (`HTTPError`) still retries indefinitely — acceptable until the Plan A sender process redesign. Dead commented-out code also removed. Tests in `senders/tests/test_discord_sender.py`.
+
+> **Both numbers have moved since, 2026-09-18.** `MAX_CONNECTION_RETRIES` is **5**, and
+> `HTTPError` no longer retries at all: `DiscordSender._send` raises `RateLimitError` and
+> `run_sender` owns the retry policy, which is exactly the "Plan A sender process redesign" this
+> note was waiting on ([`PIPELINE_REFACTOR.md`](PIPELINE_REFACTOR.md) §3a, shipped).
 
 ---
 

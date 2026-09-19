@@ -1,7 +1,7 @@
 ---
 title: eBay sold/completed listings — Track B assessment
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -220,6 +220,19 @@ external_id       = BigIntegerField()              # marketplace-local, meaningl
 **There is no brand field, no model field, no EAN/GTIN field, no condition field, no structured
 attribute of any kind.** [M] The unique constraint is `(marketplace, external_id)` — an identifier
 scoped to the *source marketplace*, which by construction cannot join to anything external.
+
+> **Update 2026-09-18 - the schema quote is out of date and the finding survives it.** `Ad` today
+> reads `short_description = TextField()` (migration `0035`), and it has gained two things this
+> section says do not exist: `attributes`, a JSONB of specs *as the marketplace stated them* (only
+> Vinted publishes any), and - through the `refprice` app shipped 2026-09-16 - a `RefProductLink`
+> row joining an `Ad` to a catalogue product that carries an MPN (`RefProduct.product_no`). So an
+> external identifier can now hang off an ad. ⚠️ In production on 2026-09-18 there are **0** ads
+> with non-empty `attributes`, **0** `RefProduct` rows and **0** `RefProductLink` rows, and the
+> one Vinted query runs with `load_full_description=False`, which is where specs come from. The
+> blocker has moved from "there is nothing to join from" to "nothing has been joined yet" - a
+> smaller problem, and still not zero. **None of this changes the eBay verdict**, which rests on
+> §1: there is no route for a non-partner to read sold prices at all, so the far side of the join
+> is still missing.
 
 **So the join does not fail on eBay. It fails on Bazos.** Even a perfect eBay feed emitting a clean
 ePID on every sold row would have nothing to join *to*. `BACKLOG_IDEAS.md` #4's sentence — *"the

@@ -1,8 +1,8 @@
 ---
 title: Research brief — which Czech marketplace to implement next
 status: reference
-updated: 2026-08-22
-verified: 2026-08-22
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Research brief — which Czech marketplace to implement next
@@ -302,6 +302,12 @@ Check PyPI/GitHub for an existing client, as `vinted-scraper` was for Vinted. **
 you must run it** — install it in a throwaway venv and probe it live. Do not trust its README.
 `VINTED_SCRAPER.md` §4.5–§4.6 exists entirely because a README was believed.
 
+> **Postscript 2026-09-18.** That example has since paid the other half of its price: Vinted
+> withdrew the anonymous `/api/v2/catalog/items` endpoint around 2026-09-08, every query failed
+> for eight days, and no version of the library could fix it - the rewrite dropped the dependency
+> entirely (`VINTED.md` §1, §12). So weigh a library as a *faster start*, never as insulation: it
+> pins you to one transport and hides the moment that transport dies.
+
 ### 4e. HTML scraping as the fallback
 Viable (it is what the production Bazos scraper still does), but note the maintenance cost: that
 scraper depends on hardcoded CSS class names, and the P19 canary exists specifically because a
@@ -342,6 +348,14 @@ The relevant recent history, because it determines what "fit" means:
   *"never synthesise a value here."* Respect that — see §5c.
 - **`Query.extra_params`** (JSONField) carries marketplace-specific search params.
 
+> **Update 2026-09-18 - the schema moved again, and the checklist below is edited to match.** Since
+> this brief was written `Ad` has gained `attributes` (JSONB, specs as the marketplace stated them),
+> `source`, `reposted_from`, and `last_seen_at`/`removed_at` (the delisting sweep, 2026-09-17);
+> `short_description` became a `TextField` (migration `0035`); and `price`/`price_type` replaced
+> parsing `price_raw` at filter time (P22, 2026-08-23). The instruction at the top of this section
+> - *read `bazos/models.py`, do not work from this summary* - is the durable part, and is now more
+> load-bearing than when it was written.
+
 ### 5b. The fit checklist
 
 Answer each explicitly, with the marketplace's real field names:
@@ -350,8 +364,10 @@ Answer each explicitly, with the marketplace's real field names:
    `UniqueConstraint(fields=("marketplace", "external_id"))`. **A marketplace using string,
    slug, or UUID ids does not fit today** and forces a schema decision. Say so loudly if you
    find one; it is the most likely hard blocker.
-2. **Column widths.** `name` 120, `price_raw` 30, `location` 128, `short_description` 300,
-   `publisher_name` 100, `url` 1024. Do the marketplace's real values fit? Postgres raises
+2. **Column widths.** `name` 120, `price_raw` 30, `location` 128, `publisher_name` 100, `url` 1024
+   - and `short_description`, which is a **`TextField` since migration `0035`** and therefore has
+   no width at all (it was `CharField(300)` when this brief was written, and the Sbazar workup
+   reported a 679-char overflow against it). Do the marketplace's real values fit? Postgres raises
    `DataError` on overflow — and **SQLite does not**, so the test suite will not catch it.
 3. **Price shape.** `price_raw` is a string, and `parse_price` in `bazos/filters.py` does
    `re.sub(r"\D", "", ...)`. A decimal price string silently parses 10× too large. Does this
@@ -360,6 +376,10 @@ Answer each explicitly, with the marketplace's real field names:
 4. **Newest-first ordering.** `QueryRunner.run_existing_query` walks results newest→oldest
    and **breaks on the first already-known non-topped ad**. If the marketplace cannot guarantee
    that ordering, the dedup walk is wrong. Vinted needed an explicit `order=newest_first`.
+   **Ask specifically what the sort key *is*** - Sbazar's default order is newest by *edit* time,
+   which passes a "is it newest-first?" check and still breaks the walk, since an edited old ad
+   resurfaces above new ones. That is why the walk now breaks after `scraper.dedup_break_streak`
+   consecutive known ads (an optional class attribute, default 1) rather than after one.
 5. **A "topped"/promoted concept?** `Ad.topped` exists because promoted ads appear out of
    chronological order and must be skipped rather than breaking the walk.
 6. **Publisher identity.** `EmailPublisher`/`PhonePublisher` are **Bazos-shaped**: opaque
@@ -370,8 +390,10 @@ Answer each explicitly, with the marketplace's real field names:
 7. **`publish_date` / `view_count` availability.** Null is fine and correct if absent.
 8. **Detail-fetch cost.** Does the listing response carry the description, or does it need a
    second request per ad (`load_full_description`)? What is the failure mode when an item is
-   sold/deleted between listing and detail? Vinted raises `RuntimeError` there, and uncaught it
-   truncates a whole query's pass.
+   sold/deleted between listing and detail? A listing vanishing between the two calls is routine,
+   and whatever the marketplace raises there is uncaught by `_tolerating_one_bad_ad` (which catches
+   `DatabaseError` only), so it truncates a whole query's pass - every shipped
+   `load_full_description` therefore catches broadly and returns the ad unchanged.
 9. **Blacklist/blocking probe.** What should `check_blacklisted()` do? (Signature takes no
    arguments.)
 10. **Filter-rule compatibility.** The shipped rules are in `bazos/filters.py`. Which apply?
@@ -438,7 +460,10 @@ unremarkable, a historical realised-price feed could justify the marketplace on 
   (`MONETIZATION.md` §7.1) disappear for that marketplace.
 - **Watchlists / saved searches** exposed via API.
 - **Delisting signal** — does the API distinguish "sold" from "withdrawn"? Bazos cannot; that
-  distinction is worth a lot (`PROMPTS.md` P24).
+  distinction is worth a lot. *(P24 shipped 2026-09-17 and is gone from `PROMPTS.md`: the sweep
+  records `Ad.removed_at`, which conflates sold, withdrawn, deleted and expired, so a marketplace
+  that states the difference is worth **more** now, not less - there is an `AdOutcome` logbook
+  waiting to be calibrated against something.)*
 - **Buyer-side data** — bid counts, watcher counts, view counts as demand signals.
 
 For each capability found, say **what feature it would unlock and which existing doc it

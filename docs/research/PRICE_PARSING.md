@@ -1,7 +1,7 @@
 ---
 title: Price parsing — measured research for P22
 status: reference
-updated: 2026-08-23
+updated: 2026-09-18
 verified: 2026-08-23
 shipped_in: 0032, 0033 (P22 was built from this)
 ---
@@ -36,10 +36,12 @@ No median, percentile, index or margin arithmetic was possible on any price in t
 
 - **`Ad.price`** — `BigIntegerField(null=True, blank=True, db_index=True)`, the parsed CZK amount.
   `BigInteger` per §9's correction, not `Integer`.
-- **`Ad.price_type`** — a `PriceType` enum. Two values carry a real `Ad.price`: `EXACT` and
-  **`FREE`** (a known zero — "Zdarma" — which §3.3 showed the old parser wrongly returned `None`
-  for). The placeholder values (`NEGOTIATED`, `IN_TEXT`, `MAKE_OFFER`, `UNKNOWN`) leave `price`
-  null.
+- **`Ad.price_type`** - a `PriceType` enum, shipped exactly in §9's shape. Two values carry a
+  real `Ad.price`: `EXACT` and **`FREE`** (a known zero - "Zdarma" - which §3.3 showed the old
+  parser wrongly returned `None` for). The rest (`NEGOTIABLE`, `IN_TEXT`, `MAKE_OFFER`,
+  `INDIFFERENT`, `CURRENT_BID`, `UNKNOWN`) leave `price` null. ⚠️ The Django member is
+  **`NEGOTIABLE`**, not `NEGOTIATED`; `NEGOTIATED` is Bazos's *API* vocabulary, and §4 is where
+  the two are mapped.
 - **`PriceChange.old_price_amount`/`new_price_amount`** — numeric price history alongside the
   original strings.
 - **`parse_price_and_type()`** in `bazos/filters.py` does the work at *scrape* time and persists

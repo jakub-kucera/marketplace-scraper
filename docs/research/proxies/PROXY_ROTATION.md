@@ -1,7 +1,7 @@
 ---
 title: Proxy / IP-Rotation Research — Replacing Tor for Bazos Requests
 status: reference
-updated: 2026-07-26
+updated: 2026-09-18
 verified: 2026-07-26
 ---
 
@@ -20,6 +20,20 @@ verified: 2026-07-26
 > re-check before buying. The one thing **not** yet measured is sustained block-rate
 > through a real candidate proxy — that requires running the tool's `--repeat` probe
 > through each provider's trial (§9).
+>
+> ⚠️ **Read §3 and §8 as history, not as an API (checked 2026-09-18).** This doc describes
+> the code as it stood on 2026-07-26, and the request pattern it documents has since been
+> deleted rather than changed. **`IPChanger.check_bazos_blacklisted`, `renew_ip_bazos_ok`,
+> `renew_ip_and_check_new` and `try_get_current_ip` no longer exist anywhere in the
+> codebase** - the only surviving mention is in the unfinished `ip_changer/openvpn.py` stub.
+> The `IPChanger` ABC today is `renew_session()` + `rotate_circuit()` + `get_current_ip()` +
+> `check_ip_local()`, and there is **no pre-flight blacklist probe at all**: the query
+> attempt is the probe. §3 and §8 are annotated below with what replaced each piece; do not
+> implement against the method names as written.
+>
+> This pass re-checked §3 (architecture), §5's query count, §8's integration surface and
+> §10's open questions against the code and the production DB. It did **not** re-measure
+> §4's wire sizes or re-check §6's pricing, which is why `verified:` still reads 2026-07-26.
 
 ---
 
@@ -40,8 +54,11 @@ verified: 2026-07-26
   whose huge pool drives the only metric that actually governs bans —
   **requests per IP per day** — to effectively zero at any cadence (§7).
 - **To run more often affordably:** (a) migrate production queries to the API scraper
-  (`BazosApiScraper`) with a small `limit` for the steady-state dedup probe; (b)
-  collapse the current **double** blacklist check to one probe per pass; (c) keep
+  (`BazosApiScraper`) with a small `limit` for the steady-state dedup probe - *(a) is
+  under way: one query runs on the API today and the rest are specced in
+  [`API_CUTOVER.md`](../../backlog/API_CUTOVER.md), where the small `limit` is Part 1*;
+  (b) collapse the current **double** blacklist check to one probe per pass - **done by
+  deletion, 2026-08: both probes are gone, not merged (§3)**; (c) keep
   ad-detail calls event-driven off the free listing-level `price`/`views` signals —
   detail volume, not query count, is the thing that re-creates the Surfshark ban (§5).
 - **Two heavier scenarios were modelled with real measurements (§5.2–5.3):** (A) the
@@ -74,12 +91,22 @@ aren't pre-flagged (so they aren't 403'd on arrival).
 
 ---
 
-## 3. Current architecture (what the code does today)
+## 3. Architecture as of 2026-07-26 - **superseded, see the correction below**
 
 **IP layer** (`ip_changer/`): `IPChanger` ABC holds a `requests.Session`; concrete
 `TorIPChanger` routes it through `socks5h://TOR_PROXY_IP:9050` and renews identity via
 the Tor control port (`Signal.NEWNYM`). `DummyIPChanger` is a no-op for dev. Selected
 in `ScrapeRunner.__init__` by `settings.IP_CHANGER_TYPE` (`TOR` / `DUMMY`).
+
+> **Correction, re-read from the code 2026-09-18.** Rotation is **no longer a NEWNYM
+> signal**. `TorIPChanger.rotate_circuit()` swaps a random SOCKS username
+> (`self.circuit_id = token_hex(8)`) and rebuilds the session, which gets a fresh circuit in
+> 0.6-1.2 s because the proxy runs `IsolateSOCKSAuth`; `renew_ip()` (the NEWNYM path
+> described above) survives as a manual reset that **nothing calls**. The same proxy also
+> runs `IsolateDestAddr`, so **every destination host gets its own circuit and its own exit
+> IP** - which is why the probe-based guards below could not have been telling the truth
+> even when they existed, and why `get_current_ip()` answers for the icanhazip circuit
+> only. See CLAUDE.md's "IP rotation" section for the measurements.
 
 **Request pattern per query, steady state (no new ads)** — tracing
 `ScrapeRunner.run()` → `QueryRunner` → `BazosScraper.run_query()`:
@@ -94,6 +121,29 @@ in `ScrapeRunner.__init__` by `settings.IP_CHANGER_TYPE` (`TOR` / `DUMMY`).
 So **≈3 Bazos requests per query per pass**, and **two of the three are duplicate
 blacklist checks**. New ads add +1 listing page per 20 new ads, and +1 detail request
 per new ad **only** when the `Query.load_full_description` flag is set (default off).
+
+> **Correction, re-read from the code 2026-09-18 - rows 1 and 3 are gone.** Both blacklist
+> probes were **deleted**, not merged: `IPChanger.check_bazos_blacklisted` no longer exists,
+> and the scrapers' `check_blacklisted()` survives as a protocol member that only tests
+> call (`bazos/scraping/runner.py:144` says so in as many words). The old probe hit one
+> fixed `search.php` URL and reported "clear" while the query's own page 403'd - under
+> `IsolateDestAddr` it was answering about an egress the query would never use. A block is
+> now detected on the **real request**: the scraper raises `MarketplaceBlockedError` off the
+> response, and `ScrapeRunner._run_query_with_rotation` rotates the circuit and retries the
+> same query up to `MAX_BLACKLIST_RETRIES=8`.
+>
+> The steady-state pattern today is therefore:
+>
+> | # | Request | Target | Frequency |
+> |---|---|---|---|
+> | 1 | `ip_changer.check_ip_local()` → `icanhazip.com` | not Bazos | **once per pass**, not per query - a failure skips the pass |
+> | 2 | first listing page (20 ads) | Bazos | once per query, **plus a retry per 403** |
+>
+> So **1 Bazos request per query per pass on the happy path** rather than 3 - but the
+> 403-retry loop puts that back: at the measured block rate a query costs ~2 attempts on
+> average, and up to 8. The "collapse the double check" saving in §1 and §8.2 has therefore
+> already been banked, and the remaining request budget is set by the block rate, not by the
+> guards.
 
 **Existing-query dedup** relies on Bazos returning newest-first and stops on the first
 non-TOP ad already in the DB — so in the common "nothing new" case only the **first
@@ -123,6 +173,20 @@ available **without** any detail request.
 ---
 
 ## 5. Volume model — what "run more often" costs
+
+> ⚠️ **This model computes the cycle as the sleep interval alone, and that is wrong.
+> [`API_CUTOVER.md`](../../backlog/API_CUTOVER.md) §1 is the authority on cadence; read it
+> before quoting any latency number from here.** Measured over two independent 7-day
+> windows twelve days apart (5,293 and ~6,460 query-runs), the real cycle is
+> `sleep + pass duration` = **42 min median** (42.2 and 42.7) against a ~30 min average
+> sleep, so a pass costs ~12 minutes of wall clock, most of it on
+> attempts that 403. Median detection latency today is **~21 min, not ~15**. The
+> **bandwidth** arithmetic below is unaffected - bytes per pass do not change - so §5's
+> conclusion ("bandwidth is never the blocker") stands; it is the passes/day figure, and
+> every latency claim built on it, that is optimistic by roughly a third.
+>
+> The other input has moved too: **14 queries are enabled today** (2026-09-18), not the 12
+> assumed below, and one of them runs on the API rather than HTML.
 
 **Passes/day** (from `scraper/settings.py`: `INTERVAL_LOWER=900s`, `INTERVAL_UPPER=2700s`
 = 15–45 min, avg 30 min; `NightMultiplier` doubles the interval 22:00–06:00 Prague):
@@ -171,6 +235,14 @@ rotating residential pool of thousands→millions of IPs that spreads to **<1 re
 IPs (risky). **Mitigation:** keep detail calls event-driven — watch the free listing
 `price_formatted`/`views` and only hit detail when a signal changed or on first
 discovery, rather than re-scanning every pass.
+
+> **This mitigation shipped 2026-09-17, and the numbers above are what made it affordable.**
+> The delisting sweep (`bazos/delisting.py`) re-checks known ads through bulk
+> `ads.php?ad_id[]=` - 210 ids per request, **no detail call at all** - and reads
+> `price_formatted` straight out of that same response, writing a `PriceChange` when it
+> moved. Its cost is set by an age-decayed schedule rather than by cadence: ~33 requests/day
+> to keep ~20k ads watched, against ~3,300 for flat hourly checks. So the row of this table
+> that would have hurt is the one the project deliberately never built.
 
 ### 5.2 Scenario A — the broad "scrape-all" approach
 
@@ -314,8 +386,15 @@ residential's pool size makes cadence a non-issue.
 ## 8. Integration sketch
 
 Everything routes through the existing `IPChanger.session`, so a provider swap is small.
-A rotating endpoint hands a fresh IP **per request**, so `renew_ip` becomes a no-op —
-the provider rotates for us.
+A rotating endpoint hands a fresh IP **per request**, so rotation becomes cheap — the
+provider rotates for us.
+
+> **The sketch below was rewritten 2026-09-18 against the current ABC.** `renew_ip` and
+> `renew_ip_and_check_new` are no longer `IPChanger` members and a subclass defining them
+> would implement nothing. The two abstract methods are `renew_session()` and
+> `rotate_circuit() -> bool`; the bool answers "can this transport offer a different egress
+> at all", which is what stops the runner retrying a blocked query eight times against the
+> one IP a `DummyIPChanger` has.
 
 ```python
 # ip_changer/http_proxy.py
@@ -328,12 +407,12 @@ class HttpProxyIPChanger(IPChanger):
             "https": settings.PROXY_URL,
         }
 
-    def renew_ip(self):
-        pass  # rotation is per-request at the provider
-
-    def renew_ip_and_check_new(self) -> str:
-        self.renew_session()            # new session → new upstream IP on next request
-        return self.get_current_ip()
+    def rotate_circuit(self) -> bool:
+        # A rotating endpoint gives a new upstream IP on the next request anyway; rebuilding
+        # the session drops any kept-alive connection pinned to the blocked one. True because
+        # the provider genuinely does have another egress to offer.
+        self.renew_session()
+        return True
 ```
 
 Wire-up:
@@ -341,11 +420,16 @@ Wire-up:
 1. Add an `HTTP_PROXY` branch in `ScrapeRunner.__init__` alongside `DUMMY`/`TOR`
    (gate on `IP_CHANGER_TYPE`), and `PROXY_URL` in settings/`.env`. Nothing changes
    until it's set.
-2. **Collapse the double blacklist check** (§3, requests #1 and #3) to a single probe
-   **per pass** rather than per query — ~3 req/query → ~1.
+2. ~~**Collapse the double blacklist check** (§3, requests #1 and #3) to a single probe
+   **per pass** rather than per query — ~3 req/query → ~1.~~ **Done 2026-08, by deleting
+   both probes rather than merging them** (§3's correction). Nothing here is left to do.
 3. **Tunable `limit` on the API dedup probe** — `BazosApiScraper` currently hardcodes
    `limit=210`; a steady-state dedup check only needs the newest handful, so `limit≈10`
    makes the dominant request ~1.1 KB (§4). Keep 210 for backfill / deep paging only.
+   **Still open, re-checked 2026-09-18** (`_fetch_page` still passes `API_PAGE_SIZE`
+   unconditionally); specced as Part 1 of [`API_CUTOVER.md`](../../backlog/API_CUTOVER.md)
+   §3, which also names the trap: with `limit=10` a category carrying more than ~8 topped
+   ads pages again anyway.
 4. For a **sticky-IP** variant (Option C — hold one IP across a query's pages), rotate
    by changing a session token in the proxy username (`user-session-<id>`) inside
    `renew_ip` instead.
@@ -356,14 +440,16 @@ Wire-up:
    the per-GB residential pool. This is a second, independent `Session`, not a new
    `IPChanger` mode.
 
-The `check_bazos_blacklisted` / `check_ip_local` guards and per-page sleeps otherwise
-stay as-is — this only swaps the transport.
+The `check_ip_local` guard and the per-page sleeps otherwise stay as-is — this only swaps
+the transport. (`check_bazos_blacklisted`, named here in the original, no longer exists;
+see §3's correction.)
 
 ---
 
 ## 9. The benchmark tool — `experiments/bench_proxy.py`
 
-Standalone (no Django/DB) script at the **repo root**. Measures real on-the-wire byte
+Standalone (no Django/DB) script, at `experiments/bench_proxy.py` and run from the repo
+root. Measures real on-the-wire byte
 sizes, latency, and HTTP status for the three request shapes **plus the image gallery
 (full-size + `image_thumbnail`)**, extrapolates monthly bandwidth for all scenarios
 (including images/day and the split-transport point), and doubles as a **block-rate
@@ -410,11 +496,22 @@ overhead. (Throwaway tooling — safe to delete once a provider is chosen.)
    image bytes on the residential meter; download images only for pre-filtered
    candidates and store pHash, not bytes.
 
-**Open questions:**
+**Open questions** (annotated 2026-09-18):
 
-- Sustained block-rate per provider (needs the `--repeat` probe — not yet run).
+- Sustained block-rate per provider (needs the `--repeat` probe - not yet run). **Still
+  open for providers - but no longer open for Tor.** Production now answers that half
+  directly: **49.8 %** of 5,293 query-run attempts failed over 2026-08-30 → 09-06, 2,635 of
+  2,637 failures being a Bazos 403, across 503 distinct exit IPs
+  ([`API_CUTOVER.md`](../../backlog/API_CUTOVER.md) §1, which carries both windows and is
+  the authority on them); re-measured over the 7 days to 2026-09-18 it had risen to
+  **54.1 % over ~6,460 attempts and 537 distinct exits**. That is the baseline any provider
+  has to beat, and it is the number `--repeat` should be compared against.
 - Does Bazos rate-limit the **API** differently from HTML? (`check_blacklisted` treats
-  403 **and** 429 as blocked on the API path but only 403 on HTML.)
+  403 **and** 429 as blocked on the API path but only 403 on HTML.) **Partly answered:
+  `403` is the only block status ever observed** - the 429 half is defensive, not
+  evidence-backed, which `bazos/exceptions.py`'s `MarketplaceBlockedError` docstring now
+  says outright. Note the probe-based framing is itself stale: neither `check_blacklisted`
+  runs in production any more (§3).
 - Does CZ-geo materially beat generic-EU residential on success %? (measurable with the
   same tool via different `-country-` flags).
 - **Is there a genuinely small image size-code?** The measured `image_thumbnail` (`1m`

@@ -1,8 +1,8 @@
 ---
 title: Backlog Ideas — Not Yet in Any Stage
 status: active
-updated: 2026-09-17
-verified: 2026-09-17
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Backlog Ideas — Not Yet in Any Stage
@@ -34,18 +34,21 @@ under the radar), not by order of appearance below.
 > any of those revisions is the thing that governs the order:
 >
 > **Detection latency is still the binding constraint on the whole "find deals" goal.** The
-> interval is still 15–45 min, i.e. a **~15 minute median**, while competing services poll every
-> 60 s and good listings are gone in minutes. See [`MONETIZATION.md`](../MONETIZATION.md)
+> interval is still 15–45 min, but the honest median is **~21 minutes, not ~15** - the sleep is
+> not the cycle, a pass costs ~12 min of wall clock, and the measured cycle is **42 min** over
+> two independent 7-day windows ([`API_CUTOVER.md`](API_CUTOVER.md) §1, re-measured 2026-09-18).
+> Competing services poll every 60 s and good listings are gone in minutes. See
+> [`MONETIZATION.md`](../MONETIZATION.md)
 > **§7.1** for the argument and the numbers; the executable fix is [`PROMPTS.md`](PROMPTS.md)
 > **P21a**, whose free half (the guard collapse) landed but whose latency half has not.
-> Everything in this table is downstream of that — a better filter delivered 15 minutes late is
+> Everything in this table is downstream of that — a better filter delivered ~21 minutes late is
 > worth nothing.
 >
 > Shipped work is recorded in [`SHIPPED.md`](../SHIPPED.md) and is not repeated here.
 
 | # | Idea | Effort | Depends on | Priority |
 |---|---|---|---|---|
-| — | **IP guards can still raise** — no request timeouts in `ip_changer/`, two unguarded call sites | **XS** (~1 hr) | nothing | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P20.** One dropped socket still costs a whole pass. |
+| - | ~~**IP guards can still raise**~~ - **fixed 2026-08-29.** What is left of P20 is a log level and a counter | **XS** (~15 min) | nothing | 🟢 **Not a "do first" any more** - see the note below the table |
 | — | **Latency, the half that's left** — tunable API page size + production cutover + interval to ~10 min | **S/M** (~1–2 days) | nothing; designed in `../research/proxies/` + `../research/bazos-api/`, scraper already built | **⚠️ Do first — [`PROMPTS.md`](PROMPTS.md) P21a Parts 1 + 4a.** ~3× latency win at *unchanged* Bazos request volume, no cost. |
 | — | **Rotating proxy** — replace Tor | **M** (~1–2 days + ~$3–6/mo) | P21a, plus a benchmark never yet run | **[`PROMPTS.md`](PROMPTS.md) P21b.** The only part needing money and an unvalidated assumption — and the durable fix for Tor's ongoing failures. |
 | 3a | Thumbnail in Discord embed | **S/M** (~1-2 days) | nothing | **Do soon** — and see #10, which wants the same notification rework |
@@ -58,10 +61,20 @@ under the radar), not by order of appearance below.
 
 **Why this order:**
 
-- **The three "—" rows outrank everything numbered**, because they're not feature bets — one is
-  the difference between arriving first and arriving 15 minutes late (the entire premise of "find
-  deals"), and the other is the difference between a dropped socket costing one query and costing
-  an entire pass. Both are execution of work already designed elsewhere, not new design.
+- ⚠️ **Correction 2026-09-18 - the P20 row no longer belongs at the top, and the argument that
+  put it there is dead.** "A dropped socket costs an entire pass" was true when this table was
+  written; it stopped being true on 2026-08-29. `ip_changer/ip_changer.py:16-18` now sets
+  `IP_LOOKUP_TIMEOUT = (20, 15)` and `IP_LOOKUP_ATTEMPTS = 3`, and **both** previously unguarded
+  call sites are wrapped (`runner.py:53-60` puts `check_ip_local` inside the pass-level `try`;
+  `runner.py:196-203` wraps the `change_ip` fall-through). What is actually left of P20 is step 5
+  alone - `check_ip_local` logs at WARNING rather than ERROR and there is no consecutive-local-IP
+  counter - which is visibility, not a pass-losing defect. [`SHIPPED.md`](../SHIPPED.md) says the
+  same thing in as many words: *do not keep citing P20 as the thing that can lose a pass to a
+  dropped socket.*
+- **The two latency rows still outrank everything numbered**, because they're not feature bets:
+  they're the difference between arriving first and arriving ~21 minutes late, which is the
+  entire premise of "find deals". Both are execution of work already designed elsewhere, not new
+  design.
 - **#9 was the cheapest thing in this document and the only one that creates ground truth. It
   shipped 2026-09-17** — and the constraint it existed to remove has *changed shape rather than
   gone*: no threshold in #5 or `PROMPTS.md` P23 can be tuned until the logbook and the delisting
@@ -115,10 +128,10 @@ under the radar), not by order of appearance below.
 
 ### Where it would and wouldn't help, concretely
 
-`ScrapeRunner.run()` (`runner.py:36`) loops over enabled queries **strictly sequentially**,
+`ScrapeRunner.run()` (`runner.py:50`) loops over enabled queries **strictly sequentially**,
 in random order, sharing **one** `requests.Session` bound to **one** Tor circuit for the entire
 pass (`self.ip_changer.session`, created once in `__init__`). `DiscordSender._send` already carries
-a `# TODO make thread safe` comment (`discord_sender.py:41`) — concurrency here has been anticipated
+a `# TODO make thread safe` comment (`discord_sender.py:44`) — concurrency here has been anticipated
 but never built.
 
 - **Within one query's pagination** — no benefit. `BazosScraper.run_query` walks pages in order and
@@ -132,7 +145,9 @@ but never built.
   circuit; running them concurrently doesn't multiply IP diversity, just wall-clock speed. Still
   useful once query count grows (broader category-scoped queries per the discovery-pipeline doc, or
   Vinted queries running alongside Bazos ones).
-- **The future `BazosApiScraper`** (`HIDDEN_API.md` §8) — biggest benefit by far.
+- **`BazosApiScraper`** (`HIDDEN_API.md` §8) — biggest benefit by far. It is no longer "future":
+  it shipped 2026-07-24 and is registered under `Marketplace.BAZOS_API`, but only query 12 uses
+  that value, so it is validation-scale rather than production-scale until P21a Part 4a.
   Every workflow that doc describes (bulk `ad_id[]=` re-checks, per-ad `ad-detail-2.php` calls,
   `ratings.php` lookups) is a swarm of small, independent JSON GETs with no ordering constraint —
   exactly what `asyncio` + `aiohttp` (and an `asyncio.Semaphore` cap, as the issue itself suggested)
@@ -141,13 +156,21 @@ but never built.
 
 ### Real constraints, not just "add async"
 
-- `IPChanger`/blacklist-check (`check_bazos_blacklisted`, `renew_ip_bazos_ok`) is synchronous,
-  single-shared-instance, and not designed for concurrent callers — needs either a lock around IP
-  rotation or a "stop the world, rotate, resume" checkpoint model, not concurrent races on the same
-  circuit change.
-- Django 4.1 (current `pyproject.toml` pin) has native async ORM methods (`afilter`, `acreate`,
-  etc.), so wrapping in `sync_to_async` shouldn't be necessary for new async code — but the codebase
-  uses none of this today, so it's new territory, not an incremental tweak.
+- `IPChanger` is synchronous, single-shared-instance, and not designed for concurrent callers —
+  needs either a lock around IP rotation or a "stop the world, rotate, resume" checkpoint model,
+  not concurrent races on the same circuit change. ⚠️ **Corrected 2026-09-18**: this used to name
+  `check_bazos_blacklisted` and `renew_ip_bazos_ok` as the methods in question. Both were
+  **deleted**, not merely retired - the pre-flight probe went on 2026-08-23 and the
+  NEWNYM-and-verify rotation on 2026-08-29. The surface that needs the lock today is
+  `rotate_circuit()` plus the shared `requests.Session` it rebuilds. This is not hypothetical any
+  more: `Q_CLUSTER["workers"] = 1` in the shipped job queue is pinned for exactly this reason, and
+  [`JOB_QUEUE.md`](../proposals/JOB_QUEUE.md) §2 calls the `requires_bazos_session` lock the
+  prerequisite for raising it - so whoever builds that lock unblocks both this idea and Phase 4
+  there. Read it before designing a second one.
+- Django **5.2** (current `pyproject.toml` pin; this bullet said 4.1 until 2026-09-18) has native
+  async ORM methods (`afilter`, `acreate`, etc.), so wrapping in `sync_to_async` shouldn't be
+  necessary for new async code - but the codebase uses none of this today, so it's new territory,
+  not an incremental tweak.
 - `requests.Session` (sync) would need an `aiohttp.ClientSession`/`httpx.AsyncClient` equivalent for
   actual transport — a parallel implementation, not a drop-in swap, for whichever scraper adopts it.
 
@@ -404,28 +427,28 @@ ad happens to sit at a given pass's dedup boundary.
 
 ### The actual problem: price-change detection today is incidental, not comprehensive
 
-`run_existing_query` (`query_runner.py:71-95`) walks a query's results newest→oldest and stops
+`run_existing_query` (`query_runner.py:164-224`) walks a query's results newest→oldest and stops
 at the first known non-TOP ad, assuming (correctly) that everything older was already seen — this is
 the "Existing-query dedup" behavior noted in `CLAUDE.md`. But that means price is only ever re-checked
 for two kinds of ad per pass: known TOP ads encountered before the break (they don't trigger it), and
 the single known ad that causes the break. Every other older known ad is never revisited after its
 first discovery — if its seller drops the price six weeks later, buried on page 9 of the listing,
-nothing will ever notice. `PriceDropRule` (`filters.py:120`) already exists specifically to reject
+nothing will ever notice. `PriceDropRule` (`filters.py:174`) already exists specifically to reject
 non-drop `PRICE_CHANGED` re-notifications, but it's starved of data past the boundary ad — it can only
 ever act on the one ad each pass happens to stop at.
 
 ### The proposed mechanism
 
 A per-query opt-in boolean (same pattern as `load_full_description`/`ignore_first_run`) — e.g.
-`Query.full_rescan` — that changes the branch at `query_runner.py:91-95`: instead of `break` on
+`Query.full_rescan` — that changes the branch at `query_runner.py:220-224`: instead of `break` on
 a known non-TOP ad, `continue`, exactly like the existing TOP-ad case already does. Every known ad the
 query has ever seen then gets its price compared on every pass, and on a drop gets the existing
-`PriceChange`/`AdStatus.PRICE_CHANGED` treatment (`query_runner.py:78-89`) — no new pipeline
+`PriceChange`/`AdStatus.PRICE_CHANGED` treatment (`query_runner.py:194-215`) — no new pipeline
 mechanics needed, `run_filter` and `PriceDropRule` already handle `PRICE_CHANGED` re-entry correctly.
 
 ### The real cost — quantified from `PROXY_ROTATION.md`
 
-`run_query` (`bazos_scraper.py:210-235`) is a lazy per-page generator with a sleep between every page
+`run_query` (`bazos_scraper.py:281-305`) is a lazy per-page generator with a sleep between every page
 fetch (`BAZOS_PAGE_WAIT_TIME`) — breaking early is *why* per-pass cost is low today.
 `PROXY_ROTATION.md:179` measures this directly: "steady-state each category still resolves in
 ~1 request/pass (dedup breaks at the first known non-TOP id)." Flipping that off for a query changes

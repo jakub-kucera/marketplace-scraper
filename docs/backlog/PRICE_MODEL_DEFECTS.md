@@ -1,8 +1,8 @@
 ---
 title: Price-model defects found while surveying five new categories
 status: active
-updated: 2026-09-13
-verified: 2026-09-13
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Price-model defects found while surveying five new categories
@@ -14,6 +14,16 @@ verified: 2026-09-13
 > of the production `.env` and `Query` rows on the Pi, plus the repository at `ec52190`.
 > Every claim below was re-derived against the shipped modules, not against a reimplementation.
 >
+> **Re-audited 2026-09-18 at `8b65aa4`. All nine defects still stand - none has been fixed.**
+> The only changes to `bazos/pricing/` since `ec52190` are additive (`comparable_keys` and
+> `describe_features` on `MacbookPriceModel`, for `bazos/comparables.py`, plus `register_rule`
+> in `filters.py`); `git diff ec52190..HEAD -- bazos/pricing/ bazos/filters.py` is 54 insertions
+> and 4 deletions and touches no gate, no freshness key and no registry semantics. Three things
+> did move and are corrected in place: every `estimators/macbook.py` line anchor shifted **+28**
+> when `comparable_keys` landed, `models.py`/`admin.py`/`settings.py`/`const.py` anchors drifted
+> with the September work, and §12's production counts have grown (the configuration has not).
+>
+
 > Only some of these are second-model problems. **`PRICE_MODEL_SHADOW_MODE` is `false` in the
 > production `.env` against a shipped default of `True` (§12), so `PriceModelRule` is live on
 > query 8 and §§3–6 and §8 are acting on real deliveries today.** The order below is risk, not
@@ -36,16 +46,52 @@ verified: 2026-09-13
 > written as prerequisites for**, so those four are blocking rather than hypothetical, and the
 > study's own gates probe names three more that block *enabling* the rule as opposed to
 > registering the model. And it relocates the safety argument: `MacbookPriceModel` declines 47
-> of the 88 score rows it has written in production (§12), while a candidate iPhone model would
+> of the 88 score rows it had written in production at the time (121 of 345 on 2026-09-18 - a
+> *lower* decline rate, 35.1% against 53.4%; §12), while a candidate iPhone model would
 > score **87.5% of query 19** (573 of 655) — at that decline rate **the gates, not the
 > estimator, are the entire safety story**, which is why three of the four new findings are
 > about gates.
 >
-> Standing caveat, unchanged and binding on every number here: **`Ad.modified` never advances
-> past `Ad.created`, so the database records ZERO outcomes** — no sold flag, no
-> time-to-disappear. Every precision figure in this document is a composition audit, not a
-> measurement. Nothing here establishes that a flagged listing is a bargain, or that a
-> suppressed one was not ([`MACBOOK_PRICE_MODEL.md`](../research/MACBOOK_PRICE_MODEL.md) §6).
+> **Standing caveat - same conclusion, different reason since 2026-09-17.** The old form of
+> this said "`Ad.modified` never advances past `Ad.created`, so the database records ZERO
+> outcomes". The premise is now wrong and the conclusion is still right, which is the shape a
+> caveat is most dangerous in, so here is the current version.
+>
+> Outcomes now exist in two forms: `Ad.removed_at`, written by the delisting sweep
+> (`bazos/delisting.py`, was P24), and `AdOutcome`, one row per ad recording what a human
+> actually did (was BACKLOG_IDEAS #9). Neither yet supports a precision measurement. Measured
+> on the production DB **2026-09-18**:
+>
+> | | |
+> |---|---|
+> | ads | 30,037 |
+> | `removed_at` populated | 19,008 |
+> | …written on the sweep's **first** run (2026-09-17) | **18,403 (96.8%)** |
+> | …written on 2026-09-18 | 605 |
+> | ads created *after* the sweep began and since removed | **1,078** - same broken batches, so mostly false too |
+> | **`AdOutcome` rows** | **0** |
+>
+> **Almost none of those removals happened.** `BazosApiScraper.fetch_by_ids` sends a whole
+> `DELIST_BATCH_SIZE` of 210 ids as `ad_id[]=` and **omits `limit`**, which the working
+> `_fetch_page` does send, so `ads.php` returns its default page and every id past it is absent
+> - and absence is exactly the sweep's removal signal. Production survivors per minute-bucket
+> are 90, 30, 300, 420, 240, 60, 330, 360, 420, 390, 360, 150, all exact multiples of 30: each
+> 210-id batch keeps 30 and falsely removes ~180, i.e. **~86% of everything it touches**. The
+> damage does not heal - `due_for_check` filters `removed_at__isnull=True` and nothing clears
+> the column, so a falsely-removed ad is never looked at again and the bad rows will silently
+> enter any later outcome study. **Still open as of 2026-09-18**, and it is a different defect
+> from the 2026-09-17 `None`-vs-`{}` fix: here the request succeeds, it just answers a narrower
+> question than the caller thinks it asked.
+>
+> `removed_at` also **deliberately conflates sold, withdrawn, deleted and expired** (there is no
+> `sold` boolean, on purpose), and `AdOutcome` - the only thing that can tell those apart - is
+> empty, so the proxy is uncalibrated as well as corrupt. **Every precision figure in this
+> document is therefore still a composition audit, not a measurement**; nothing here establishes
+> that a flagged listing is a bargain, or that a suppressed one was not
+> ([`MACBOOK_PRICE_MODEL.md`](../research/MACBOOK_PRICE_MODEL.md) §6). The gate is no longer
+> "P24 does not exist" - it is "the sweep has to stop writing false removals and the logbook has
+> to carry rows",
+> which is a smaller and differently-shaped obstacle: a bug fix and then waiting, not building.
 
 ---
 
@@ -101,7 +147,7 @@ population**: no price range, no date range, no contributing queries. The shippe
 seller_sigma_prior_n, metrics, estimator, trained_at, version` — and not one of them says what
 it saw.
 
-So `MacbookPriceModel.predict` (`estimators/macbook.py:70-101`) cannot know it is
+So `MacbookPriceModel.predict` (`estimators/macbook.py:98-129`) cannot know it is
 extrapolating, and **any edit to any query's `price_lower`/`price_upper` silently moves the
 serving distribution out from under every artifact.** There is no error, no log line and no
 column anywhere that changes.
@@ -251,9 +297,9 @@ exactly 19 `chip_key` levels topping out at `apple5_*`, and 16 `year_cat` levels
 
 | the day it fires | what parses | what the manifest has | the coefficient that goes to 0 | predicted vs the previous generation |
 |---|---|---|---|---|
-| an **M6** MacBook is listed | `APPLE_CHIP = m([1-9])` (`features.py:74`) matches, `chip_key = "apple6_max"` (`macbook.py:106-109`) | no `apple6_*` level | `apple5_max` **+1.3022** | **27.2%** — under-priced by 72.8% |
+| an **M6** MacBook is listed | `APPLE_CHIP = m([1-9])` (`features.py:74`) matches, `chip_key = "apple6_max"` (`macbook.py:135-137`) | no `apple6_*` level | `apple5_max` **+1.3022** | **27.2%** — under-priced by 72.8% |
 | the same, base tier | `chip_key = "apple6_base"` | no level | `apple5_base` +0.7046 | 49.4% |
-| calendar **2027**, a 2028 model year | `_MAX_MODEL_YEAR = date.today().year + 1` (`features.py:100`) admits 2028, `year_cat = "2028"` (`macbook.py:115`) | levels stop at `2027` | `2027` +0.1597 | 85.3% |
+| calendar **2027**, a 2028 model year | `_MAX_MODEL_YEAR = date.today().year + 1` (`features.py:100`) admits 2028, `year_cat = "2028"` (`macbook.py:143`) | levels stop at `2027` | `2027` +0.1597 | 85.3% |
 
 **72.8% against the iPhone study's measured 73.8% is the same number arriving by two routes**,
 and it is the M5-chip failure **one level up**. `APPLE_CHIP` was deliberately widened to `m([1-9])`
@@ -267,11 +313,11 @@ Two smaller things fall out of the same table, both counterintuitive:
 - **An unknown level is treated worse than a missing one.** `missing` features fire only when
   the value is `None` (`artifacts.py:130-131`), and neither `chip_key` nor `year_cat` is ever
   `None` at that point — `year_cat` is the string `"na"` when the year did not parse
-  (`macbook.py:115`). So a 2028 listing gets neither the `2028` level (absent) nor the `na`
+  (`macbook.py:143`). So a 2028 listing gets neither the `2028` level (absent) nor the `na`
   fallback (**+0.1554**, which an *unparsed* year does get). Failing to read the year is worth
   more than reading it correctly.
 - The shipped manifest carries **no `missing` feature for `chip_key` at all**, so "chip unknown"
-  is not expressible in it. `_gates_pass` covers the `None` case by declining (`macbook.py:129`);
+  is not expressible in it. `_gates_pass` covers the `None` case by declining (`macbook.py:157`);
   it does not cover the parsed-but-unknown case, which is the one that fires here.
 
 **The fix costs no schema change and has a precedent in this file.** Carry an age-in-months `num`
@@ -288,18 +334,19 @@ resolved a model number my launch table has never heard of" is one `if`, costs n
 closed on exactly the day it matters ([`IPHONE_PRICE_MODEL.md`](../research/IPHONE_PRICE_MODEL.md)
 §5.1).
 
-> The flag rates in the table above are composition, not precision. `Ad.modified` never advances
-> past `Ad.created`, so "fires 0.0% of the time" says the alert goes quiet on that cohort, never
-> that the cohort held no deals.
+> The flag rates in the table above are composition, not precision. Outcomes exist since
+> 2026-09-17 but cannot yet arbitrate this (see the standing caveat at the top: `AdOutcome` is
+> empty and `removed_at` conflates sold with expired), so "fires 0.0% of the time" says the
+> alert goes quiet on that cohort, never that the cohort held no deals.
 
 ---
 
 ## 4. `_gates_pass` does not implement the gate its own docstring cites
 
-`estimators/macbook.py:121-132`. The docstring names three reasons to decline, with the
+`estimators/macbook.py:149-160`. The docstring names three reasons to decline, with the
 measurement for each: incomplete specs (median error 12.3% → 4.7%), damage words (3.3× enriched
 in the underpriced tail), and **"ads sitting exactly on a query's price floor are 9.2×
-enriched"**. The body implements the first at `:129-130` and the second at `:131-132`.
+enriched"**. The body implements the first at `:157-158` and the second at `:159-160`.
 
 **There is no floor test in the code.** The third reason is a sentence.
 
@@ -341,7 +388,7 @@ Two implementation notes, both load-bearing:
 The floor gate is the one that is missing. The damage gate is the one that is present and wrong,
 and until 2026-09-13 nobody had put a number on it.
 
-`_DAMAGE` (`estimators/macbook.py:29-32`) is a plain substring tuple, tested at `:131-132`
+`_DAMAGE` (`estimators/macbook.py:29-33`) is a plain substring tuple, tested at `:159-160`
 against `norm(f"{ad.name} {ad.short_description or ''}")`. **Its own comment already states the
 defect and then stops one word short of fixing it** (`:25-28`): terms with a common negated form
 were deliberately excluded, because `bez poskozeni` ("without damage") contains `poskozen`. That
@@ -369,7 +416,7 @@ dispute at either value.
 worth stating explicitly rather than leaving to inference.** The path:
 
 ```
-"bez prasklin" -> _gates_pass False (macbook.py:131-132) -> predict returns None (:79-80)
+"bez prasklin" -> _gates_pass False (macbook.py:159-160) -> predict returns None (:107-108)
    -> score_ad writes a declined row -> score.z_score is None
    -> PriceModelRule PASSes (filters.py:286-287)
 ```
@@ -403,7 +450,7 @@ published figures reproduce.
 
 Put the two side by side, because neither half is the finding:
 
-| | shipped `_DAMAGE` (`macbook.py:29-32`) | experimental `_NEG` (`ipfeat.py:413`) |
+| | shipped `_DAMAGE` (`macbook.py:29-33`) | experimental `_NEG` (`ipfeat.py:413`) |
 |---|---|---|
 | negation handling | **none at all** | a regex, with a diacritic collision |
 | measured error | fires on 28/655 (4.3%); **6–7 of 28 are negations** | **misses 6 of 26** crack-word rows; 5 pass the gate |
@@ -421,8 +468,8 @@ three independent corpora and three instances.
 
 > The "2 of 25" is a composition audit of a 25-row flag set, and
 > [`IPHONE_PRICE_MODEL.md`](../research/IPHONE_PRICE_MODEL.md) §9 records that a single
-> reclassification moves that set by 4 pp. `Ad.modified` never advances, so it says what those
-> flags *are*, never what they were worth.
+> reclassification moves that set by 4 pp. No outcome data can yet arbitrate it either (see the
+> standing caveat), so it says what those flags *are*, never what they were worth.
 
 ---
 
@@ -488,7 +535,7 @@ direction is the one this section predicted from code alone.
 
 ## 6. `seller_prior_ads` counts one column, and failing means REJECT
 
-`estimators/macbook.py:134-144` returns 0 whenever `ad.email_publisher_id is None`, and 0 selects
+`estimators/macbook.py:162-172` returns 0 whenever `ad.email_publisher_id is None`, and 0 selects
 the widest sigma bucket. What the shipped manifest's buckets demand of an ad before `z ≤ −2`:
 
 | seller prior ads | sigma | discount `z ≤ −2` demands | who lands here |
@@ -508,7 +555,7 @@ inverted** — so a wider sigma is not "the z-score is disabled", it is a **REJE
 > **Basis correction.** The audit first reported "16.7% of the corpus". That is arithmetically
 > right — 2,001 of 11,948 rows are `bazos_api`/`vinted`/`sbazar`, 100% null on both publisher
 > columns — but it is the **least relevant of four possible denominators, because
-> `applies_to` returns False unless `marketplace == BAZOS` (`macbook.py:64-66`), so no
+> `applies_to` returns False unless `marketplace == BAZOS` (`macbook.py:92-95`), so no
 > non-Bazos ad is scored at all today.** The population exposed to the defect is the one that
 > gets scored.
 
@@ -547,8 +594,8 @@ same bucket as an anonymous seller.
 
 ## 7. `PRICE_MODEL_VERSION` is one global string
 
-`scraper/settings.py:226`, read by every estimator's `__init__`
-(`estimators/macbook.py:41`), and `MODEL_REGISTRY` instantiates its models at import
+`scraper/settings.py:348`, read by every estimator's `__init__`
+(`estimators/macbook.py:69`), and `MODEL_REGISTRY` instantiates its models at import
 (`registry.py:14-16`). A second model would resolve its artifact against the same string.
 
 Verified by hand: `load_manifest("macbook", "2026-08-25")` returns **None** — it does not fall
@@ -557,7 +604,7 @@ back to a version that exists, it logs one ERROR (`artifacts.py:99-103`) and giv
 **State the direction of the failure, because that is the part that matters:**
 
 ```
-mis-pinned version → load_manifest None → predict declines (macbook.py:73-74)
+mis-pinned version → load_manifest None → predict declines (macbook.py:101-102)
                    → PriceModelRule PASSes (filters.py:286-287)
 ```
 
@@ -597,7 +644,7 @@ its gates, and scores at **predicted 8,814 CZK, discount +31.9%, z −1.59** on 
 seller bucket (the same residual is z −1.23 in bucket 0 — §6's bucket choice is worth 0.36 of z
 on this one ad). At query 8's live thresholds (`z ≤ −1.5`, discount ≥ 10%) that **fires**. It did
 not reach Discord only because `location_distance` runs before `price_model` in `RULE_REGISTRY`
-(`filters.py:340-347`) and rejected it first. The gate that should have caught it is a product
+(`filters.py:342-350`) and rejected it first. The gate that should have caught it is a product
 gate, not a price gate, and no product gate exists.
 
 Fix, ~20 lines: a `marketplaces: frozenset[str]` attribute on the `PriceModel` protocol
@@ -651,15 +698,22 @@ Two things this settles about the fix above, rather than repeating it:
 
 ## 9. Two read paths ignore `model_name`
 
-- `Ad.price_score_summary` — `bazos/models.py:623-628` — takes
+- `Ad.current_price_score()` — `bazos/models.py:797-811` — takes
   `.exclude(predicted__isnull=True).order_by("-created").first()`, with **no `model_name`
-  filter**. This is what Discord prints.
-- `AdAdmin.get_queryset`'s `price_discount` / `price_z` subqueries — `bazos/admin.py:553-561` —
+  filter**. ⚠️ **Re-checked 2026-09-18: the query moved and grew a second consumer.** It used
+  to be inline in `Ad.price_score_summary`; the comparables work (`26a1a36`) extracted it into
+  this per-instance-cached helper, and both notification lines now read it -
+  `price_score_summary` (`models.py:822`) and `comparables_summary` (`models.py:860`). So one
+  unfiltered read now feeds two lines of the same Discord message, and `bazos/comparables.py`
+  keys its spec bucket off whichever row comes back. The defect is unchanged; its blast radius
+  is larger. (`manage.py appraise` deliberately does *not* use it - `appraise.py:125` reads the
+  newest score of any kind, including declines, and says so.)
+- `AdAdmin.get_queryset`'s `price_discount` / `price_z` subqueries — `bazos/admin.py:836-845` —
   build `AdPriceScore.objects.filter(ad=OuterRef("pk"), predicted__isnull=False).order_by("-created")`,
   same omission. This is what the changelist sorts by.
 
 Harmless today: one model is registered, `score_ad` writes only for the model that claims an ad,
-and `AdPriceScore` is unique on `(ad, model_name)` (`models.py:733-738`), so an ad has at most
+and `AdPriceScore` is unique on `(ad, model_name)` (`models.py:1041-1046`), so an ad has at most
 one row.
 
 **State the trigger precisely.** It breaks when a second model is registered **and** an ad
@@ -684,7 +738,7 @@ is the one that can present a wrong number to a human.
 ## 10. The shipped extractor reads a 254-character truncated preview
 
 `features.extract(name, desc)` (`bazos/pricing/features.py:259-270`) is called with
-`ad.name` and `ad.short_description` and nothing else (`estimators/macbook.py:105`). And
+`ad.name` and `ad.short_description` and nothing else (`estimators/macbook.py:133`). And
 `short_description` is **Bazos's own listing preview**, not the listing:
 
 | measure (Bazos ads, n=9,947 deduped) | value |
@@ -732,9 +786,10 @@ bike model, which is the actual decision in front of the operator for q16/q17.
 
 ## 11. Test coverage gaps that N=2 will exercise
 
-The pricing suite passes: **151 passed / 676 deselected in 12.49 s** against real Postgres
-(`pytest bazos/tests/ -k "pric or score"` — `test_pricing.py` 43, `test_filters.py` 28,
-`test_rescore_command.py` 8, plus scraper tests matching the pattern). Two gaps:
+The pricing suite passes: **184 passed / 1,007 deselected in 25.4 s** against real Postgres
+(`pytest bazos/tests/ -k "pric or score"`, re-run 2026-09-18; it was 151/676 on 2026-09-13 -
+`test_pricing.py` is still exactly 43, the rest of the growth is elsewhere in the suite). Two
+gaps, **both re-checked 2026-09-18 and both still open**:
 
 - **Nothing ever loads the shipped artifact.** All three artifact tests monkeypatch
   `artifacts.ARTIFACT_ROOT` to `tmp_path` (`bazos/tests/test_pricing.py:118, 131, 143`) and the
@@ -763,24 +818,31 @@ is exactly a `chip_key` the extractor emits and the artifact has never heard of.
 
 ## 12. What is true in production right now
 
-Read directly from the Pi and from the `Query` table on 2026-09-12, not inferred:
+Read directly from the Pi and from the `Query` table, not inferred. **Re-read 2026-09-18**; the
+configuration is unchanged and the counts have grown, so both columns are shown:
 
-| Fact | Value |
-|---|---|
-| `PRICE_MODEL_SHADOW_MODE` in the production `.env` | **`false`** |
-| Shipped default (`bazos/const.py:114`, `scraper/settings.py:228`, and CLAUDE.md) | `True` |
-| Query 8 `filter_rule_names` | includes **`price_model`** |
-| Query 8 `filter_price_model_z` | **−1.5** (shipped default −2.0, `const.py:117`) |
-| Query 8 `filter_location_center` / `_radius` | 11000 / 40 km, configured **2026-09-07** |
-| Query 8 delivery rejections, total | **151** |
-| …`location_distance` | **101** |
-| …`price_model` ("not a deal: …") | **37** |
-| `AdPriceScore` rows for `macbook/2026-08-26` | **88**, of which **47 declined** |
+| Fact | 2026-09-12 | 2026-09-18 |
+|---|---|---|
+| `PRICE_MODEL_SHADOW_MODE` in the production `.env` | **`false`** | **`false`** - unchanged |
+| Shipped default (`bazos/const.py:132`, `scraper/settings.py:350`, and CLAUDE.md) | `True` | `True` |
+| Query 8 `filter_rule_names` | includes **`price_model`** | unchanged |
+| Query 8 `filter_price_model_z` | **−1.5** (shipped default −2.0, `const.py:135`) | unchanged |
+| Query 8 `filter_location_center` / `_radius` | 11000 / 40 km, configured **2026-09-07** | unchanged |
+| Query 8 delivery rejections, total | 151 | **425** |
+| …`location_distance` | 101 | **188** |
+| …`price_model` ("not a deal: …") | 37 | **208** |
+| `AdPriceScore` rows for `macbook/2026-08-26` | 88, of which 47 declined | **345**, of which **121 declined** |
 
 **So `PriceModelRule` is live on query 8.** Everything in §3–§8 that reads as a latent risk is,
-on this one query, not latent. Note also that **47 of the 88 score rows are declines** — the two
-implemented gates are doing most of the work already, and §4 is the third gate missing from that
-set.
+on this one query, not latent.
+
+**Two things moved between the two readings, and both cut against the 09-12 narrative.** First,
+`price_model` has overtaken `location_distance` as query 8's largest rejection category - 208
+against 188 - where six days earlier it was a third of it. The rule is doing most of the
+rejecting on that query now. Second, the decline rate **fell from 53.4% (47/88) to 35.1%
+(121/345)**, so proportionally more ads are being scored rather than waved away: the two
+implemented gates are doing *less* of the work than the first reading suggested, which makes §4's
+missing third gate more load-bearing, not less.
 
 **The 2026-09-07 SENT→REJECTED flip is the distance filter, not the price model.** This study
 made that mis-attribution and corrected it, which is worth recording so it is not made again:
@@ -803,10 +865,10 @@ Two consequences worth carrying:
   priced at 4,000 / 3,000 / 3,999 CZK, i.e. in the stratum §3 says the floor change admitted.
   (§5 is the exception: its harm is muting, and no distance filter bounds that.)
 - **Rule order explains the score-count gap nobody could account for.** 88 `AdPriceScore` rows
-  exist against ~180 model-claimed query-8 ads created since 2026-09-07. `location_distance`
-  precedes `price_model` in `RULE_REGISTRY` (`filters.py:340-347`) and the engine is
+  existed against ~180 model-claimed query-8 ads created since 2026-09-07. `location_distance`
+  precedes `price_model` in `RULE_REGISTRY` (`filters.py:342-350`) and the engine is
   first-non-PASS-wins, so the 101 distance rejections never reached scoring. There is no second
-  mystery here.
+  mystery here. (The mechanism is unchanged on 2026-09-18; the two counts are now 345 and 188.)
 
 ---
 
@@ -895,9 +957,12 @@ ships, and then mutes the most expensive items in the feed.
   +0.024 (CI +0.001…+0.063) — [`PC_PRICE_MODEL.md`](../research/PC_PRICE_MODEL.md) §5.2.
 
 Related backlog items: [`PROMPTS.md`](PROMPTS.md) **P23** (the catch-all model — read §8's note
-first), **P24** (outcomes, which is what would let any threshold here be calibrated rather than
-argued), **P27** (desktop model). Nothing in this document is blocked on any of them, and none of
-them is safe to start before items 1–4.
+first) and **P27** (desktop model). **P24 used to be the third entry here - it shipped
+2026-09-17** and is gone from `PROMPTS.md`; what it was cited for (outcomes, which is what would
+let any threshold here be calibrated rather than argued) is now a waiting problem rather than a
+building one, and the standing caveat at the top of this file carries the current numbers.
+Nothing in this document is blocked on any of them, and none of them is safe to start before
+items 1–4.
 
 ---
 

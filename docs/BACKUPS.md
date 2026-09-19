@@ -1,8 +1,8 @@
 ---
 title: Database Backups — Options & Recommendation
 status: shipped
-updated: 2026-08-16
-verified: 2026-08-23
+updated: 2026-09-18
+verified: 2026-09-18
 shipped_in: 1cb0178 (backup/, systemd timer, pre-migration dump in deploy.yml)
 ---
 
@@ -24,9 +24,18 @@ shipped_in: 1cb0178 (backup/, systemd timer, pre-migration dump in deploy.yml)
 
 - ✅ **Implemented 2026-08-15** (§8). Everything below §2 is written in the present tense of
   *before* that — it is the reasoning that produced the design, kept because the trade-offs
-  still explain why the thing looks the way it does. **One step remains: creating the B2 bucket
-  and setting `RESTIC_REPOSITORY`.** Until that is done the dumps never leave the Pi, which
-  covers only 3 of the 6 failures in §3.1.
+  still explain why the thing looks the way it does.
+- 🔴 **But on the Pi today, only the pre-deploy half is actually running** *(checked over SSH,
+  2026-09-18)*. **No `marketplace-backup` service or timer is installed** - `systemctl
+  list-timers --all` lists none, and `/etc/systemd/system/` holds no such unit - and
+  `RESTIC_REPOSITORY` is **absent from the Pi's `.env`**. `~/marketplace-scrapper/backups/`
+  contains **only** `pre-deploy/` (5 dumps, newest `v1.4.0-2026-09-18`, ~11 MB each); there is
+  **not one nightly `scraper-*.dump`**. So two steps remain, not one, and the first is the
+  cheaper and larger of the two:
+  1. **Install the timer** (`backup/systemd/`, ~5 minutes) - without it the only copies of the
+     archive are taken when someone deploys.
+  2. Create the B2 bucket and set `RESTIC_REPOSITORY`; until then nothing leaves the Pi, which
+     covers only 3 of the 6 failures in §3.1.
 - **There was no backup of any kind before that.** No `pg_dump`, no snapshot, no cron, no
   off-host copy. Zero mentions of backup/restore across `docs/`, `README.md`, `deploy.sh`,
   or `docker-compose.yml`. The only copies of the archive were the live `postgres_data/`
@@ -116,10 +125,18 @@ observation is what makes "off-host destination" (§6) non-optional rather than 
 **Takeaway:** even the aggressive future is **under 1 GB/year compressed**. Storage cost is
 irrelevant to the decision; pick on restore ergonomics and operational simplicity, not size.
 
-⚠️ **One caveat that would change this:** `full_description` is populated on **0** of 16,987
-ads today (`MONETIZATION.md` §2.2). If detail-fetching is turned on broadly, per-ad size grows
-several-fold. Still small in absolute terms, but re-check the projection then rather than
-assuming it holds.
+> **✅ The projections can now be checked against observations** *(2026-09-18, read from the Pi)*.
+> The production database is **87 MB**, holding **30,037 ads** created 2025-11-05 → 2026-09-18,
+> and a real `pg_dump -Fc -Z6` of it is **~11 MB** (the pre-deploy dumps in
+> `backups/pre-deploy/`). That is ~10 months of four-marketplace scraping in 11 MB. §10's "how
+> big is production really?" is answered, and the answer changes nothing: storage is still
+> irrelevant to every choice in this document.
+
+⚠️ **One caveat that has partly landed:** `full_description` was populated on **0** of the
+16,987 export ads. In production it is now on **4,266 of 30,037 (14.2%)** - five enabled queries
+set `load_full_description`. Per-ad size grows several-fold on those rows, and the 11 MB dump above
+already includes them, so the projection holds with room to spare. Re-check it if detail-fetching
+is ever turned on for every query.
 
 ---
 
@@ -271,10 +288,14 @@ Three options, given the Pi already runs systemd (`deploy.sh` drives
    a second copy of the DB credentials outside `.env`. Version skew between host client and
    container server is a real trap on a long-lived Pi. This is the option #1 replaces by
    keeping the client in the container and letting the host only *schedule*.
-4. **A `Job` in the future job queue** (`proposals/JOB_QUEUE.md`) — ❌ deliberately not.
-   Backups must keep working when the application is broken; coupling them to the app's own
-   worker means an app that won't start also stops backing up. Same reasoning `backlog/PROMPTS.md` P24
-   step 5 uses to keep `check_delisted` out of the `Job` model for now.
+4. **A task in the job queue** (`proposals/JOB_QUEUE.md`) — ❌ deliberately not, and the queue is
+   no longer hypothetical: `django-q2` shipped 2026-09-17 (`bazos/jobs.py`, the
+   `marketplace_qcluster` service). Backups must keep working when the application is broken;
+   coupling them to the app's own worker means an app that won't start also stops backing up.
+   ⚠️ Note what *did* move in: `check_delisted` is now a scheduled task in that cluster, so the
+   old "same reasoning keeps `check_delisted` out of the `Job` model" line no longer holds — the
+   delisting sweep is app work and can afford to stop when the app does; a backup cannot. The
+   distinction is the point, not an inconsistency.
 
 **Also add a pre-deploy dump.** ✅ Done. Per §3.1, a bad migration is the most likely loss
 event, and `.github/workflows/deploy.yml` used to run migrations with no dump first. One
@@ -372,18 +393,26 @@ This is the part that's easy to get wrong permanently.
 `backup/systemd/`, the profiled `backup` service in `docker-compose.yml`, and the
 *Pre-migration backup* step in `.github/workflows/deploy.yml`.
 
-1. ✅ **Nightly `pg_dump -Fc -Z0`** from a one-shot `backup` container built on `postgres:15.2`,
+1. ⚠️ **Nightly `pg_dump -Fc -Z0`** from a one-shot `backup` container built on `postgres:15.2`,
    writing to `./backups/` on the Pi. `-Z0`, not `-Z6` — see §6.1. Scheduled by a systemd timer
-   with `Persistent=true`, not a sleep loop — see §5. **Installing the timer is a manual step on
-   the Pi** (`README.md`); until it is installed, only the pre-deploy dump runs.
-2. ✅ **`restic`** immediately after each dump, encrypted, with
-   `forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune`. Off-host is **opt-in at
-   runtime**: with `RESTIC_REPOSITORY` empty the backup still takes and rotates local dumps and
-   logs that nothing left the host, so it can ship before a B2 account exists.
-   **Creating the B2 bucket and setting the credentials is still outstanding** —
-   until then this covers only 3 of the 6 failures in §3.1.
+   with `Persistent=true`, not a sleep loop — see §5. Code, container and unit files all verified
+   present (`backup/backup.sh`, `backup/systemd/`, `docker-compose.yml` `profiles: ["backup"]`).
+   **Installing the timer is a manual step on the Pi** (`README.md`) and 🔴 **it has never been
+   done** - checked 2026-09-18: no unit, no timer, and no nightly dump has ever been written.
+   Until it is installed, only the pre-deploy dump runs. Force one by hand meanwhile with
+   `docker compose run --rm backup`.
+2. ⚠️ **`restic`** immediately after each dump, encrypted, with
+   `forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune` (verified against
+   `backup.sh`'s `BACKUP_KEEP_*` defaults). Off-host is **opt-in at runtime**: with
+   `RESTIC_REPOSITORY` empty the backup still takes and rotates local dumps and logs that nothing
+   left the host, so it can ship before a B2 account exists. 🔴 **`RESTIC_REPOSITORY` is not set
+   on the Pi** (checked 2026-09-18), so nothing has ever left the host - this covers only 3 of
+   the 6 failures in §3.1, and with step 1 also undone, in practice rather fewer.
 3. ✅ **Pre-`migrate` dump** in `deploy.yml`, last 5 releases retained. A failed dump aborts the
-   deploy — that is the point. *(Highest value per line, see §5.)*
+   deploy — that is the point. *(Highest value per line, see §5.)* **This is the one step that
+   demonstrably works**: 5 dumps in `backups/pre-deploy/` on 2026-09-18 (10.5-11.7 MB each), one per
+   release back to `v1.1.0`, and the workflow's `ls -1t … | tail -n +6 | xargs -r rm -f` is holding the count at
+   five as designed.
 4. ✅ **Alert on failure**, plus a Monday heartbeat so silence is itself informative — the
    pathology `backlog/PROMPTS.md` P19 identifies in the scraper. Via `BACKUP_DISCORD_WEBHOOK_URL`
    (falling back to `DISCORD_LOGGER_WEBHOOK_URL`), **not** the `Discord(for_logging=True)` row
@@ -409,6 +438,15 @@ hours.
 
 Verified 2026-08-15 against throwaway `postgres:15.2` containers (arm64, same as the Pi), on a
 252,000-row dataset. Every command below was run; the row counts are real output.
+
+*Re-checked 2026-09-18 - against the code and the Pi, not by re-running a restore.* Everything
+below still matches what ships: `backup.sh` writes `scraper-$(date +%F-%H%M%S).dump` with
+`pg_dump -Fc -Z0`, `deploy.yml` writes `backups/pre-deploy/<tag>-<stamp>.dump` with `-Z6`, the
+`backup` image's `ENTRYPOINT` is `backup.sh` (so §9.4's `--entrypoint restic` override is
+correct), and `bazos_ad` / `bazos_query` / `bazos_queryrun` are all still the live table names.
+The one thing that does **not** work today is §9.4's first two commands: **the systemd unit is
+not installed on the Pi** (§1), so `systemctl start marketplace-backup.service` fails and the
+timer listing is empty. Use `docker compose run --rm backup` until the unit is in place.
 
 **Never restore into the production database as the first step.** Restore into a scratch
 database, verify counts, then decide.
@@ -494,12 +532,14 @@ proof the data is in it. `restic ls <id>` to be sure.
 
 - **Is the Pi on an SD card or a USB SSD?** Changes the likelihood of the top row in §3.1 by
   roughly an order of magnitude — but not the recommendation.
-- **How big is the *production* database really?** The 83 MB in §2 is the dev machine. The Pi's
-  is the one that matters and hasn't been measured. Run `du -sh postgres_data/` and one
-  `pg_dump -Fc` there to replace §3.2's projections with observations.
-- **Is `data_export_23_3_2024/` (Mar 2024) actually the newest full copy?** If production has
-  been running since, there is 2+ years of unbacked data — which would make this considerably
-  more urgent than §8's calm tone implies.
+- ~~**How big is the *production* database really?**~~ **Answered 2026-09-18: 87 MB**, 30,037
+  ads, and a `-Fc -Z6` dump of it is ~11 MB. §3.2's projections were, if anything, generous.
+- ~~**Is `data_export_23_3_2024/` (Mar 2024) actually the newest full copy?**~~ **Answered
+  2026-09-18, and the answer is uncomfortable.** It is not - but the copies that supersede it are
+  the **five pre-deploy dumps** (`v1.1.0` 2026-09-16 through `v1.4.0` 2026-09-18), which exist
+  only because releases happened to be frequent that week. Before `v1.1.0` there is no copy at all,
+  and all five sit on the same SD card as the original. The nightly rotation that was supposed to
+  close this has never run (§1).
 - **Should the long-horizon PII-stripped archive (§7) be its own management command?** It's
   close to what `MONETIZATION.md` §4.6 (derived-statistics products) would need anyway, so
   there may be one artifact serving both.

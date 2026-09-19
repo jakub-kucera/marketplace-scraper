@@ -1,7 +1,7 @@
 ---
 title: Bazos API-Driven Discovery Pipeline — Design & Workflow Ideas
 status: proposal
-updated: 2026-08-10
+updated: 2026-09-18
 verified: 2026-08-10
 ---
 
@@ -12,6 +12,17 @@ This doc is about **what to build with it**: a broader discovery pipeline than
 today's narrow per-`Query` polling, plus a set of downstream enrichment/analysis
 workflows the API newly makes cheap. Where a claim is live-verified I say so;
 where it's a design idea, I flag it as unverified/speculative.
+
+> **Status pass, 2026-09-18 - this is no longer entirely unbuilt.** Four things designed
+> here have since shipped, each annotated in place below: the **seller-inventory pull**
+> (§1 stage 4, `fetch_publisher_listings`), **ratings reduced to counts** (§4,
+> `bazos/ratings.py`), **same-seller repost detection** (§3.3, `bazos/reposts.py` +
+> `Ad.reposted_from`) and the **removal signal** that §3.4's deal-velocity loop needs
+> (`Ad.removed_at`). What has *not* shipped is the thing the diagram is actually about:
+> discovery is still narrow per-`Query` polling, stage 1 is unbuilt, and every workflow
+> below is an admin-triggered job over one seller rather than a pipeline. The `verified:`
+> date is unchanged because none of the live-API claims were re-probed on this pass; the
+> shipped-or-not annotations were read from the code.
 
 ---
 
@@ -68,6 +79,33 @@ nice ordering:
   deal-finder. No description/detail data needed for a first-pass filter based on
   price + category + rough title-keyword matching.
 
+> **What actually got built, 2026-08-26 - and it is not this (checked against the code
+> 2026-09-18).** This bullet is cited as the design rationale for
+> [`PROMPTS.md`](../../backlog/PROMPTS.md) P23, so the divergence matters. `bazos/pricing/`
+> is **narrow and trained** where this is **broad and shallow**: a `PriceModel` Protocol
+> plus `MODEL_REGISTRY`, holding exactly **one** model (`macbook`), which estimates
+> `ln(price)` from specs parsed out of the *listing text* - chip, RAM, SSD, screen - using
+> coefficients shipped as a JSON artifact and evaluated as a pure-Python dot product. It
+> does not use category, and it does not use a rolling median. Three structural differences
+> worth knowing before treating this section as a spec:
+>
+> - **It runs in the filter, not in discovery.** The `price_model` rule reads an
+>   `AdDelivery` in `run_filter`; there is no stage-2 pass inside the scraper. The "zero
+>   extra API calls" economics still hold - scoring touches no network - but the placement
+>   is different, and it means scoring happens after an `Ad` row exists, not before.
+> - **Coverage is the gap, not accuracy.** `get_price_model` returns `None` for anything
+>   that is not a MacBook, so the rule PASSes for almost every ad. A rolling-median
+>   catch-all of the kind described above is still the missing piece - P23 is now scoped as
+>   exactly that: a `PriceModel` implementation **registered last**, whose `applies_to`
+>   claims an ad only when there is enough comparable history.
+> - **The number is stored, not just branched on.** `AdPriceScore` keeps `predicted`,
+>   `residual_log`, `discount_pct`, `z_score` and the feature bucket per `(ad, model)`, and
+>   a *declined* score is written too, because "a model looked and had no opinion" is a
+>   different fact from "nothing looked".
+>
+> Whatever is built here still ships in shadow mode. See §3.4 for why the calibration data
+> is not there yet.
+
 ### Stage 3 — Selective detail fetch — only for filter-passed candidates
 
 `GET ad-detail-2.php` for the reduced candidate set only. This is the "1 call per
@@ -102,6 +140,15 @@ call as the expected total.
 **This means you can pull any seller's entire current active inventory in one
 cheap paginated call**, not just their ad count. That's the building block for
 several of the workflows below.
+
+> **Shipped 2026-09-18** as `BazosApiScraper.fetch_publisher_listings` +
+> `bazos/enrichment.py::fetch_seller_listings`, run from the publisher changelist as a
+> queued job. One deliberate narrowing: it fetches **one page of 210 and stops** instead of
+> paginating to exhaustion - which also sidesteps the missing `x-total-count` quirk above,
+> since there is no second page to ask for. Ratings shipped alongside it
+> (`fetch_ratings` → `bazos/ratings.py`), reduced to counts before storage per §4's
+> recommendation. Neither has been run against production data yet: 0 publishers carry a
+> `ratings_fetched_at` as of 2026-09-18.
 
 ---
 
@@ -138,7 +185,11 @@ The request floated this loosely; here's what it can actually mean:
 > counts in the admin and in Discord notifications. Two things it does **not** do, both
 > relevant here: it counts only ads *we* scraped, not the seller's true total, and it
 > classifies nobody. The threshold below is what turns it into actual dealer detection, and
-> it needs `user_ads_count` — i.e. the API scraper in production first.
+> it needs `user_ads_count` — i.e. the API scraper in production first. **That half is done
+> (2026-09-18): the API scraper has carried query 12 since 2026-08-08. The blocker has moved
+> rather than cleared** - `load_full_description` reads only `description`, the price fields
+> and the publisher ids off the detail payload, so `user_ads_count`/`user_reviews_count` are
+> still thrown away. Storing them is now the whole remaining prerequisite.
 >
 > One finding from that work worth carrying into any threshold: a `bazos_id=0` publisher id
 > is Bazos's "no publisher of this kind" marker, and it was being stored as a real row —
@@ -190,6 +241,17 @@ The request floated this loosely; here's what it can actually mean:
 Two genuinely different cases, worth tagging separately rather than treating
 "repost" as one bucket:
 
+> **The first case shipped 2026-09-18** - `bazos/reposts.py`, the `DETECT_REPOSTS` job, and
+> a self-referential `Ad.reposted_from` FK (exactly the column §4 proposes). It is pure
+> analysis over rows already held: no network, title-key matching after diacritic folding
+> and punctuation collapse, with a minimum key length so a generic title cannot chain a
+> seller's whole history, and a **temporal** rule doing the real work - two listings alive
+> at the same time are two items, not a relist. Deliberately **not** fuzzy: a wrong link
+> makes one item look unsellable and hides a real second one, while a missed link merely
+> leaves things as they are. It found 0 links so far, because it depends on
+> `fetch_seller_listings` having been run first and nobody has run it. **The cross-seller
+> case (image hashing) remains unbuilt.**
+
 - **Same-seller repost (data hygiene, not fraud).** A legitimate seller's ad
   expires and they repost it under a new id. Detection is now cheap and precise:
   pull the seller's current inventory (§1 stage 4 capability) and diff it
@@ -239,6 +301,34 @@ Two genuinely different cases, worth tagging separately rather than treating
   detail signal). Genuinely underpriced items should disappear fast; if flagged
   deals *aren't* selling quickly, that's feedback that the anomaly model's
   precision needs work.
+
+  > **The mechanism shipped 2026-09-17; the feedback loop still cannot close.** The
+  > delisting sweep (`bazos/delisting.py`) does exactly the bulk `ad_id[]=` re-check this
+  > describes, over *every* Bazos ad rather than only flagged ones - the un-notified ads are
+  > the control group, and without them "sold fast" has nothing to be fast *relative to*.
+  > Three reasons the loop is still not measurable, as of 2026-09-18:
+  >
+  > - **`removed_at` is a confounded proxy.** It conflates sold, withdrawn, deleted and
+  >   **expired**, and there is deliberately no `sold` boolean. A listing that timed out
+  >   looks identical to one that sold.
+  > - **Almost all of it is wrong, and for a fixable reason.** 19,008 of 30,037 ads carry a
+  >   `removed_at`, and roughly **86 % of those removals never happened**: `fetch_by_ids`
+  >   sends a `DELIST_BATCH_SIZE` of 210 ids as `ad_id[]=` but **no `limit`**, so `ads.php`
+  >   returns its default page of 30 and the ~180 ids it omits are read as delisted. The
+  >   survivor counts give it away - per minute-bucket they are 90, 30, 300, 420, 240, 60,
+  >   330, 360, 420, 390, 360, 150, every one an exact multiple of 30. Worse, it is
+  >   self-sealing: `due_for_check` only considers ads with `removed_at` NULL and nothing
+  >   clears the column, so a falsely-removed ad is never re-checked and the bad rows will
+  >   silently enter any later outcome study. **Still open as of 2026-09-18.**
+  > - **The thing that would calibrate it is empty.** `AdOutcome` - the logbook where a
+  >   human records what actually happened, which is what could say "removed ⇒ sold" - holds
+  >   **0 rows**.
+  >
+  > So the honest statement has changed shape but not conclusion: outcome data now *exists*,
+  > it is just corrupt and uncalibrated, so precision remains unmeasurable and anything
+  > built on it stays in shadow mode. What gates this is no longer missing code (P24
+  > shipped) but a one-parameter bug, a decision about the rows already written, and then
+  > history.
 - **Cross-country dealer presence — speculative, unverified.** A dealer chain
   might operate across `.cz`/`.sk`, but whether the same person's contact
   identity/ids carry across country sites hasn't been tested. Flag as an idea
@@ -256,12 +346,21 @@ doc's Stage D:
   per the research doc's §6.4b recommendation, default to storing an **aggregate**
   trust signal (counts by sentiment type) rather than raw review text/PII unless
   there's a specific, justified need for the raw data.
+  **Shipped 2026-09-18 as the aggregate**: `ratings_positive`/`ratings_negative`/
+  `ratings_neutral`/`ratings_first_at`/`ratings_last_at`/`ratings_fetched_at` on both
+  publisher models, with `bazos/ratings.py::summarise` as the seam where reviewer name,
+  phone and message are dropped. The enforcement is the narrow return type, not a policy:
+  by the time a caller holds a `RatingCounts` there is no phone number left to persist.
 - A `SellerWatchlist`-style table: `email_id`/`phone_id`, why flagged, last-polled
   timestamp — backs the hybrid discovery model above.
 - A self-referential `Ad.reposted_from`/`duplicate_of` (nullable FK) once
   repost/duplicate detection identifies a match — keep same-seller reposts and
   cross-seller duplicates distinguishable (different `reason` values), since
   they mean different things downstream.
+  **`Ad.reposted_from` shipped 2026-09-18** (`SET_NULL`, `related_name="reposts"`), set only
+  by `bazos/reposts.py` and never by a scraper - it is a conclusion about two rows, not a
+  scraped fact. The cross-seller `duplicate_of` half does not exist; the distinction is
+  currently carried by there being only one producer, not by a `reason` column.
 - Price-anomaly baseline: start with a rolling-stats query over the existing
   `Ad` table filtered by category+recency rather than standing up a real ML
   service — upgrade later only if the simple baseline proves insufficient.

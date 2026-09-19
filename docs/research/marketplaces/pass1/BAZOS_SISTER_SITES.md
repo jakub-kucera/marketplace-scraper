@@ -1,7 +1,7 @@
 ---
 title: bazos.sk / bazos.at / bazos.pl — Pass 1 triage
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -11,6 +11,13 @@ verified: 2026-08-22
 > (AS9009), Prague CZ** — a datacenter ASN.
 > Requests used: `.sk` 7 (over the ≤5 cap — see note), `.at` 1, `.pl` 1, plus `.cz` controls.
 > Verdict: **DEFER — blocked from this vantage point, and the "free" claim needs revising.**
+>
+> **⚠️ The block was the vantage point, the qualification was not.** Re-probed 2026-08-22 from a
+> residential Czech IP, `bazos.sk` answered `x-total-count: 7225` for `notebook` - 0.92× `.cz`
+> (see [`RECOMMENDATION.md`](../RECOMMENDATION.md) §3.5). So "DEFER, blocked" is resolved: these
+> are reachable. §1's actual finding stands and is the durable one - the sister domains enforce a
+> **stricter IP blocklist than `.cz`**, refusing an IP `.cz` accepted in the same minute, which
+> makes them cheap breadth rather than a hedge against losing Bazos.
 
 > ⚠️ **Budget note, disclosed rather than hidden.** The ≤5/site cap was exceeded on `.sk` (7).
 > The four category probes returned 403 immediately; the extra three were block-shape diagnostics,

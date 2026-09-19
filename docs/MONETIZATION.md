@@ -1,8 +1,8 @@
 ---
 title: Monetization Options — Analysis & Plan
 status: active
-updated: 2026-08-24
-verified: 2026-08-24
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Monetization Options — Analysis & Plan
@@ -18,6 +18,14 @@ verified: 2026-08-24
 > sources (§9) and drift. Legal analysis is **research, not legal advice** — the
 > GDPR/database-right questions in §6 are worth one paid hour with a Czech IT lawyer
 > before anything public ships.
+>
+> **Re-verified 2026-09-18** against the code and a read-only pull of the production database on
+> the Pi. Six claims moved: the archive now exists and is accumulating (§1, §2.2), the outcome
+> gap changed shape rather than closing (§7.2c), detection latency is ~21 min rather than ~15
+> (§7.1), the anomaly-scoring edge does not generalise across categories (§7.7), non-Bazos
+> marketplaces carry 8% of new ads (§7.4), and the **nightly backup has never actually run on
+> the Pi** (§7.3). Nothing in §6 was re-checked against the live ToS or `robots.txt`; those
+> quotations still date from 2026-07-29.
 
 ---
 
@@ -28,14 +36,15 @@ verified: 2026-08-24
   already exist on Apify, §4.1). What can't be bought or copied is (a) a multi-year
   price/velocity archive of a market that **deletes itself every 2 months**, and (b)
   your demonstrated reverse-engineering ability. Neither is monetized today.
-- **The archive still doesn't exist, but the schema no longer blocks it** *(updated
-  2026-08-23)*. Of the three data-model defects in §7.2, **two are fixed**: price is a real
-  integer with a `price_type` enum, and the `Ad`/`AdDelivery` split means one row per
-  real-world ad rather than one per query. The archive is also **backed up** now. What remains
-  is (c), the one that was always the biggest — **you have asking prices, never realised
-  prices** — plus the fact that accumulation itself hasn't started: the corpus is still the
-  16,987 ads of Jun 2023 – Mar 2024. If you want the data option ever, **start accumulating
-  now**; it is the only item here that gets strictly more expensive to delay.
+- **Accumulation has started, and the schema no longer blocks it** *(re-measured against the
+  production DB, 2026-09-18)*. Of the three data-model defects in §7.2, **two are fixed**: price
+  is a real integer with a `price_type` enum, and the `Ad`/`AdDelivery` split means one row per
+  real-world ad rather than one per query. The corpus is no longer the 16,987-ad March-2024 CSV:
+  the Pi holds **30,037 ads created 2025-11-05 → 2026-09-18** across four marketplaces (bazos
+  27,568 · vinted 1,310 · sbazar 734 · bazos_api 425), 87 MB on disk. What remains is (c), the
+  one that was always the biggest — **you have asking prices, and now a confounded proxy for
+  realised ones rather than nothing** (§7.2c). The archive is nominally **backed up**, but read
+  §7.3 before relying on that: only the pre-deploy dumps have ever actually been taken.
 - **The anomaly-scoring edge is real, and now measured on one category** *(new 2026-08-24)*.
   MacBook asking prices predict at **R² 0.87 / 6.2% median error** from listing text alone
   ([`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md)), which substantiates §7.7's claim
@@ -43,14 +52,23 @@ verified: 2026-08-24
   with it: **70% of a naive underpricing alert is damage, parse failures and price-floor
   artifacts**, and **67% of residual variance is between sellers rather than between listings**
   — so the signal needs gating and a per-seller baseline before it means anything. And it still
-  **can't be calibrated**, because §7.2(c) turns out to be total: the DB holds no outcomes at all.
-- **The flipping option still doesn't work at the current cadence.** A 15–45 min interval
-  means a **~15 minute median detection latency**, while competing services poll every 60
-  seconds and good deals are gone in minutes. §4.2's economics only exist after this is fixed.
-  The free half of the fix (removing the redundant blacklist probes) landed 2026-08-23, but
-  **the interval is unchanged and the API cutover hasn't happened**, so none of the latency win
-  has been realised. ~1–2 days of already-designed work gets to ~5 min; ~$3–6/mo gets below
-  that. **Still the highest-return change in the repository (§7.1).**
+  **can't be calibrated**, though for a different reason than when this was written: outcomes now
+  exist and are the wrong kind (§7.2c). ⚠️ **It also does not generalise** *(2026-09-18)*. Five
+  further categories were measured end to end and **none** produced a usable alert - headphones,
+  mountain bikes, skis and golf do not model at all
+  ([`CATEGORY_PRICE_MODELS.md`](research/CATEGORY_PRICE_MODELS.md)); desktops model but must not
+  alert ([`PC_PRICE_MODEL.md`](research/PC_PRICE_MODEL.md)); and iPhone models best of all and
+  fires 41.3 flags a week against MacBook's 3.2 (§7.7).
+- **The flipping option still doesn't work at the current cadence, and it is worse than this
+  document used to say.** The 15–45 min interval was read as a ~15 min median latency; the real
+  cycle is **sleep + pass duration**, measured at **42 min**, so the honest figure is a **~21 min
+  median** ([`API_CUTOVER.md`](backlog/API_CUTOVER.md) §1, 5,293 query-run attempts). Competing
+  services poll every 60 seconds and good deals are gone in minutes. §4.2's economics only exist
+  after this is fixed. The free half of the fix (removing the redundant blacklist probes) landed
+  2026-08-23, but **the interval is unchanged and the cutover has reached exactly one of the 14
+  enabled queries**, so essentially none of the latency win has been realised. ~1–2 days of
+  already-designed work gets to ~7 min; ~$3–6/mo gets to ~5–6. **Still the highest-return change
+  in the repository (§7.1).**
 - **Ranked by risk-adjusted Y1 return per hour invested:** (1) contract/consulting off
   the back of this portfolio, (2) flipping for your own account, (3) an Apify actor as
   near-free pocket change, (4) a narrow B2B subscription **only with Bazos's written
@@ -79,10 +97,17 @@ verified: 2026-08-24
 A genuinely well-built pipeline: decoupled scraper/filter/sender stages communicating
 through a Postgres status queue, a marketplace abstraction (`MarketplaceScraper`
 protocol), IP rotation behind an ABC, Docker Compose deployment, CI with ruff/mypy/pytest,
-and **~5,000 lines of design and reverse-engineering documentation**. The docs are
-better than most commercial projects'. This matters more than it looks — see §4.5.
+and **~24,900 lines of design and reverse-engineering documentation** across `docs/`
+(`find docs -name '*.md' | xargs wc -l`, 2026-09-18 - it was ~5,000 when this was written).
+The docs are better than most commercial projects'. This matters more than it looks — see §4.5.
 
 ### 2.2 The data (measured, 2026-07-29)
+
+> ⚠️ **This table describes the March-2024 CSV export, not the live archive.** Since
+> 2025-11-05 the production database has been accumulating: **30,037 ads on 2026-09-18**, four
+> marketplaces, 87 MB. Read the table below as the historical snapshot it is; the honest read
+> underneath it still applies to *that* export, but "the corpus is 16,987 ads" no longer
+> describes what exists.
 
 | Asset | Reality |
 |---|---|
@@ -203,9 +228,10 @@ option* on a future product, not as inventory for sale.
 **This is the best risk-adjusted option and the only one with essentially no third-party
 legal exposure**, because the data never leaves your hands. It is also the only option
 that *validates the technology*: deal-velocity (how fast a flagged deal disappears) is
-the precision metric your own discovery doc §3.4 proposes — and as of 2026-08-24 it is
-confirmed that **the database records none of it** (§7.2c), so flipping is currently the
-*only* way to generate that feedback at all.
+the precision metric your own discovery doc §3.4 proposes — and since 2026-09-17 the database
+**does** record a version of it (`Ad.last_seen_at` / `removed_at`, written by the delisting
+sweep), but a confounded one that cannot tell a sale from an expiry (§7.2c). Flipping, logged
+into `AdOutcome`, is still the only way to produce the feedback that would calibrate it.
 
 **Deal-flow model.** Using the live counts and the ≥ active/60 floor:
 
@@ -239,6 +265,9 @@ responds) → **~5 contactable/week → 1–2 closes/week.**
 >    56% from ten publishers, only 21% from one-off sellers. There is less naive private
 >    mispricing to arbitrage in notebooks than the "crowded hobby scene" framing assumes.
 >    ⚠️ **Do not generalise** — `naradi` and `iphone` were not measured and may be nothing like this.
+>    *(`iphone` has since been measured — [`IPHONE_PRICE_MODEL.md`](research/IPHONE_PRICE_MODEL.md),
+>    2026-09-13 - and it is different in the direction that matters here: the model fits better
+>    than MacBook's and the alert is far worse. See the update below this box.)*
 > 4. **Dealers charge no premium**, which was expected to cut the other way. Spec-matched across
 >    32 configurations the dealer premium is **−2.1%** (within-config regression: +1.5%). So the
 >    resale side of the P&L below is not inflated by a dealer-heavy comparable set — but you
@@ -249,6 +278,37 @@ responds) → **~5 contactable/week → 1–2 closes/week.**
 > untouched, and the candidate flow for MacBooks alone is **~2.2 gated candidates/week** at a
 > −25% threshold (~21 new MacBook ads/day). The thesis is intact; what changed is that the
 > filtering it assumes is now specified rather than hoped for.
+
+> **⚠️ Six more categories were measured in September 2026, and they change the shape of the
+> funnel above** *(2026-09-18)*. The deal-flow table assumes one underpricing rate applied to
+> whatever categories you point at. That is the assumption the later studies attack:
+>
+> - **Four categories do not model at all** - headphones (n=343), mountain bikes (n=2,343),
+>   skis (n=127) and golf (n=390) in
+>   [`CATEGORY_PRICE_MODELS.md`](research/CATEGORY_PRICE_MODELS.md) §1, each for a *different*
+>   binding reason - and a fifth, desktops
+>   ([`PC_PRICE_MODEL.md`](research/PC_PRICE_MODEL.md)), models (R² 0.806) but must not alert:
+>   −25% is **0.97σ** there against 2.92σ for a MacBook dealer. **`naradi`, one of the three
+>   categories in the deal-flow table above, has still never been measured.**
+> - **iPhone models better than MacBook and alerts far worse.** R² 0.937 / MedAPE 9.95%, the
+>   best fit in the project - and **41.3 gated flags/week against MacBook's 3.2**, because
+>   query 19 runs at ~6× the arrival rate ([`IPHONE_PRICE_MODEL.md`](research/IPHONE_PRICE_MODEL.md)
+>   §7). Discrimination is not the constraint; volume is.
+> - **Tightening the threshold makes precision worse, monotonically** (§7.1 of the same doc):
+>   bait and scam listings are **20%** of gated flags at −25% and **50%** at z ≤ −3.0, because a
+>   fake price is bounded only by what gets clicks while a real bargain is bounded by the
+>   seller's option of selling at market. The instinct "tighten until the volume is readable"
+>   runs out of clean candidates before it runs out of volume.
+> - **One result transfers to all eleven corpora measured**: ads within 1% of the query's own
+>   `price_lower` are **3.0–14.0× enriched** in the underpriced tail
+>   ([`CATEGORY_PRICE_MODELS.md`](research/CATEGORY_PRICE_MODELS.md) §7). It is the cheapest
+>   gate available - the filter already knows that number - and it is not implemented.
+>
+> **Net effect:** "pick three high-volume categories and apply a 2% rate" is not a plan. Category
+> choice *is* the decision, it is now measurable in advance (§2 of that doc predicts modelability
+> from rarefied vocabulary breadth, and seller concentration, description coverage and corpus
+> size predict nothing), and of everything measured so far exactly one category - MacBook - both
+> models well and produces an alert volume a human can read.
 
 **Per-flip P&L (mid-ticket, 3–10k CZK):**
 
@@ -518,7 +578,7 @@ defensible as that gets, but keep it individually written and human-sent — nev
 
 | Component | Verdict |
 |---|---|
-| LLM as a **separate pipeline stage** | ✅ Sound — and already designed in [`LLM_AD_REVIEW.md`](proposals/LLM_AD_REVIEW.md) §2 |
+| LLM as a **separate pipeline stage** | ✅ Sound — designed in [`LLM_AD_REVIEW.md`](proposals/LLM_AD_REVIEW.md) §2, and the plumbing shipped 2026-09-16 as the `llm/` app (`LLM_PROVIDER=NULL` by default, so it is inert until configured) |
 | LLM as a rule inside `RuleEngine` | ❌ Blocks a 50-ad batch on serial network I/O while holding `select_for_update` locks |
 | Bazos Práce as the source | ❌ ~1–11 relevant ads/day, and they're on-site employment |
 | Taking the gigs yourself | ⚠️ ~870 CZK/h, doesn't compound, below §4.5's rate |
@@ -526,12 +586,15 @@ defensible as that gets, but keep it individually written and human-sent — nev
 
 **Recommendation: don't build it now, and don't build it on Bazos.** Not because the lead-gen
 version is bad — it's good — but because it would add a marketplace, a pipeline stage, and a
-business model on top of a system whose detection latency is still ~15 minutes (§7.1) and which
-cannot yet fully distinguish "no results" from "broken" (`backlog/PROMPTS.md` P20; the
-`QueryRun` failure tracking and the zero-results canary are both done).
+business model on top of a system whose detection latency is still ~21 minutes (§7.1). *(The
+"can't tell 'no results' from 'broken'" half of this objection has largely closed: `QueryRun`
+failure tracking, the zero-results canary, and - since 2026-09-17 - per-query failure alerting,
+which is the gap that let every Vinted query 404 for eight days with both canaries green.)*
 The LLM-judge stage *is* worth building; its first application should be **the deal flow you
 already have** (thousands of ads/day, where a judge earns its keep), not job ads (units/day, where
-you can simply read them). Revisit after P20–P24.
+you can simply read them). *(P20 and P24 have both since shipped, and `llm/` exists with an
+`AdSpecExtraction` job already pointed at the deal flow - inert. The thing still in front of this
+is latency, §7.1.)*
 
 ---
 
@@ -554,7 +617,7 @@ Year-1, realistic (not best-case), assuming continued part-time involvement:
 | **Contract work off the portfolio** | **200–500k CZK** | 4–8 | 0 | **None** | **Highest EV/hour** |
 | **Flipping — committed** | 200–300k CZK | 12–15 | ~40k CZK | Low → Med (trader duties) | **Do if you enjoy it** |
 | **Flipping — part-time** | 90–150k CZK | 4–8 | ~15k CZK | Low | **Best starting point** |
-| Job-ad lead-gen → automation projects (§4.7d) | folds into contract work above | 2–4 (after build) | 0 | Low (B2B outreach care) | **Good, but defer** — after P18–P24 |
+| Job-ad lead-gen → automation projects (§4.7d) | folds into contract work above | 2–4 (after build) | 0 | Low (B2B outreach care) | **Good, but defer** — the P18–P24 sequence it waited on has shipped; it now waits on latency (§7.1) |
 | Apify actor | 3–25k CZK | ~0 after setup | 0 | Low–Med | Free option, do it |
 | Taking automatable gigs yourself (§4.7b) | ~870 CZK/h, uncapped hours | high per CZK | 0 | Med (confidentiality) | Below contract rate; don't |
 | B2B niche subscription | 50–150k CZK | 10+ (incl. sales) | 0 | **High** | Only with consent |
@@ -725,44 +788,61 @@ not extend to messaging private individuals at scale.
 > the fix. This section is the *commercial* justification for why that prompt outranks
 > everything else in the backlog.
 
-`scraper/settings.py:161-162` sets `INTERVAL_LOWER=15 min`, `INTERVAL_UPPER=45 min` (avg 30),
-and `NightMultiplier` **doubles** it 22:00–06:00. A pass detects an ad only when it happens to
-run, so **median detection latency is half the interval: ~15 minutes, worst case 45 (90 at
-night).**
+`scraper/settings.py:263-264` sets `INTERVAL_LOWER=15 min`, `INTERVAL_UPPER=45 min` (avg 30),
+and `NightMultiplier` **doubles** it 22:00–06:00.
 
-It's actually worse than the interval suggests. `ScrapeRunner.run()` iterates queries **strictly
-sequentially** on a single shared session, and each query costs **3 Bazos requests plus an
-`icanhazip.com` round-trip** (two of the three Bazos calls are the redundant double blacklist
-check — `research/proxies/PROXY_ROTATION.md` §3), with `sleep(uniform(2,5))` between pages. So the
-*effective* cadence is worse than configured, and it **degrades linearly with every query
-added** — meaning the broad category-scoped sweep that
+> **⚠️ Corrected 2026-09-18.** This section used to reason "a pass detects an ad only when it
+> happens to run, so median latency is half the interval: **~15 minutes**". The arithmetic left
+> out pass duration. The cycle is `sleep + pass`, and it has since been measured on the
+> production DB: **42.2 min median cycle** (mean 45.2, p90 71.8) over 5,293 query-run attempts,
+> so a pass costs **~12 minutes of wall clock** and the honest figure is a **~21 min median, ~36
+> min at p90** - [`API_CUTOVER.md`](backlog/API_CUTOVER.md) §1. Roughly half of that pass
+> duration is spent on attempts that 403: **49.8%** of query-run attempts are blocked exits,
+> measured, not inferred. Every latency number downstream of the old figure was optimistic by
+> ~40%.
+
+It is worse than the interval suggests for a structural reason that has *not* changed.
+`ScrapeRunner.run()` iterates queries **strictly sequentially** on a single shared session, with
+`BAZOS_PAGE_WAIT_TIME` (2–5 s) between listing pages, `BAZOS_DETAIL_WAIT_TIME` (1–3 s) per detail
+fetch and `QUERY_WAIT_TIME` (5–15 s) between queries - plus up to `MAX_BLACKLIST_RETRIES`=8
+rotations per query when Bazos 403s the exit. So the *effective* cadence is worse than
+configured, and it **degrades linearly with every query added** — meaning the broad
+category-scoped sweep that
 [`DISCOVERY_PIPELINE.md`](research/bazos-api/DISCOVERY_PIPELINE.md) §1
 pushes toward makes latency **worse**, not better. That tension isn't acknowledged in either
-doc today.
+doc today. *(The "two of the three Bazos calls are a redundant blacklist probe" claim that used
+to sit here is obsolete - both probes were deleted on 2026-08-23 and `check_ip_local` now runs
+once per pass. The 12-minute pass is what is left after that fix.)*
 
 **Why this is commercial, not merely technical.** The whole thesis of §4.2 is *being first to a
 mispriced listing*. Well-priced phones, tools and bikes are gone in minutes — the seller's inbox
 fills up and they take the first credible buyer. Meanwhile the competing services already run
 far tighter loops: **`realitnihlidacipes.cz` checks every 60 seconds**; FlowMarket every 5
-minutes. At a 15-minute median you are not competing on latency, you are arriving after
+minutes. At a 21-minute median you are not competing on latency, you are arriving after
 several people who are.
 
 **So: §4.2's ~1,200 CZK/flip only materializes after this is fixed.** As currently configured
 the pipeline is a *market-monitoring* tool, not a *deal-capture* tool, and no amount of better
-filtering compensates — a perfect judgement delivered 15 minutes late is worth nothing.
+filtering compensates — a perfect judgement delivered 21 minutes late is worth nothing.
 
-**The fix is already designed and largely built**, which is what makes this the highest-return
+**The fix is already designed and part-built**, which is what makes this the highest-return
 work available:
 
-| Step | Status |
+| Step | Status *(2026-09-18)* |
 |---|---|
-| `BazosApiScraper` with a small `limit` for the steady-state dedup probe (**1.1 KB/request**) | **built and tested**, inert in production (`marketplace="bazos_api"`) |
-| Collapse the double blacklist check to one probe **per pass** | designed, `research/proxies/PROXY_ROTATION.md` §8.2 |
+| Collapse the double blacklist check | ✅ **shipped 2026-08-23** - both probes deleted, not merely collapsed; the query attempt is now the probe |
+| `BazosApiScraper` with a small `limit` for the steady-state dedup probe (**1.1 KB/request**) | built and tested; the **tunable `limit` is still not written** (`_fetch_page` hardcodes 210). One production query (12) already runs on `bazos_api`; the other 13 do not |
+| Drop the interval to ~10 min | not done |
 | `HttpProxyIPChanger` + rotating pool so cadence stops being ban-limited | designed, `research/proxies/PROXY_ROTATION.md` §8 |
 
-Per `research/proxies/PROXY_ROTATION.md` §5, that combination puts a **2-minute cadence at ~0.24
-GB/month** — i.e. a **~30× latency improvement for roughly the plan minimum**, ~$3–6/mo. This is
-the single best-value change in the repository and it is ~3–5 days of work.
+⚠️ **The "~30× improvement" this section used to promise does not survive the measurement.**
+`PROXY_ROTATION.md` §5's cadence model treats the sleep interval as the whole cycle, so its
+2-minute figure assumes a pass costs nothing; a pass costs ~12 minutes, most of it blocked
+exits, and the API cutover does not reduce the block rate. The measured ladder
+([`API_CUTOVER.md`](backlog/API_CUTOVER.md) §1.1) is **42 min cycle → ~13–15 after the cutover
+and the interval drop → ~11–12 with a proxy pool as well**, i.e. **~21 min median latency → ~7 →
+~5–6**. A genuine 3×, for ~$3–6/mo and a few days of work - still the best-value change in the
+repository, but do not quote 30× or promise 5 minutes from the free half alone.
 
 ### 7.2 Three data-model defects block every data-driven option — **(a) and (b) are now fixed**
 
@@ -786,26 +866,66 @@ facts, while `AdDelivery` holds per-`(ad, query)` pipeline state. There is final
 answers "have I ever seen this ad", and statistics are no longer silently double-counted by query
 overlap. **The precondition for analytics is met.**
 
-**(c) You have asking prices, never realized prices — ❌ still open, and still the biggest gap.** This is the single biggest gap.
+**(c) You have asking prices, and only a confounded proxy for realised ones — ❌ still open, and still the biggest gap.**
 
-> **Confirmed from the data, 2026-08-24.** It is worse than "no realized prices": there is no
-> outcome signal of *any* kind. `Ad.modified` never advances past `Ad.created` — measured across
-> 2,038 ads, max delta 1.3×10⁻⁸ hours. Ads are written once and never re-checked, so there is no
-> time-to-disappear, no last-seen price, and no sold flag. `view_count` does not substitute: it
-> correlates **0.06** with age in corpus because it is captured once at discovery, making it a
-> staleness proxy rather than a demand signal.
+> **Re-based 2026-09-18 - the premise changed, the conclusion did not.** This box used to say
+> there was no outcome signal of *any* kind, because `Ad.modified` never advanced past
+> `Ad.created`. That was true when it was written and is no longer the right description: the
+> **delisting sweep** shipped 2026-09-17 (commit `5856bf0` - P24 and
+> [`BACKLOG_IDEAS.md`](backlog/BACKLOG_IDEAS.md) #9 together), adding `Ad.last_seen_at`,
+> `Ad.removed_at` and the `AdOutcome` logbook. Measured on the production DB, 2026-09-18:
+>
+> | | |
+> |---|---|
+> | ads | 30,037 |
+> | `last_seen_at` populated | 22,218 |
+> | `removed_at` populated | 19,008 |
+> | …of which written on the sweep's **first** run (2026-09-17) | **18,403 - 96.8%** |
+> | ads created *after* the sweep began and since removed | **1,078** - same broken batches, so mostly false too |
+> | **`AdOutcome` rows** | **0** |
+>
+> So the mechanism exists and there is real data - and precision is still not measurable, for
+> reasons that are different from the old one.
+>
+> **Most of that `removed_at` column is false, because of a live bug in the sweep.**
+> `BazosApiScraper.fetch_by_ids` sends `ad_id[]=` for a whole `DELIST_BATCH_SIZE` of 210 ids
+> but **no `limit`** (the working `_fetch_page` sends `limit=API_PAGE_SIZE`), so `ads.php`
+> answers with its default page and the ids it did not reach come back absent - which the
+> sweep reads as "no longer listed" and writes as a removal. Production survivors per
+> minute-bucket are 90, 30, 300, 420, 240, 60, 330, 360, 420, 390, 360, 150: **every value an
+> exact multiple of 30**, which is that arithmetic showing through. Each 210-id batch keeps 30
+> and falsely removes ~180, so roughly **86% of everything the sweep touches is marked removed
+> when it is not** - on the first run and on the 2026-09-18 run alike. It is also
+> **permanent**: `due_for_check` filters `removed_at__isnull=True` and nothing anywhere clears
+> the column, so a falsely-removed ad is never re-checked and never corrects itself. That
+> makes the rows already written a **hazard for any later outcome study**, not merely useless
+> for this one. **Not fixed as of 2026-09-18** - the bug is known and no repair has been
+> decided.
+>
+> And **`removed_at` deliberately conflates sold, withdrawn, deleted and expired** - Bazos
+> listings age out on their own, so a disappearance near the 60-day horizon says more about
+> the clock than about a buyer, which is why there is no `sold` boolean. `AdOutcome` is the
+> table that resolves that ambiguity, and **nobody has written a row to it yet**.
+>
+> `view_count` still does not substitute: it correlates **0.06** with age in corpus because it is
+> captured once at discovery - and the 2026-09-17 enrichment jobs deliberately do *not* refresh
+> it, so it keeps meaning "views at discovery".
 >
 > The practical consequence, measured in [`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md)
-> §6: a price-anomaly model can be **built and shipped** today at R² 0.87, but its precision
-> **cannot be measured at all** — only the composition of what it flags. That makes **P24 a
-> prerequisite for P23 being worth calibrating**, which is how `backlog/PROMPTS.md` already
-> sequences them; this is the measured justification for that order.
-Every valuation or deal-scoring product needs to know what things actually *sold* for.
-The closest available proxy is **time-to-delisting plus last-seen price**, obtainable
-cheaply via the bulk `ad_id[]=` refresh and the HTTP 410 signal — both already documented
-in `research/bazos-api/HIDDEN_API.md`, and now written up executably as `backlog/PROMPTS.md` **P24**.
-**This is the highest-leverage feature you don't have, for both flipping and any future data
-product.**
+> §6, is unchanged: a price-anomaly model can be **built and shipped** at R² 0.87, but its
+> precision **cannot be measured** — only the composition of what it flags. What changed is the
+> *gate*. It used to be "P24 does not exist". P24 has shipped, so the gate is now **a missing
+> query parameter plus an empty logbook** - a bug fix and a few dozen honestly-recorded rows
+> rather than a feature, but neither has happened, and until the first one does the sweep adds
+> false rows faster than it adds real ones.
+
+Every valuation or deal-scoring product needs to know what things actually *sold* for. The
+closest available proxy — **time-to-delisting plus last-seen price**, via the bulk `ads.php`
+id refresh documented in `research/bazos-api/HIDDEN_API.md` §6.4a — **is now built** (`bazos/delisting.py`,
+`manage.py check_delisted`, on a `django-q2` schedule). It is **Bazos-only**: Vinted and Sbazar
+expose no bulk-id endpoint, so one request per ad inverts the economics. **Filling in `AdOutcome`
+is now the highest-leverage thing you don't have**, for both flipping and any future data product
+- and it is data entry, not engineering.
 
 > **Update 2026-08-22 — there is now a second route, with a measured caveat.** The marketplace
 > study found that **Aukro publishes genuinely realised prices**: ended auctions are readable
@@ -814,7 +934,7 @@ product.**
 > assessed candidates that closes this gap directly. **But §6a.1 tempers it**: only ~11% of
 > sampled ended items had bids, buy-now listings expose no sold signal at all, and Aukro may be
 > incompatible with the Tor stack. Treat it as a real but partial answer, not a replacement for
-> P24's delisting proxy.
+> the delisting proxy above.
 
 ### 7.3 The archive is the only compounding asset — start now
 
@@ -825,17 +945,24 @@ the broad category sweep today is ~$5/month and a few days of work. That is a ch
 option on a large payoff — and it is the *only* item on this list where delay is
 irreversible.
 
-> **✅ And it is now backed up (2026-08-16).** This box used to read "it is currently unbacked",
-> which was the single largest unhedged risk in this document: no `pg_dump`, no snapshot, no
-> off-host copy, and a deploy workflow that ran `migrate` against production without dumping
-> first. That is fixed. A one-shot `backup/` container dumps to `./backups/` and pushes to
-> `restic` when `RESTIC_REPOSITORY` is set, scheduled by a systemd timer on the Pi with
-> `Persistent=true` so a backup missed while the Pi was down is caught up rather than skipped.
-> The deploy workflow now takes a **pre-migration dump that aborts the deploy if it fails** — a
-> bad migration being the likeliest data-loss event here. Options, the retention/GDPR
-> interaction, and the restore procedure: [`BACKUPS.md`](BACKUPS.md).
+> **⚠️ Half backed up (2026-08-16 built; re-checked on the Pi 2026-09-18).** This box used to
+> read "it is currently unbacked", which was the single largest unhedged risk in this document:
+> no `pg_dump`, no snapshot, no off-host copy, and a deploy workflow that ran `migrate` against
+> production without dumping first. The **deploy half is genuinely fixed** - `deploy.yml` takes a
+> **pre-migration dump that aborts the deploy if it fails**, and five of them sit in
+> `backups/pre-deploy/` on the Pi (newest `v1.4.0`, 2026-09-18, 11 MB).
 >
-> **What is still open**: the dumps hold seller PII, so §7 of that doc's retention/purge
+> **The nightly half has never actually run.** The `backup/` container and its systemd units
+> exist in the repo, but on the Pi today: **no `marketplace-backup` timer or service is
+> installed** (`systemctl list-timers --all` lists none), `RESTIC_REPOSITORY` is **not set in the
+> Pi's `.env`**, and `backups/` contains **only** `pre-deploy/` - not one nightly
+> `scraper-*.dump`. So every copy of the archive that exists is (a) on the same SD card as the
+> original and (b) taken only when someone deploys. Against `BACKUPS.md` §3.1's six failures that
+> covers the bad-migration row and little else; the two highest-likelihood rows both need the
+> copy to leave the Pi. **Installing the timer is a ~5-minute manual step** (`backup/systemd/`),
+> and it is the cheapest risk reduction left in this document.
+>
+> **Also still open**: the dumps hold seller PII, so §7 of that doc's retention/purge
 > argument applies — a PII purge that doesn't reach the backups isn't a purge.
 
 ### 7.4 Concentration risk
@@ -844,15 +971,21 @@ One marketplace, one ToS clause, one sole trader who can end this in an afternoo
 
 **✅ Partly hedged since 2026-08-22.** Vinted and Sbazar are both live (`Marketplace.VINTED`,
 `Marketplace.SBAZAR`), so the codebase is genuinely multi-marketplace rather than
-Bazos-with-an-abstraction. Vinted is legally different too — it has a real API and an affiliate
-posture, so the "third party" column of §3 may be open there in a way it isn't on Bazos.
+Bazos-with-an-abstraction. Vinted is legally different too — it has an affiliate posture, so the
+"third party" column of §3 may be open there in a way it isn't on Bazos. *(What it no longer has
+is a usable anonymous API: `/api/v2/catalog/items` was withdrawn ~2026-09-08 and the scraper now
+parses the catalog page's Next.js RSC flight data -
+[`VINTED.md`](research/marketplaces/VINTED.md). Eight days of silent outage followed, which is
+its own argument about concentration.)*
 
 **The hedge is thinner than the row count suggests, though.** Sbazar has the *worst* legal
 posture of the three (`Disallow: /` plus `Disallow: /api/` — see
 [`SBAZAR.md`](research/marketplaces/SBAZAR.md) §3) and adds **no new capability**, so it
-diversifies operational risk without diversifying legal risk. And no production `Query` volume
-has moved off Bazos. If a product is ever the goal, **build it multi-marketplace from day one**
-or don't build it — that advice stands.
+diversifies operational risk without diversifying legal risk. And the volume has barely moved:
+in the seven days to 2026-09-18 the two non-Bazos queries discovered **415 of 5,194 new ads -
+8.0%** - against 12 Bazos queries, and there are **2 of 14 enabled queries** on them (read from
+the Pi). If a product is ever the goal, **build it multi-marketplace from day one** or don't
+build it — that advice stands.
 
 ### 7.5 Should you ask Bazos for consent?
 
@@ -890,7 +1023,24 @@ than it sounds: the naive version is 70% junk, and **accuracy depends almost ent
 the regexes parsed the specs** (4.7% median error when year+chip+RAM+SSD all extract, 12.3% when
 any is missing). That makes text extraction — not modelling — the thing worth investing in, and
 it is why `load_full_description` being off for the notebook query is a live cost: turning it on
-adds 10–15 points of coverage on every spec field.
+adds 10–15 points of coverage on every spec field. *(Extraction-over-modelling was then measured
+directly: two extractor regexes were worth **+0.036 R²**, more than the entire choice of
+estimator - [`PRICE_MODEL_BENCHMARK.md`](research/PRICE_MODEL_BENCHMARK.md) §3.1.)*
+
+**⚠️ Two of the three edges are narrower than this section claims** *(2026-09-18)*.
+
+- **Anomaly scoring does not survive category change.** Of eleven corpora now measured, five
+  categories do not model at all and desktops model but must not alert
+  ([`CATEGORY_PRICE_MODELS.md`](research/CATEGORY_PRICE_MODELS.md),
+  [`PC_PRICE_MODEL.md`](research/PC_PRICE_MODEL.md)). iPhone models best of all and produces
+  **41.3 gated flags/week against MacBook's 3.2**, which is not an alert anyone reads
+  ([`IPHONE_PRICE_MODEL.md`](research/IPHONE_PRICE_MODEL.md) §7). The edge is real *per
+  category*, and the per-category work is the cost.
+- **Cross-category breadth is in tension with the same finding.** Sweeping whole categories is
+  exactly what produces the volume that makes the anomaly alert unreadable - and it makes §7.1's
+  latency worse, since passes are sequential. Breadth and latency are not independent edges;
+  spending one buys less of the other.
+- **Latency is the edge that still holds**, and it is the one that has not been spent (§7.1).
 
 ---
 
@@ -918,9 +1068,14 @@ in this plan pays off while detection runs 15 minutes behind the market.
 ⚠️ P21b still has a second, independent justification: **Tor is the transport and it is still
 failing** (403s on exits, dead circuits — `backlog/PROMPTS.md` P20), so the proxy migration is arguably
 reliability work, not just latency work.
-Of the data fixes in §7.2, **price-as-integer and the `Ad`/`AdDelivery` split are both done**.
-What's left is **delisting/sold detection** via bulk `ad_id[]=` + HTTP 410 — `backlog/PROMPTS.md` P24.
-**Phase 2 can't be measured without it**, so it is no longer deferrable the way the split was.
+Of the data fixes in §7.2, **all three mechanisms now exist**: price-as-integer, the
+`Ad`/`AdDelivery` split, and - since 2026-09-17 - delisting detection (`bazos/delisting.py`,
+`AdOutcome`). What is left is not a feature: **fill in `AdOutcome`**, because the sweep's
+`removed_at` cannot tell a sale from an expiry until something calibrates it, and the table holds
+zero rows (§7.2c). **Phase 2 is what produces those rows**, which inverts the old ordering - the
+data work now depends on the flipping, not the other way round.
+⚠️ Also still Phase-0-shaped and cheap: **install the backup timer on the Pi** (§7.3). Nightly
+dumps have never run.
 
 **Phase 2 — flip, for your own account (ongoing, starts week 3).**
 Pick **one** category you genuinely know. Target 1–2 flips/week. Register the živnost as

@@ -1,7 +1,7 @@
 ---
 title: Which marketplace to build next — ranked recommendation
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -13,6 +13,26 @@ verified: 2026-08-22
 > **Build next: Sbazar.cz.** Then run three cheap probes that decide whether Aukro is the one
 > after it. Reasoning in §3 — including why this does *not* follow the brief's own headline
 > weighting, and why I think the brief's weighting is wrong on the measured evidence.
+
+> **Update 2026-09-18 - what became of each recommendation.** The rankings and the measurements
+> behind them are untouched; this is the follow-through, because two items here read as open work
+> and are not.
+>
+> - **Sbazar: built and running.** `SbazarScraper` landed 2026-08-22; production holds 734 Sbazar
+>   ads under one enabled `Query`.
+> - **P22, named here as Aukro's hard prerequisite: shipped** 2026-08-23 (`Ad.price` +
+>   `Ad.price_type`, migrations `0032`/`0033`). The refactor §3.3 calls breaking is done. The
+>   Aukro float trap itself is unchanged - `parse_price` in `bazos/filters.py` still does
+>   `re.sub(r"\D", "", …)` - so an Aukro scraper still has to convert at its own edge, exactly as
+>   `VintedScraper._price` now does with `Decimal`.
+> - **Aukro: not built.** Its live gate is still §3.4's: it cannot run on the Tor stack, which is
+>   an infrastructure decision rather than a scraper task.
+> - **Track B: started, and §2's precondition turned out not to be one.** `refprice/` shipped
+>   2026-09-16 against Zboží's `/api/v3` - resolving from the ad's *title* through a rule-based
+>   validator instead of from structured brand/model columns. The route it uses is the one
+>   [`ZBOZI_API.md`](ZBOZI_API.md) found, which also measured three of `HEUREKA_ZBOZI.md`'s
+>   headline claims false. ⚠️ Shipped is not the same as working: production holds **0**
+>   `RefProduct` and **0** `RefProductLink` rows as of 2026-09-18.
 
 ---
 
@@ -39,6 +59,17 @@ verified: 2026-08-22
 > **Track B unblocks the moment `Ad` gains structured brand/model fields.** Today `Ad` has only
 > free text (`name` 120, `short_description` 300) — there is nothing to join *from*. Both sources
 > fail on the same near side. **Do not start Track B until an extraction step exists.**
+
+⚠️ **Correction 2026-09-18 - that condition was sufficient, not necessary, and waiting on it would
+have been waiting for nothing.** `refprice/` shipped on 2026-09-16 with no structured brand/model
+column in `Ad` at all: it normalises the free-text title, asks Zboží's typeahead for candidates,
+and gates every candidate on brand, model-code, bundle, contrast-token and `shopCount` rules
+(`refprice/resolution/validate.py`) - the "join validation step that does not exist yet" this
+study kept naming. What `Ad` did gain is different and narrower: `attributes` (JSONB, specs as the
+marketplace stated them, populated only by Vinted detail fetches) and a `RefProductLink` table
+joining an `Ad` to a catalogue product carrying an MPN. ⚠️ Both are empty in production on
+2026-09-18 - 0 ads with attributes, 0 links - so the blocker moved from "nothing to join from" to
+"nothing joined yet", which is a smaller and different problem.
 
 ⚠️ **Both Track B assessments inverted a brief assumption.** §2c says a reference-price baseline
 "transfers well for phones, laptops, GPUs — and poorly for furniture, tools and bikes." Measured,
@@ -179,14 +210,17 @@ can still end all four in an afternoon.
 
 0. ✅ **Tor pre-flight — done.** Sbazar `200` ×3, Aukro `403` ×3. Sbazar needs no carve-out.
 1. **Read Sbazar's ToS.** One request. The largest unquantified risk on the recommended build.
-2. **Build `SbazarScraper`** against `/api/v1/items/search`. Two gotchas, both measured:
-   `short_description` is detail-only **and overflows the 300-char column (679 observed)**;
+2. ✅ **Build `SbazarScraper`** against `/api/v1/items/search` - done 2026-08-22. Two gotchas, both
+   measured: `short_description` is detail-only **and overflowed the then-300-char column (679
+   observed)** - that column is a `TextField` since migration `0035`, so only the "detail-only"
+   half still bites;
    and "price by agreement" is `price: 0` + `price_by_agreement: true`, where **`price == 0` does
    not imply by-agreement** (15/1000 disagree — genuine giveaways). Branch on the boolean, never
    on the integer, or `PriceRangeRule` silently rejects every negotiable ad.
 3. **Run §3.4's three Aukro probes in parallel.** ~5 requests, and they decide the next build.
-4. **Then P22** (`price_raw` → integer + `price_type`) — required for Aukro, independently useful,
-   and the thing `PROMPTS.md` P23 is actually blocked on.
+4. ✅ **Then P22** (`price_raw` → integer + `price_type`) — required for Aukro, independently useful,
+   and the thing `PROMPTS.md` P23 is actually blocked on. **Shipped 2026-08-23**; P22 is gone from
+   `PROMPTS.md` and recorded in `SHIPPED.md`.
 5. **Only then reconsider Track B**, which needs structured brand/model on `Ad` (§2).
 
 ## 5. What this study could not determine

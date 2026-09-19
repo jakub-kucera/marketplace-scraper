@@ -1,7 +1,7 @@
 ---
 title: iPhone price prediction — the model works and the alert does not
 status: reference
-updated: 2026-09-13
+updated: 2026-09-18
 verified: 2026-09-13
 ---
 
@@ -20,10 +20,15 @@ verified: 2026-09-13
 > which excludes `price_model` — so nothing in production scores an iPhone today and nothing in
 > this document changes that on its own (§8).
 >
-> Standing caveat, binding on every number below: **`Ad.modified` never advances past
-> `Ad.created`, so the database records ZERO outcomes** — no sold flag, no time-to-disappear.
-> Every precision figure here is a composition audit, never a measurement of whether a flagged
-> listing was a deal ([`MACBOOK_PRICE_MODEL.md`](MACBOOK_PRICE_MODEL.md) §6).
+> Standing caveat, binding on every number below and **re-based 2026-09-18**: outcomes now exist
+> and cannot yet be read as outcomes. P24 shipped on 2026-09-17, after this window closed, so
+> `Ad.removed_at` is populated on 19 008 of 30 037 production ads; but a missing `limit` in the
+> sweep's bulk id fetch means it asks about 210 ads and is answered about 30, so ~86 % of those
+> rows are ads that are still listed, and nothing re-checks a removed ad (open as of 2026-09-18).
+> `removed_at` also conflates sold with withdrawn, deleted and **expired**, and `AdOutcome` holds
+> **zero rows**. Every precision figure
+> here is therefore still a composition audit, never a measurement of whether a flagged listing
+> was a deal ([`MACBOOK_PRICE_MODEL.md`](MACBOOK_PRICE_MODEL.md) §6).
 
 ## 1. Summary
 
@@ -41,7 +46,7 @@ verified: 2026-09-13
 | Does the MacBook seller-maturity σ ladder replicate? | **No.** 0.232 / 0.253 / 0.137 / 0.184 / 0.090 — non-monotone. σ keys on spec completeness instead, with overlapping CIs (§6) |
 | Would a −25% alert work? | **No. 41.3 gated flags/week against MacBook's 3.2** — 12.9×, and 2.2× worse than desktops', already judged unusable (§7) |
 | Does going deeper into the tail fix that? | **No — precision gets monotonically worse.** Bait rises 20% → 50% from −25% to z ≤ −3.0, and clean candidates fall to zero (§7) |
-| Can any threshold be calibrated? | **No.** Zero outcomes, permanently, until [`PROMPTS.md`](../backlog/PROMPTS.md) P24 lands (§8) |
+| Can any threshold be calibrated? | **No**, and [`PROMPTS.md`](../backlog/PROMPTS.md) P24 landing did not change it: `Ad.removed_at` is a confounded proxy and the `AdOutcome` logbook is empty (§8) |
 
 **One-line answer: the model is the best fit in the project on its own corpus and the alert is
 the worst one measured, and those are not in tension — a 150-ads/day feed turns a good model
@@ -534,7 +539,8 @@ never whether the model finds cheap listings.
 
 1. **Registering is safe and changes nothing by itself.** Query 19's `filter_rule_names` is
    empty, which `build_rule_engine` resolves to `DEFAULT_RULE_NAMES`
-   (`bazos/filters.py:354, :363`), and that list is *everything except* `price_model`. Scoring
+   (`bazos/filters.py:358, :385`; cited as `:354, :363` when this was written, before
+   `register_rule` landed above them), and that list is *everything except* `price_model`. Scoring
    only happens inside `PriceModelRule.apply`, so a registered `iphone` artifact scores nothing
    and writes no `AdPriceScore` rows until someone edits that field by hand. **That is the
    correct safe state and it should be left in it.**
@@ -570,10 +576,14 @@ never whether the model finds cheap listings.
    alongside the point estimates.
 
 **The honest operational claim is narrow: the model can be built, and its threshold cannot be
-calibrated until outcome data exists.** Every figure in §7 says what the flagged listings *are*,
-never what they were worth. Shadow mode buys exactly one thing and it is worth having — an
-`AdPriceScore` back-history to calibrate against the day [`PROMPTS.md`](../backlog/PROMPTS.md)
-P24 makes outcomes observable. It does not buy a threshold.
+calibrated until outcome data exists *and is calibrated*.** Every figure in §7 says what the
+flagged listings *are*, never what they were worth. [`PROMPTS.md`](../backlog/PROMPTS.md) P24
+shipped on 2026-09-17 and made disappearance observable (`Ad.removed_at`), but a disappearance
+is not a sale, and until `AdOutcome` carries rows saying how often it is one, an
+`AdPriceScore` back-history has nothing to be calibrated *against*. That back-history is still
+worth accumulating; it still does not buy a threshold. ⚠️ Note that accumulating it is no
+longer what shadow mode does here: production runs `PRICE_MODEL_SHADOW_MODE=false` (point 2
+above), so on a query that names `price_model` the rule scores *and rejects*.
 
 ## 9. Limits
 

@@ -1,12 +1,24 @@
 ---
 title: ML price scoring — design and deployment
-status: proposal
-updated: 2026-08-26
-verified: 2026-08-26
+status: shipped
+shipped_in: bazos/pricing/, migration 0037 · c3ca486, de41c15, 777c36e, 0d90a42
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # ML price scoring — design and deployment
 
+> ✅ **Built, 2026-08-26 - this is now the spec the code was written from, not open work.**
+> `bazos/pricing/` (Protocol, `MODEL_REGISTRY`, JSON artifacts, `score_ad`), `AdPriceScore`
+> (migration `0037`), the `price_model` rule and `manage.py train_price_model` all exist, and
+> `PRICE_MODEL_SHADOW_MODE` still ships `True`. Three things landed differently or later than
+> written, each noted inline: §2's model gained a `features` JSON column, §5's
+> `PRICE_MODEL_SELLER_KAPPA` was never a constant, and §5's two thresholds are now resolved
+> per query → settings → const. §6's caveat was re-based on 2026-09-18 production data: P24 has
+> since shipped, and precision still is not measurable, for a different and smaller reason.
+> Known defects live in [`PRICE_MODEL_DEFECTS.md`](../backlog/PRICE_MODEL_DEFECTS.md), not here
+> - including that shadow mode is **off in production** against the `True` default below.
+>
 > Turns the offline MacBook price model
 > ([`MACBOOK_PRICE_MODEL.md`](../research/MACBOOK_PRICE_MODEL.md)) into a deployable part of
 > the pipeline: score a listing against what its specs are worth, persist the number, and
@@ -106,12 +118,21 @@ class AdPriceScore(TimeStampedModel):
     # unique (ad, model_name) — one current score per model per ad
 ```
 
+**As built**, plus two columns this sketch does not have: `seller_prior_ads` (which sigma prior
+was picked) and `features` (JSONField, the parsed inputs the prediction came from). `features`
+is JSON rather than columns because the feature set is the *model's* vocabulary, not this
+table's, and it is what answers "why did it think this was cheap" - extraction, not model
+class, is the measured weak point
+([`PRICE_MODEL_BENCHMARK.md`](../research/PRICE_MODEL_BENCHMARK.md) §3.1). It came later, which
+exposed the freshness trap `score_ad`'s docstring now carries: the check keys on the *artifact*
+version, so a code-written column never backfills on its own and needs `manage.py rescore_ads`.
+
 `unique(ad, model_name)`, not `(ad, model_name, model_version)`: the question asked at read
 time is "what does the current model say about this ad", and keeping one row per model per ad
 bounds growth. A re-score with a new version overwrites and `model_version` records which one
-won. (If score history ever matters — it will, once P24 gives outcomes to calibrate against —
-the honest change is to drop the constraint and add an `is_current` flag, not to bolt history
-onto this shape.)
+won. (If score history ever matters — it will, once there are calibrated outcomes to score
+against, see §6 — the honest change is to drop the constraint and add an `is_current` flag, not
+to bolt history onto this shape.)
 
 ## 3. Modularity — the registry
 
@@ -270,18 +291,28 @@ and "genuinely exceptional" for the other. The z-score uses a per-seller residua
 toward a prior that depends on seller maturity (a first-time seller is ~4.5× noisier than a
 50-ad dealer), so the evidence standard is comparable across seller types.
 
-**Shipping defaults** (`bazos/const.py`, overridable by env):
+**Shipping defaults** (`bazos/const.py`):
 
 ```python
 PRICE_MODEL_SHADOW_MODE      = True    # compute and store, never reject
 PRICE_MODEL_Z_THRESHOLD      = -2.0    # ~44% below for an unknown private seller, ~14% for a big dealer
 PRICE_MODEL_MIN_DISCOUNT_PCT = 10.0    # and it must also be below market, not just below *this seller*
-PRICE_MODEL_SELLER_KAPPA     = 12.0    # shrinkage; the moment estimator's 0.53 is ~20x too little
 ```
 
 `MIN_DISCOUNT_PCT` exists because the z-score alone answers "cheap **for this seller**", which
 a systematically expensive shop can satisfy while still being above market. Requiring both
 makes a deal mean cheap on both bases.
+
+**As built**, three corrections to the block above. `PRICE_MODEL_SELLER_KAPPA` is not a
+constant and never was: the shrinkage is baked into the artifact, which ships a
+`seller_sigma_prior` table (`{0: .3129, 1: .2993, 3: .2414, 10: .1872, 50: .1129}` in
+`macbook/2026-08-26`) that `Manifest.sigma_for` reads by lower-bound key - so retuning it is a
+retrain, not a setting. Only `PRICE_MODEL_SHADOW_MODE` is env-overridable
+(`scraper/settings.py`), alongside `PRICE_MODEL_VERSION` from §4.5; the two thresholds are not.
+What they gained instead is a level *above* settings: `Query.filter_price_model_z` and
+`Query.filter_price_model_min_discount` resolve **per query → settings → const**, both nullable
+so "untuned" stays distinct from "tuned back to the default", and both audited in
+`TRACKED_CONFIG_FIELDS`.
 
 ## 6. Shadow mode, and what this cannot tell you
 
@@ -290,14 +321,36 @@ persists the score and then always returns `PASS` — nothing is rejected, notif
 unchanged, and the scores accumulate for analysis. This is P23 step 6, and it is the default
 rather than a flag someone remembers to set.
 
-**Precision cannot be measured, and this design must not be read as implying otherwise.**
-`Ad.modified` never advances past `Ad.created` — measured across 2,038 ads — so the database
-records no outcome of any kind: no time-to-disappear, no sold flag, nothing that says whether
-a flagged listing was actually a bargain. Every quality figure available today is a
-*composition* audit ("what fraction of what it flags is visibly broken"), not a measurement of
-whether it finds deals. **P24 (delisting detection) is the prerequisite for calibrating any
-threshold here**, and until it lands the threshold above is a defensible starting point, not a
-tuned one. Leaving shadow mode is a judgement call, not a result.
+**Precision still cannot be measured, and this design must not be read as implying otherwise.**
+The reason has changed since this was written, and only the reason. The original one - the
+database records no outcome of any kind, because `Ad.modified` never advances past
+`Ad.created` - is obsolete: P24 shipped (`5856bf0`), so `Ad.last_seen_at` / `Ad.removed_at` are
+populated by the delisting sweep and `AdOutcome` exists to record what a human actually did.
+The conclusion survives anyway, for three narrower reasons, all measured on production
+2026-09-18 (30 037 ads):
+
+- **`removed_at` is a confounded proxy, on purpose.** It conflates sold, withdrawn, deleted and
+  expired, which is why there is deliberately no `sold` boolean and why an ad past
+  `DELIST_MAX_AGE_DAYS` is left NULL as a censored observation. "Disappeared quickly" is not
+  "sold quickly" until something says how often the two coincide.
+- **The thing that would say so is empty.** `AdOutcome` holds **0 rows**.
+- **And the proxy itself is currently corrupt.** `BazosApiScraper.fetch_by_ids` sends a batch of
+  210 ids with **no `limit`** - unlike `_fetch_page`, which sends `limit=API_PAGE_SIZE` - so
+  `ads.php` returns its default page of 30 and the ~180 ids it leaves out are read as delisted
+  and written as removals. Production survivors per minute-bucket are all exact multiples of 30,
+  which is that arithmetic in the open: roughly **86% of every batch is falsely marked removed**,
+  out of the 19 008 ads that carry a `removed_at`. Nothing corrects it - `due_for_check` skips
+  ads that already have a `removed_at` - so the bad rows are permanent and are a hazard for any
+  later outcome study. **Open as of 2026-09-18.**
+
+So the gate is no longer "P24 must ship". It is **"fix the sweep, then get rows into the
+logbook"**, which is a smaller and more tractable obstacle than a missing feature: one query
+parameter, a decision about the rows already written, and then a few dozen honestly-recorded
+`AdOutcome` rows are enough to estimate how often a removal was a sale, which is what turns
+time-to-disappear into a signal a threshold can be calibrated against. Until then every
+quality figure available is still a *composition* audit ("what fraction of what it flags is visibly broken"), not a
+measurement of whether it finds deals, and the thresholds above stay a defensible starting
+point rather than a tuned one. Leaving shadow mode is a judgement call, not a result.
 
 ## 7. Training
 
@@ -320,5 +373,7 @@ tuned one. Leaving shadow mode is a judgement call, not a result.
   API) ⇒ move to §1.2(b), a separate stage, and the JOB_QUEUE objection becomes binding.
 - **More than a handful of models, or per-query model selection** ⇒ `applies_to` stops being
   expressive enough and model selection wants a DB table.
-- **P24 lands** ⇒ thresholds become tunable against outcomes, and `AdPriceScore` probably
-  needs score history rather than one current row per model.
+- ~~**P24 lands**~~ **The outcome logbook fills** ⇒ thresholds become tunable against outcomes,
+  and `AdPriceScore` probably needs score history rather than one current row per model. P24
+  itself landed on 2026-09-17; what it produced is a *proxy* that is not yet calibrated, so the
+  trigger is `AdOutcome` rows rather than the sweep existing - see §6.

@@ -1,8 +1,8 @@
 ---
 title: Pipeline Refactor Plan
 status: shipped
-updated: 2026-08-23
-verified: 2026-08-23
+updated: 2026-09-18
+verified: 2026-09-18
 shipped_in: 0016-0030 — Stages 1-4 and 6-10. Stage 5 is the only open one and lives as PROMPTS.md P2
 ---
 
@@ -12,6 +12,16 @@ shipped_in: 0016-0030 — Stages 1-4 and 6-10. Stage 5 is the only open one and 
 > it exists in executable form as [`PROMPTS.md`](../../backlog/PROMPTS.md) **P2** — that is the copy to work
 > from. What shipped, when, and in which migration is recorded in
 > [`SHIPPED.md`](../../SHIPPED.md). This file is kept for the stage-by-stage rationale.
+>
+> **Re-checked 2026-09-18: still 9 of 10.** `Query` has no `priority` field and P2 is still in
+> `PROMPTS.md`. Read the code blocks as period pieces rather than as current shape: the stages
+> up to 6 predate the `bazos_id` → `external_id` rename, and stages 1 to 4 predate the
+> `Ad`/`AdDelivery` split ([`AD_DELIVERY_SPLIT.md`](AD_DELIVERY_SPLIT.md)), which moved
+> `status`/`filter_reason`/`sent_at`/`send_attempts`/`query` off `Ad` entirely. Stage 9's five
+> rules are now seven in `RULE_REGISTRY` (`location_distance`, `price_model`), plus
+> `reference_price`, which `refprice/apps.py` registers at app-ready time. `BazosRunner` is now
+> `ScrapeRunner` in `bazos/scraping/runner.py`, `BazosQueryRunner` is now `QueryRunner` in
+> `bazos/scraping/query_runner.py` (commit `0a91b9a`).
 >
 > This was the live, authoritative stage plan for the pipeline refactor — its ✅
 > checkmarks are kept in sync with the code. Superseded alternate drafts live in
@@ -549,8 +559,15 @@ New scraper behind the `MarketplaceScraper` interface. Vinted has an unofficial 
 
 ### Key decisions (summary — as implemented)
 
-- **Library**: `vinted-scraper` **4.0.0** (Giglium) — handles cookie management automatically.
-  *(The 3.1.1 originally named here was never run; the 2026-08-21 probe corrected it.)*
+> **⛔ The transport decision has been replaced, 2026-09-16 (commit `4cf35ec`).** Vinted withdrew
+> the anonymous `/api/v2/catalog/items` endpoint around 2026-09-08; `vinted-scraper` and `httpx`
+> are gone from `pyproject.toml`, and `VintedScraper` now reads the catalog page's Next.js RSC
+> payload over plain `requests`. Everything else in this list survived the rewrite. The live
+> reference is [`VINTED.md`](../../research/marketplaces/VINTED.md).
+
+- ~~**Library**: `vinted-scraper` **4.0.0** (Giglium) — handles cookie management automatically.~~
+  *(The 3.1.1 originally named here was never run; the 2026-08-21 probe corrected it. The library
+  itself was then dropped, above.)*
 - **Tor / session**: Vinted bans proxies. `VintedScraper` ignores the Tor session and manages its own.
 - **Query model**: Option C — keep one `Query` table, add `extra_params = JSONField(default=dict)`. Vinted-specific search params (e.g. `catalog_ids`) go in `extra_params`. The `section`/`category` FKs remain Bazos-only and are `null` for Vinted queries.
 - **`url` property**: returns `https://www.vinted.cz` (or whichever domain is in `extra_params["base_url"]`) when `marketplace="vinted"`.
@@ -563,10 +580,13 @@ New scraper behind the `MarketplaceScraper` interface. Vinted has an unofficial 
 - Czech vs Slovak domain → per-query, via `Query.extra_params["base_url"]`.
 - Stopping logic → `promoted` maps to `topped`, so the existing dedup walk works unchanged.
 - Rate-limiting → the library manages its own `httpx` client and cookies; Vinted bans proxy/VPN
-  traffic, so the shared Tor session is deliberately ignored.
+  traffic, so the shared Tor session is deliberately ignored. *(The client is now this repo's own
+  `bazos/scraping/vinted/client.py` over `requests`, and pacing lives in
+  `VINTED_DETAIL_WAIT_TIME`. The "ignore the Tor session" half is unchanged and still deliberate.)*
 
 **Files as built**: `bazos/scraping/vinted/vinted_scraper.py`, `bazos/models.py`, migration
-`0029_vinted_support` (not `0019` — the numbering in this section predates ten other migrations)
+`0029_vinted_support` (not `0019` — the numbering in this section predates ten other migrations).
+Since the 2026-09-16 rewrite the package also holds `client.py` and `flight.py`.
 
 ---
 

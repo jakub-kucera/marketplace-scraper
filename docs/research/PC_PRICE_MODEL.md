@@ -1,7 +1,7 @@
 ---
 title: Desktop PC price prediction — feasibility on the Počítače corpus
 status: reference
-updated: 2026-09-17
+updated: 2026-09-18
 verified: 2026-09-12
 ---
 
@@ -26,11 +26,16 @@ verified: 2026-09-12
 > about the market, not the method** — and after re-measurement, about the *threshold*, not the
 > model.
 >
-> Standing caveat on every figure below: **`Ad.modified` never advances past `Ad.created`, so the
-> database records ZERO outcomes** — no sold flag, no time-to-disappear. Every precision number
-> here is a composition audit plus a cross-validated fit statistic, never a measurement of whether
-> a flagged listing was a deal ([`MACBOOK_PRICE_MODEL.md`](MACBOOK_PRICE_MODEL.md) §6, restated
-> with its consequences in §8).
+> Standing caveat on every figure below, **re-based 2026-09-18**: outcomes now exist and cannot
+> be used, rather than being absent. P24 shipped on 2026-09-17, so `Ad.removed_at` is
+> populated on 19 008 of 30 037 production ads, but **the sweep is writing it wrong** - a missing
+> `limit` parameter means it asks about 210 ids and is answered about 30, marking the other ~180
+> removed, so ~86 % of those rows are false and none of them are ever re-checked (open as of
+> 2026-09-18, §8). `removed_at` also deliberately conflates sold with
+> withdrawn, deleted and **expired**, and the `AdOutcome` logbook that would calibrate the proxy
+> holds **zero rows**. So every precision number here is still a composition audit plus a
+> cross-validated fit statistic, never a measurement of whether a flagged listing was a deal
+> ([`MACBOOK_PRICE_MODEL.md`](MACBOOK_PRICE_MODEL.md) §6, restated with its consequences in §8).
 
 ## 1. Summary
 
@@ -45,7 +50,7 @@ verified: 2026-09-12
 | Would the shipped −25% threshold work here? | **No.** −25% is **0.97σ** on that gate against **2.92σ** for a MacBook dealer, and fires **18.5×/week**. `z ≤ −2` is a 45% discount and ~3/week (§7.3) |
 | What is actually in the flagged tail? | Of the top 12 gated flags: **6 extraction failures, 1 bait listing, 4 over-predictions, at most 1 candidate deal** (§7.4) |
 | Does a name→spec lookup help? | **No — still redundant** (§6, not re-measured). But *stated* VRAM is the strongest single GPU feature (+11.4% per 4 GB), which qualifies §4 |
-| Ship it? | **Shadow-ship a gated linear artifact. Do not enable the rule. Do not ship a flat −25% threshold at all** (§8) |
+| Ship it? | **Shadow-ship a gated linear artifact. Do not enable the rule. Do not ship a flat −25% threshold at all** (§8). ⚠️ "Shadow-ship" no longer means what it did: production sets `PRICE_MODEL_SHADOW_MODE=false`, so the flag is not a safety net - see §8 |
 
 ## 2. The corpus is not one market
 
@@ -500,7 +505,8 @@ Three things qualify the retraction rather than following from it:
   +0.024 (CI +0.001…+0.063) — the same "stop treating a number as a number" finding as
   `PRICE_MODEL_BENCHMARK.md` §1, and already a supported `cat` kind. The implied manifest is
   238 coefficient rows (16 num, 9 missing, 9 bool, 204 cat) against the shipped MacBook
-  manifest's 40, and needs **no change to `bazos/pricing/artifacts.py`** — only a desktop
+  manifest's **54** (40 when this was written; the year-categorical retrain took it to 54,
+  `PRICE_MODEL_BENCHMARK.md` §1), and needs **no change to `bazos/pricing/artifacts.py`** — only a desktop
   feature extractor. Worse, pre-expanded interactions actively harm the tail: the
   interaction-expanded ridge's worst over-prediction on the gated segment is **29.3× the asking
   price** against 7.2× for the plain ridge and 5.1× for the tree.
@@ -717,7 +723,19 @@ gated rows the 12 audited flags come from. Read them as one piece of evidence, n
 ## 8. Assessment
 
 **Shadow-ship a gated linear artifact. Do not enable the rule on any query. Do not ship a flat
-−25% threshold at all.** The honest position, item by item against the published §8:
+−25% threshold at all.**
+
+> ⚠️ **Checked 2026-09-18: "shadow-ship" is no longer free.** `PRICE_MODEL_SHADOW_MODE` is
+> `True` in `bazos/const.py` and `scraper/settings.py`, but the production `.env` on
+> `raspberrypi5.local` sets it to **`false`**, which is a global switch rather than a per-model
+> one. So registering a desktop artifact would *not* land it in shadow mode; it would score
+> live, and `PriceModelRule` is the one **inverted** rule, so a silent failure is a rejecting
+> failure. Today the blast radius is narrow - only query 8 (`macbook`) carries `price_model` in
+> `filter_rule_names`, and a desktop model would not claim its ads - but that is an admin
+> setting, not a safety property. Either flip the flag back for the duration, or give the
+> registry a per-model shadow switch, before any second artifact is registered.
+
+The honest position, item by item against the published §8:
 
 1. ~~**Storage coverage (39%) is the binding constraint.**~~ **Closed.** 66.1% on block B,
    83.4% on rows with a full description (§4.1). The 4/4 completeness gate is affordable now.
@@ -754,13 +772,20 @@ of which is a modelling question:
   10 000 to ~2 000 CZK *inside* this study's window (§2.1), which is the same event that
   mis-calibrates a shipped model against ads it has no basis for pricing.
 
-⚠️ **The standing caveat applies to everything above.** `Ad.modified` never advances past
-`Ad.created`, so the database records **zero outcomes** — no sold flag, no time-to-disappear.
-Every figure in §7 is a composition audit plus a cross-validated fit statistic, never a
-measurement of whether a flagged listing was a deal. The cost of the model-class gap is known
-in volume (7 extra flags/week at −25%) and unknown in value, which is the same asymmetry
-`PRICE_MODEL_BENCHMARK.md` §10 names and the reason [`PROMPTS.md`](../backlog/PROMPTS.md) P24
-gates calibrating any threshold here.
+⚠️ **The standing caveat applies to everything above, in its re-based form.** The database now
+records an outcome - `Ad.removed_at`, written by the delisting sweep - but it is a confounded
+proxy (expiry is indistinguishable from a sale) and, as of 2026-09-18, a broken one:
+`fetch_by_ids` sends `DELIST_BATCH_SIZE` = 210 ids without the `limit` parameter `_fetch_page`
+sends, so the API answers with its default 30 and the ~180 omitted ids are recorded as removed.
+Production survivor counts are all exact multiples of 30, so ~86 % of the column is false, and
+because `due_for_check` skips anything that already has a `removed_at` the false rows never come
+back for a second look. The `AdOutcome` logbook that would calibrate the proxy is empty as well.
+So every figure in §7 is still a composition audit plus a cross-validated fit statistic,
+never a measurement of whether a flagged listing was a deal. The cost of the model-class gap is
+known in volume (7 extra flags/week at −25%) and unknown in value, which is the same asymmetry
+`PRICE_MODEL_BENCHMARK.md` §10 names. [`PROMPTS.md`](../backlog/PROMPTS.md) P24 was written as
+the gate on calibrating any threshold here; it has shipped, and the gate is now the narrower
+one of repairing the sweep and getting rows into the logbook.
 
 The most valuable next experiments are, in order: the four extractor guards in §7.4; P27 item 2
 (the external GPU benchmark ordinal, still untouched); and a re-measurement on a block-B-only

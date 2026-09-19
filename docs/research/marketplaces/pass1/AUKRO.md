@@ -1,7 +1,7 @@
 ---
 title: Aukro.cz — Pass 1 scale triage
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -14,6 +14,15 @@ verified: 2026-08-22
 > via `ipinfo.io`. One of the four (r3) went out over Anthropic's `WebFetch` egress instead, i.e. a
 > **different network path** — noted inline because it makes the block-shape finding stronger.
 > All claims measured unless marked ⚠️ ASSUMED or **[third-party, not measured]**.
+>
+> **⚠️ Overturned on the facts - read [`AUKRO.md`](../AUKRO.md) before this file.** Everything
+> here was reasoned from zero retrieved bytes plus a vendored Allegro WSDL. Re-probed the same day
+> from a residential Czech IP, the site served normally, and two of the three inferences below
+> were measured **false**: ended auctions *do* expose a public realised price (`biddersCount > 0`
+> plus `price.amount`, readable ≥2.75 years back), and both listing and detail carry
+> `startingTime`. What survives is the block shape - a domain-wide Cloudflare challenge from a
+> datacenter ASN, `robots.txt` included - and the methodology lesson this file paid for: a
+> third-party API description is not evidence about the live service.
 
 ---
 
