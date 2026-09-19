@@ -196,13 +196,30 @@ class BazosApiScraper:
         a cold Tor circuit made `run_request` exhaust its retries, which read as "all 210 of
         these are gone" and wrote false removals into the only outcome data the project has.
 
+        ⚠️ **A successful response is a third case, and it is the one that actually corrupted
+        the table.** `ads.php` pages this endpoint at 30 rows when no `limit` is sent, so a
+        210-id batch came back HTTP 200, well-formed and 30 rows long, and `apply_batch` read
+        the 180 absent ids as removals - 19 008 rows written, 56% of a random re-checked
+        sample of 200 still live (measured 2026-09-19). Neither `None` nor `{}` covers it:
+        the request succeeds, it just answers a narrower question than the caller asked.
+        Nothing in the payload distinguishes "truncated" from "gone", so the only defence is
+        never to ask for more than one page - hence the guard rather than a post-hoc check.
+
         Raises `MarketplaceBlockedError` on a 403/429 so the caller can rotate.
         """
         if not external_ids:
             return {}
+        if len(external_ids) > API_PAGE_SIZE:
+            # `DELIST_BATCH_SIZE == API_PAGE_SIZE` is the only thing making every caller safe
+            # today, and nothing pins the two together. Fail loudly rather than come back
+            # silently short, which this caller writes as removals.
+            raise ValueError(
+                f"{len(external_ids)} ids exceeds one page of {API_PAGE_SIZE}; "
+                "the response would truncate and read as removals"
+            )
         response = self.run_request(
             f"{BAZOS_API_BASE_URL}/ads.php",
-            params={"ad_id[]": [str(i) for i in external_ids]},
+            params={"ad_id[]": [str(i) for i in external_ids], "limit": API_PAGE_SIZE},
         )
         if response is None:
             logger.warning("Bulk id fetch failed after %d attempts", MAX_ATTEMPTS)
