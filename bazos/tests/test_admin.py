@@ -691,6 +691,31 @@ def test_every_registered_changelist_renders(admin_client_logged_in):
         assert response.status_code == 200, f"{url} returned {response.status_code}"
 
 
+def test_range_filters_declare_list_filter_submit():
+    """A two-input filter without `list_filter_submit` renders with no way to apply it.
+
+    Unfold's range filters draw a from/to pair, and the Apply button is what
+    `list_filter_submit` adds - without it the sheet collects two values and can do
+    nothing with them. The changelist still returns 200, so the smoke test above cannot
+    see it, and neither can a reviewer reading the diff of a single admin class.
+    """
+    from django.contrib import admin as dj_admin
+    from unfold.contrib.filters.admin import (
+        RangeDateFilter,
+        RangeDateTimeFilter,
+        RangeNumericFilter,
+    )
+
+    two_input = (RangeNumericFilter, RangeDateFilter, RangeDateTimeFilter)
+    offenders = []
+    for model, modeladmin in dj_admin.site._registry.items():
+        specs = [f for f in (modeladmin.list_filter or ()) if isinstance(f, (tuple, list))]
+        if any(isinstance(f[1], type) and issubclass(f[1], two_input) for f in specs):
+            if not getattr(modeladmin, "list_filter_submit", False):
+                offenders.append(f"{type(modeladmin).__name__} ({model._meta.label})")
+    assert not offenders, "range filter without list_filter_submit: " + ", ".join(offenders)
+
+
 @pytest.mark.django_db
 def test_query_changelist_renders_the_force_run_button(admin_client_logged_in):
     """The button lives in a template override (templates/admin/bazos/query/change_list.html)
@@ -1086,3 +1111,77 @@ def test_change_form_still_renders_and_saves(client, vinted_tree, vinted_query, 
     assert client.post(url, data).status_code == 302
     vinted_query.refresh_from_db()
     assert vinted_query.extra_params["catalog_ids"] == [3580]
+
+
+# ---------------------------------------------------------------------------
+# FK widgets must not grow with the tables they point at
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_ad_change_page_does_not_grow_with_the_tables_its_fks_point_at(
+    admin_client_logged_in, query, make_ad
+):
+    """A plain FK `<select>` embeds one `<option>` per row of its target table.
+
+    Measured against production 2026-09-19, when `Ad` had three such widgets
+    (`reposted_from`, `email_publisher`, `phone_publisher`): ~67 000 options,
+    5.8 MB of HTML and 8.0 s of server time, out of 23 queries. It is not a query
+    problem and query-count assertions do not see it, so this pins the shape
+    instead: rendering must not depend on how big those tables are.
+    """
+    from bazos.models import EmailPublisher, PhonePublisher
+
+    subject = make_ad(query, bazos_id=1)
+    subject.save()
+    url = reverse("admin:bazos_ad_change", args=[subject.pk])
+
+    def option_count():
+        return admin_client_logged_in.get(url).content.decode().count("<option")
+
+    before = option_count()
+
+    for i in range(2, 32):
+        ad = make_ad(query, bazos_id=i)
+        ad.email_publisher = EmailPublisher.objects.create(bazos_id=1000 + i, email=f"s{i}@test.test")
+        ad.phone_publisher = PhonePublisher.objects.create(bazos_id=2000 + i, phone=f"+42077700{i:04d}")
+        ad.save()
+
+    assert option_count() == before, (
+        "the Ad change page grew when unrelated ads and publishers were added — "
+        "an FK widget is embedding its whole target table"
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "field_name, term_kind",
+    [("email_publisher", "contact"), ("email_publisher", "id"),
+     ("phone_publisher", "contact"), ("phone_publisher", "id")],
+)
+def test_publisher_autocomplete_endpoint_finds_a_publisher(
+    admin_client_logged_in, query, make_ad, field_name, term_kind
+):
+    """Autocomplete is only as good as the target admin's `search_fields`.
+
+    `bazos_id` is an IntegerField, so it has to be searched exactly (`=bazos_id`):
+    the default `icontains` builds `integer LIKE %...%`, which Postgres refuses. The
+    endpoint is what the widget actually calls, so a misconfiguration here is a dead
+    picker rather than a failing page.
+    """
+    from bazos.models import EmailPublisher, PhonePublisher
+
+    email_publisher = EmailPublisher.objects.create(bazos_id=4242, email="findme@test.test")
+    phone_publisher = PhonePublisher.objects.create(bazos_id=5353, phone="+420777123456")
+    publisher = email_publisher if field_name == "email_publisher" else phone_publisher
+    term = str(publisher.bazos_id) if term_kind == "id" else (
+        "findme" if field_name == "email_publisher" else "777123456"
+    )
+
+    response = admin_client_logged_in.get(
+        reverse("admin:autocomplete"),
+        {"app_label": "bazos", "model_name": "ad", "field_name": field_name, "term": term},
+    )
+
+    assert response.status_code == 200, response.content[:200]
+    ids = [row["id"] for row in response.json()["results"]]
+    assert str(publisher.pk) in ids

@@ -95,6 +95,9 @@ class RefLookupAdmin(ModelAdmin):
                     "http_requests", "llm_calls", "duration_ms")
     list_filter = ("status", "provider")
     search_fields = ("phrase_used", "detail")
+    # Latent rather than live - refprice_reflookup is empty in production - but this FK
+    # points at Ad, so the first row written makes this page as slow as the Ad page was.
+    autocomplete_fields = ("ad",)
     date_hierarchy = "created"
     ordering = ("-created",)
 
