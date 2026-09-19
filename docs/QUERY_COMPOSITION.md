@@ -1,8 +1,8 @@
 ---
 title: Composing a Query — what the search can and cannot express
 status: active
-updated: 2026-08-26
-verified: 2026-08-26
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Composing a Query — what the search can and cannot express
@@ -50,16 +50,25 @@ dozen terms.
 
 ## 3. Stage 2 — what our filter rules do
 
-Four rules can reject (`bazos/filters.py`); `price_drop` only applies to re-notifications.
+Seven rules are registered in `bazos/filters.py`, and an eighth - `reference_price` - is
+registered by the `refprice` app from its `AppConfig.ready()`. Six apply by default; two are
+opt-in (`OPT_IN_RULE_NAMES`). Re-checked against `RULE_REGISTRY` on 2026-09-18.
 
-| Rule | Logic |
-|---|---|
-| `price_range` | reject if `ad.price` outside the range. PASSes on `0-0` and on a null price |
-| `required_keyword` | reject unless **at least one** phrase in `filter_required` appears — one OR-group |
-| `blocklist_keyword` | reject if **any** phrase in `filter_blocklist` appears — a NOR |
-| `publisher_blocklist` | reject if the email/phone publisher is flagged |
+| Rule | Logic | Applies by default |
+|---|---|---|
+| `price_range` | reject if `ad.price` outside the range. PASSes on `0-0` and on a null price | yes |
+| `required_keyword` | reject unless **at least one** phrase in `filter_required` appears — one OR-group | yes |
+| `blocklist_keyword` | reject if **any** phrase in `filter_blocklist` appears — a NOR | yes |
+| `publisher_blocklist` | reject if the email/phone publisher is flagged | yes |
+| `price_drop` | re-notifications only: reject a `PRICE_CHANGED` ad whose newest `PriceChange` did not go down | yes |
+| `location_distance` | reject if the ad's PSČ is further than `filter_location_radius` km from `filter_location_center`. PASSes when either field is unset (**the default**) or the ad carries no postal code - which is every Sbazar and Vinted ad | yes |
+| `price_model` | **inverted** - rejects unless a price model calls the ad a deal | **no, opt in** |
+| `reference_price` | **inverted** - rejects unless the asking price is ≤60% of a persisted catalogue median. Never calls Zboží; it reads only `RefProductLink` rows an explicit lookup already wrote, so an ad nobody looked up PASSes | **no, opt in** |
 
-`filter_rule_names` selects which apply; **empty means all of them.**
+`filter_rule_names` selects which apply, and **empty means all the *default* rules — which is
+not all of them.** The two inverted rules have to be named explicitly, because a rule that
+rejects everything it does not actively like would mute an existing query the day it was
+switched on by default.
 
 **The shape of what you can express is therefore fixed:**
 
@@ -70,6 +79,13 @@ Four rules can reject (`bazos/filters.py`); `price_drop` only applies to re-noti
 **One positive OR-group. That is the whole budget.** You cannot AND two OR-groups —
 there is no second `filter_required`, and no grouping syntax inside the one there is.
 A condition like "(chip is A or B) AND (RAM is C or D)" needs two, so it does not fit.
+
+Two rules sit outside that shape. `location_distance` ANDs an independent `(within N km)`
+term once a centre and a radius are set. And the two inverted rules replace the conjunction
+rather than extending it: on a query that names one, the channel sees only what the model or
+the catalogue median liked. `reference_price` is also the one rule that can return **APPROVE**
+rather than PASS, so when it fires it short-circuits every rule after it in the list - order
+inside `filter_rule_names` is therefore not cosmetic.
 
 ### 3.1 Matching is substring, not word
 
@@ -91,9 +107,20 @@ A condition like "(chip is A or B) AND (RAM is C or D)" needs two, so it does no
 undamaged. Prefer terms that have no common negated form.
 
 **The haystack is truncated.** `short_description` is capped at 254 characters by the
-listing page, and 88% of ads hit that cap, so anything stated later in a long description
+listing page, and most ads hit that cap, so anything stated later in a long description
 is invisible to both keyword rules. `load_full_description` does **not** help — the rules
 read `short_description` only.
+
+*Re-measured on the production DB, 2026-09-18:* **20,483 of 27,568 Bazos ads (74.3%) are
+exactly 254 characters**; six rows exceed it and none by much. The cap is real, the fraction
+depends on the corpus.
+
+**And on the other marketplaces the haystack may be the title alone.** Sbazar populates
+`short_description` on **0 of 734** ads, and Vinted on **0 of the 1,124** scraped before the
+2026-09-16 transport rewrite against **186 of 186** after it. Since the haystack is
+`name + short_description` and `name` is always populated, a blocklist or required list on
+those queries degrades to title-only matching rather than failing - silently, and in opposite
+directions for the two rules: `blocklist_keyword` rejects less, `required_keyword` rejects more.
 
 ## 4. Which side to put a condition on
 
@@ -103,7 +130,7 @@ read `short_description` only.
 | Two words that must be **adjacent** | `filter_required` | Bazos ignores word order |
 | A set of acceptable values (the one OR-group) | `filter_required` | its only semantics |
 | A set of *unacceptable* values | `filter_blocklist` | as many disjoint groups as you like, since they AND together |
-| Numeric threshold | neither — see §5 | no rule reads a parsed number except price |
+| Numeric threshold on a **spec** (RAM, storage, mileage) | neither — see §5 | no rule compares a parsed spec; every number any rule reads is a price |
 
 Note the asymmetry that makes §5 work: **`filter_blocklist` is not limited to one group.**
 Every blocklisted phrase is an independent "and not this", so exclusions can encode several
@@ -196,7 +223,14 @@ nothing else.
 
 A numeric rule. `Ad` already stores a parsed `price`, but RAM, storage and chip live only
 in free text — the extraction exists offline
-([`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md) §2) and has never been
-persisted. Landing those as columns plus a threshold rule would turn all three conditions
+([`MACBOOK_PRICE_MODEL.md`](research/MACBOOK_PRICE_MODEL.md) §2), and no rule compares them.
+
+*Updated 2026-09-18 - "never persisted" is no longer true, but nothing reads them either.*
+Two tables now hold extracted specs: `AdPriceScore.features` (migration `0041`) stores the
+parsed inputs a prediction was made from, and `AdSpecExtraction` (migration `0049`) stores what
+an LLM read out of an ad's prose. Neither is a filter input. `features` exists only for ads a
+registered model claimed - one product, `macbook` - and `AdSpecExtraction` **ships inert**, so
+the gap is no longer "the numbers are not stored" but "nothing compares them, and coverage
+equals scoring coverage". Landing a threshold rule over those would turn all three conditions
 into real comparisons and free the `filter_required` group for something else. Until then
 the §5 approximation is the honest ceiling.

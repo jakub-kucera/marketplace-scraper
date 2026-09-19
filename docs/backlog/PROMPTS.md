@@ -1,8 +1,8 @@
 ---
 title: Ready-to-Run Prompts
 status: active
-updated: 2026-09-17
-verified: 2026-09-17
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Ready-to-Run Prompts
@@ -62,14 +62,15 @@ Steps:
 >   - `ip_changer/ip_changer.py:16-18` — `IP_LOOKUP_TIMEOUT = (20, 15)` and
 >     `IP_LOOKUP_ATTEMPTS = 3`. The connect half is generous because it has to cover Tor
 >     **circuit construction**; a flat 10 s timed out in production right after a rotation.
->   - `bazos/scraping/runner.py:42-49` — `check_ip_local()` is inside the pass-level `try`, so a
+>   - `bazos/scraping/runner.py:53-60` — `check_ip_local()` is inside the pass-level `try`, so a
 >     raise skips the pass instead of escaping `run()` and forcing a 60 s rebuild.
->   - `bazos/scraping/runner.py:160-166` — the `change_ip()` fall-through is wrapped, so one
+>   - `bazos/scraping/runner.py:196-203` — the `change_ip()` fall-through is wrapped, so one
 >     query's failed rotation no longer costs the other queries their turn.
 
-**What is actually left, verified 2026-08-30:**
+**What is actually left, re-verified against the tree 2026-09-18** (line numbers refreshed; the
+finding itself is unchanged since 2026-08-30):
 
-1. **Step 5 — `check_ip_local` logs at WARNING, not ERROR** (`runner.py:46`), and there is **no
+1. **Step 5 — `check_ip_local` logs at WARNING, not ERROR** (`runner.py:57`), and there is **no
    consecutive-local-IP counter**. A guard that disables all work should reach the Discord log
    channels and Sentry (which auto-captures ERROR+), and a persistent `LOCAL_IP_SUBNET`
    misconfiguration should escalate rather than repeat quietly forever. ~15 minutes.
@@ -111,6 +112,17 @@ the threshold and not before.
 > [`HIDDEN_API.md`](../research/bazos-api/HIDDEN_API.md) §8;
 > this prompt is the missing executable version. It also unblocks
 > [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6, which needs the API's second-resolution timestamps.
+>
+> ⚠️ **Correction 2026-09-18 - every "~15 min" in this section is the wrong number, and the
+> conclusion survives it.** Half the sleep interval is not the latency: the cycle is
+> `sleep + pass duration`, and the measured cycle is **42 min** (42.2 and 42.7 min over two
+> independent 7-day windows), so a pass costs ~12 min of wall clock and today's median
+> detection latency is **~21 min, ~36 min at p90**. [`API_CUTOVER.md`](API_CUTOVER.md) §1 has
+> the measurement and §1.1 the corrected ladder: **~21 -> ~7 min from P21a, and ~5-6 min only
+> with P21b as well.** That is still a genuine 3x, which is why this stays the top item - but
+> **do not promise 5 minutes from P21a alone**, and re-measure with API_CUTOVER.md §8.1 rather
+> than asserting the improvement. The figures below are left as written because the *request
+> volume* columns are unaffected; it is the latency column that was optimistic by ~40%.
 
 ### P21 — Cut latency: API cutover + rotating proxy
 
@@ -128,9 +140,9 @@ the threshold and not before.
 >
 > | | Bazos req/query/pass | Passes/day | **Bazos req/query/day** | Median latency |
 > |---|---|---|---|---|
-> | Original (HTML, 3 guards) | 3 | 40 (30 min avg) | **120** | ~15 min |
-> | Today (HTML, **probes removed 2026-08-23**) | ~1 (+ detail per new ad) | 40 | **~40** | ~15 min |
-> | **After P21a @ 10 min** | ~1 | 120 | **~120** | **~5 min** |
+> | Original (HTML, 3 guards) | 3 | 40 (30 min avg) | **120** | ~~~15 min~~ |
+> | Today (HTML, **probes removed 2026-08-23**) | ~1 (+ detail per new ad) | 40 | **~40** | ~~~15 min~~ → **~21 min measured** |
+> | **After P21a @ 10 min** | ~1 | 120 | **~120** | ~~~5 min~~ → **~7 min** |
 > | After P21a @ 5 min | ~1 | 240 | ~240 (2×) | ~2.5 min |
 > | After P21a @ 2 min | ~1 | 600 | ~600 (5×) | ~1 min |
 >
@@ -168,8 +180,9 @@ the threshold and not before.
 > moves latency: the interval is unchanged.
 
 ```
-Take detection latency from a ~15 min median to a ~5 min median at UNCHANGED Bazos request
-volume. Read docs/research/proxies/PROXY_ROTATION.md §3 and §5 and
+Take detection latency from a ~21 min median (measured — see docs/backlog/API_CUTOVER.md §1;
+the "~15 min" this prompt used to say left pass duration out) to a ~7 min median at UNCHANGED
+Bazos request volume. Read docs/research/proxies/PROXY_ROTATION.md §3 and §5 and
 docs/research/bazos-api/HIDDEN_API.md §8 Stage C first — the design decisions are
 already made there; this is execution.
 
@@ -276,9 +289,26 @@ Part 4b — lower the interval the rest of the way:
 >
 > Note the calibration dependency has **changed shape, not gone away**: step 6 wants real
 > outcomes, and as of 2026-09-17 both sources exist — `AdOutcome` (was BACKLOG_IDEAS #9) and the
-> delisting sweep (was P24) shipped together. What they do not yet have is *history*. Anything
-> built here still ships in shadow mode; the difference is that the wait is now for data to
-> accumulate rather than for code to be written.
+> delisting sweep (was P24) shipped together. Neither is usable yet. Measured on the production
+> DB **2026-09-18**:
+>
+> | | |
+> |---|---|
+> | ads | 30,037 |
+> | `removed_at` populated | 19,008 |
+> | …written on the sweep's **first** run (2026-09-17) | **18,403 (96.8%)** |
+> | …written on 2026-09-18 | 605 |
+> | **`AdOutcome` rows** | **0** |
+>
+> **The `removed_at` rows are ~86% false, from a bug that is still open.**
+> `BazosApiScraper.fetch_by_ids` sends 210 ids per request with **no `limit`** (`_fetch_page`
+> sends `limit=API_PAGE_SIZE`), so `ads.php` answers with its default page of 30 and the other
+> ~180 ids read as gone - production survivor counts per minute-bucket are 90, 30, 300, 420,
+> 240, 60, 330, 360, 420, 390, 360, 150, every one a multiple of 30. And it is self-sealing:
+> `due_for_check` filters `removed_at__isnull=True` and nothing clears the column, so the bad
+> rows are permanent and will silently enter any later outcome study. So the wait is now for a
+> fix and a decision about the existing rows *first*, then for data to accumulate and for
+> someone to write `AdOutcome` rows. Anything built here still ships in shadow mode.
 
 ```
 Every rule in `bazos/filters.py` today is a static per-query predicate (price range, keyword
@@ -360,6 +390,15 @@ Also check: the `location_center = randint(10000, 99999)` line generates a rando
 > - ✅ `QueryAdmin.last_run` — annotated via `Coalesce(Max(run_end), Max(run_start))`.
 > - ✅ `QueryRunAdmin` registered — plus `success`/`error` columns and filters from P18.
 >
+> **⚠️ Re-checked 2026-09-18 - one sub-item below is obsolete rather than open.**
+> `filter_reason` moved off `Ad` onto `AdDelivery` in migrations `0026`–`0028`
+> (`models.py:886`), so "add it to `AdAdmin.list_display`" no longer describes anything that
+> exists; it is already a column on the standalone `AdDeliveryAdmin` changelist
+> (`admin.py:1028`) and a field on the `AdDeliveryInline` (`admin.py:768-769`). Treat that
+> line as done-by-relocation. `mark_as_pending` is genuinely still absent - `AdAdmin.actions`
+> is `("score_selected_ads", "fetch_full_descriptions", "refresh_selected_ads")`
+> (`admin.py:817-819`) - and so is item 2's `new_ads_count`.
+>
 > **Separately, and not part of P9:** `QueryAdmin` gained an **`ad_count`** column
 > (2026-08-10) — total `Ad` rows pointing at that query. Note this is *not* item 2's
 > "`new_ads_count` sum from recent runs": `ad_count` counts ads that currently exist,
@@ -371,9 +410,11 @@ Polish the Django admin for the current pipeline state.
 
 1. `AdAdmin`:
    - Add `filter_reason` to the list display (short, truncated).
-     STILL OPEN — filter_reason is on the change form (readonly_fields), not in list_display.
+     OBSOLETE - filter_reason lives on AdDelivery since the 0026-0028 split, and is already
+     a column on AdDeliveryAdmin and a field on the AdDeliveryInline. Nothing to do.
    - Add a custom action `mark_as_pending` that resets status to PENDING (useful for re-running the filter on an ad).
-     STILL OPEN.
+     STILL OPEN. Note it resets AdDelivery.status now, not Ad.status, so it belongs on
+     AdDeliveryAdmin or has to fan out over an Ad's deliveries - decide which.
    - ✅ DONE — Add `price_history` inline (PriceChange, once Stage 4 is done).
 
 2. `QueryAdmin`:
@@ -387,9 +428,13 @@ Polish the Django admin for the current pipeline state.
      `get_queryset`; null (crashed / in-flight run) renders blank rather than 0.0 s, and
      `admin_order_field` is an `OrderBy` so the descending click keeps those rows last.
 
-Note when picking this up: `QueryAdmin.get_queryset` already combines aggregates over two
-different multi-valued relations (`runs` for last_run, `ads` for ad_count). Any further
-aggregate there needs `distinct=True` or it will be inflated by the join multiplication.
+Note when picking this up (corrected 2026-09-18): `QueryAdmin.get_queryset` no longer
+combines aggregates - it was rewritten to two CORRELATED SUBQUERIES (`admin.py:489-522`)
+precisely because `annotate(Max('runs__...'), Count('deliveries'))` joined both reverse FKs
+into one query and made Postgres materialise a deliveries x runs product per row. So do NOT
+add another aggregate there "with distinct=True"; add another correlated subquery, the way
+the two already there are written. The guard is
+test_admin.py::test_changelist_queryset_does_not_join_deliveries_or_runs (:300).
 ```
 
 ---
@@ -528,23 +573,24 @@ Steps:
 
 ### P25 — `load_full_description` drops fields the API already returned
 
-> **Observed in production 2026-08-10.** Every `bazos_api` ad in the DB — **56 of 56** — has
-> `publisher_name = ''`, `short_description = ''`, `full_description IS NULL` and no
-> email/phone publisher. The detail response for one of them (`222351346`) carries
-> `name: 'Aneta'`: a field the code fetches, parses, and throws away.
+> **Observed in production 2026-08-10, re-measured 2026-09-18.** Every `bazos_api` ad in the
+> DB - now **425 of 425**, up from 56 - has `publisher_name = ''`, `short_description = ''`,
+> `full_description IS NULL` and no email/phone publisher. The detail response for one of them
+> (`222351346`) carries `name: 'Aneta'`: a field the code fetches, parses, and throws away.
 
 ```
-BazosApiScraper.load_full_description reads 3 of ~30 fields from the detail response and
+BazosApiScraper.load_full_description reads 5 of ~30 fields from the detail response and
 discards one the Ad model has a column for.
 
 Context:
-- `bazos_api_scraper.py:166-172` reads only `description`, `email_id`, `phone_id`. The same
-  response carries `name` (the publisher name), plus `user_ads_count`, `user_reviews_count`,
-  `price`/`price_type`, `zip_code`, `latitude`/`longitude`, `category`/`section` objects and
-  `images[]` — see docs/research/bazos-api/HIDDEN_API.md §5.2, verified live.
-- `BazosScraper` gets `publisher_name` from the LISTING for free (`bazos_scraper.py:117`). The
-  API listing payload has no equivalent field (§5.1), which is why this only shows up on the
-  API path.
+- `bazos_api_scraper.py:304-360` reads `description`, `price`/`price_type` and
+  `email_id`/`phone_id` - nothing else. The same response carries `name` (the publisher
+  name), plus `user_ads_count`, `user_reviews_count`, `zip_code`, `latitude`/`longitude`,
+  `category`/`section` objects and `images[]` — see docs/research/bazos-api/HIDDEN_API.md
+  §5.2, verified live.
+- `BazosScraper` gets `publisher_name` from the LISTING for free
+  (`bazos_scraper.py:139`, assigned at `:155` and `:206`). The API listing payload has no
+  equivalent field (§5.1), which is why this only shows up on the API path.
 
 ⚠️ Scope reality check before starting: this method only runs when
 `Query.load_full_description=True`. The one production `bazos_api` query has it OFF, so landing
@@ -558,7 +604,7 @@ Steps:
 1. After the `full_description` assignment, set
    `product.publisher_name = (data.get("name") or "")[:100]`.
    Both guards are load-bearing: `Ad.publisher_name` is a non-null `CharField(max_length=100)`
-   (`models.py:271`), so None fails on Postgres and an over-long value raises DataError.
+   (`models.py:745`), so None fails on Postgres and an over-long value raises DataError.
 2. Apply the same None-guard reasoning to `full_description` (`data.get("description")` can be
    None; that column is nullable so it's legal, but every consumer concatenates it).
 3. Leave the 410 early-return untouched — a removed ad has nothing to read. Delisting shipped
@@ -566,19 +612,23 @@ Steps:
 4. Add a short comment recording the listing-vs-detail asymmetry from Context above, so the
    next reader doesn't go hunting for an API listing field that doesn't exist.
 5. Explicitly OUT of scope, each worth its own task: `user_ads_count`/`user_reviews_count` are
-   the true seller volume that `SellerAdCounts`'s own docstring (`models.py:166-171`) says it
-   cannot compute — needs new model fields. `price`/`price_type` belong to P22. `images[]`
-   belongs to P16 / BACKLOG_IDEAS.md #3a. GPS and category/section objects have no consumer yet.
+   the true seller volume that `SellerAdCounts`'s own docstring (`models.py:536`) says it
+   cannot compute - needs new model fields. `images[]` belongs to P16 / BACKLOG_IDEAS.md #3a.
+   GPS and category/section objects have no consumer yet. (`price`/`price_type` used to be on
+   this list as "P22's job" - P22 shipped, and this method now reads both, so that half is
+   done; the pattern it set is the one step 1 above copies.)
 6. Do NOT try to fill `short_description` from the detail payload. `ads.php` has no description
    text at all (§5.1), so the only source is a per-ad detail call — and when that call happens,
    the text is already in `full_description`. A truncated duplicate in a second column buys
    nothing. If the goal is making keyword filters work on the API path, the fix belongs in
-   `filters.py:85,102`, whose haystack is `f"{ad.name} {ad.short_description}"` and should also
-   consider `full_description` — that is a separate change with its own tests.
-7. Tests: extend the `load_full_description` group in `test_bazos_api_scraper.py` (around :232)
-   with — `publisher_name` populated from `name`; `name` absent or None → `""`; a >100-char
-   `name` → truncated, not raising. `test_publishers_unset_until_detail_fetch` (:133) pins the
-   listing-side emptiness and stays valid as-is.
+   `filters.py:138,155`, whose haystack is `f"{ad.name} {ad.short_description}"` and should also
+   consider `full_description` — that is a separate change with its own tests. API_CUTOVER.md
+   §4.1 is where that decision is written up; do not take it here as a drive-by.
+7. Tests: extend the `load_full_description` group in `test_bazos_api_scraper.py`
+   (`TestLoadFullDescription`, :271) with — `publisher_name` populated from `name`; `name`
+   absent or None → `""`; a >100-char `name` → truncated, not raising.
+   `test_publishers_unset_until_detail_fetch` (:152) pins the listing-side emptiness and stays
+   valid as-is.
 ```
 
 ---
@@ -719,11 +769,13 @@ Steps:
 
 ### 2. `_resolve_ad` never refreshes an existing ad's scraped facts
 
-Context: `query_runner.py::run_existing_query`'s known-ad branch only ever writes
-`price_raw` back to the `Ad` row:
+Context: `query_runner.py::run_existing_query`'s known-ad branch only ever writes the price
+columns back to the `Ad` row (`query_runner.py:207-210`):
 ```python
 known_ad.price_raw = product.price_raw
-known_ad.save(update_fields=["price_raw"])
+known_ad.price = product.price
+known_ad.price_type = product.price_type
+known_ad.save(update_fields=["price_raw", "price", "price_type"])
 ```
 Every other freshly-scraped field on `product` — `view_count`, `topped`, `url`,
 `publisher_name`, `email_publisher`/`phone_publisher` — is silently discarded once an `Ad` is
@@ -735,12 +787,25 @@ fields this loop actually refreshes. `full_description` already got its own fix 
 change, see docs/archive/shipped/AD_DELIVERY_SPLIT.md §7) so it's no longer permanently stuck; the rest are
 still stuck.
 
+⚠️ **Half of this has since been answered elsewhere, and one of the answers contradicts step 1
+below - read this before writing code (added 2026-09-18).** The `refresh_ad` enrichment job
+(`bazos/enrichment.py:46-112`, shipped 2026-09-17) refreshes exactly `topped` and `url`
+(`_refresh_listing_facts`, `:94-112`) and routes the price through the delisting sweep's
+`apply_batch`. It is on-demand, per ad, from an admin action - it does NOT run in the scrape
+walk, so the gap this prompt names is still real for rediscovery. But it settled `view_count`
+in the opposite direction from step 1: **`view_count` is deliberately NOT refreshed**, because
+the column means "views at discovery" and both `PC_PRICE_MODEL.md` and `MACBOOK_PRICE_MODEL.md`
+reason about it on that basis - overwriting in place would silently convert every historical
+row to a different quantity. "Views now" needs its own column, not a redefinition of this one.
+
 Steps:
-1. Decide, per field, whether it should refresh on every rediscovery (`view_count`, `topped`,
-   `url` — cheap, no downside) versus only when currently null (`publisher_name`,
-   `email_publisher`, `phone_publisher` — a later scrape finding a publisher a former one
-   missed is a strict improvement; overwriting a known publisher with a differently-parsed one
-   needs more thought, since publisher identity feeds `SellerAdCounts`).
+1. Decide, per field, whether it should refresh on every rediscovery (`topped`, `url` — cheap,
+   no downside, and `refresh_ad` already treats them that way) versus only when currently null
+   (`publisher_name`, `email_publisher`, `phone_publisher` — a later scrape finding a publisher
+   a former one missed is a strict improvement; overwriting a known publisher with a
+   differently-parsed one needs more thought, since publisher identity feeds `SellerAdCounts`).
+   **`view_count` is decided: leave it frozen.** Reuse `_refresh_listing_facts` rather than
+   writing a second, divergent copy of "which facts are safe to overwrite".
 2. Extend the known-ad branch's `update_fields` list and the fields actually copied from
    `product` accordingly.
 3. Tests: each refreshed field changes on rediscovery; fields intentionally NOT refreshed
@@ -760,10 +825,15 @@ Steps:
   `Discord` channels). Today it's tested at the scraper (`test_two_queries_matching_one_listing_
   create_one_ad_and_two_deliveries`) but never carried through `run_filter` + `run_sender`.
   Write that test.
-- Migration tests never touch Postgres (root `conftest.py` forces SQLite for the whole suite —
-  see CLAUDE.md's Testing section). This is a known, accepted project-wide limitation, not
-  specific to this split, but worth naming here since it's exactly what hid `0028`'s
-  irreversibility (the test `Ad` table is empty at rollback time) until someone ran it by hand.
+- ~~Migration tests never touch Postgres (root `conftest.py` forces SQLite for the whole
+  suite).~~ **No longer true, and the correction matters for the two bullets above.** The suite
+  runs on real Postgres; `conftest.py` hooks `django_db_modify_db_settings` and SQLite is opt-in
+  via `TEST_DB=sqlite`, used only by `contract-check.yml`'s live job. So
+  `select_for_update(skip_locked=True, of=("self",))` now *does* reach the SQL, and migration
+  `0027`'s deferred-FK-trigger flush now *does* execute - meaning the first bullet's "even on
+  SQLite, where skip_locked is silently dropped" hedge is obsolete and a command-level test
+  would exercise the real locking. What hid `0028`'s irreversibility was the empty test `Ad`
+  table at rollback time, which the backend change does not fix; that stays a real gap.
 
 ### 4. Before actually deploying this split: run the Stage C dry run
 
@@ -797,8 +867,10 @@ substance (see `docs/archive/shipped/AD_DELIVERY_SPLIT.md` §7's note on why `00
 
 1. **P21a Parts 1 + 4a** (tunable API page size, then the production cutover and ~10 min
    interval) — ~1–2 days, **no cost, no external dependency.** Part 2 already landed, so this
-   is now a smaller prompt than it was: ~15 min → ~5 min median latency. Best value-per-day
-   in this file, and it is now the top item because P20 closed.
+   is now a smaller prompt than it was: **~21 min → ~7 min median latency** (corrected
+   2026-09-18 from "~15 → ~5"; [`API_CUTOVER.md`](API_CUTOVER.md) §1.1 has the measured
+   ladder, and ~5-6 min needs P21b too). Best value-per-day in this file, and it is now the
+   top item because P20 closed.
    ⚠️ **Part 1 has acquired a prerequisite nobody wrote down.** `BazosApiScraper` sets
    `location = item["locality"]`, and the API's *thin* listing payload is `"Praha 10"` with
    **no postal code** — the code is detail-only (`HIDDEN_API.md` §5.1 vs §5.2,

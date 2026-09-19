@@ -1,7 +1,7 @@
 ---
 title: MacBooks across Bazos, Sbazar and Vinted — can the three be pooled?
 status: reference
-updated: 2026-09-12
+updated: 2026-09-18
 verified: 2026-09-12
 ---
 
@@ -26,9 +26,16 @@ verified: 2026-09-12
 >   in CZK by the seller.** About 34 % is positively shown to be a PLN price converted at Vinted's
 >   own daily rate, which drifts. §5.3 is the live pipeline consequence of that.
 >
-> Standing caveat, unchanged and applying to every figure below: **`Ad.modified` never advances, so
-> the database records zero outcomes** — no sold flag, no time-to-disappear. Every precision number
-> here is a composition audit, not a measurement.
+> Standing caveat, **re-based 2026-09-18** and applying to every figure below: the database does
+> record an outcome now - `Ad.removed_at`, written by the delisting sweep that shipped 2026-09-17
+> - but it is a confounded one, and right now a corrupt one. `removed_at` conflates sold with
+> withdrawn, deleted and expired; of the 19 008 rows carrying it, roughly 86 % are false, because
+> the sweep's bulk id fetch omits `limit` and so asks about 210 ads per request while the API
+> answers about 30, with the remainder written off as gone and never re-checked (open as of
+> 2026-09-18); and `AdOutcome`, the logbook that would calibrate "removed = sold", is **empty**.
+> Every precision number here is therefore still a composition audit, not a measurement. Note
+> also that the 20-day Sbazar and Vinted windows below closed five days *before* the sweep
+> existed, so no row in this study has an outcome of any kind attached.
 
 ---
 
@@ -395,6 +402,32 @@ corpus-wide reading, and cheaper in aggregate. **The DB was not queried for this
 export carries no `PriceChange` table and this session had no database access. Counting
 `PriceChange` rows per marketplace is a one-line query and is the check that would settle it.
 
+> ✅ **Settled 2026-09-18, and the inferred shape is the right one.** `PriceChange` counts over
+> the whole production table, by the ad's marketplace:
+>
+> | marketplace | `PriceChange` rows | distinct ads | ads in DB | rows moving the price by **≤ 50 CZK** |
+> |---|---:|---:|---:|---:|
+> | bazos | 701 | 558 | 27 568 | **11 (1.6 %)** |
+> | vinted | 46 | 44 | 1 310 | **19 (41.3 %)** |
+> | bazos_api | 38 | 32 | 425 | — |
+> | sbazar | 33 | 30 | 734 | — |
+>
+> Two readings, and they point the same way. **The volume is small**, 46 rows over 25 days
+> (2026-08-24 to 09-17), not the corpus-wide stream the mechanism alone would allow: that is the
+> `dedup_break_streak = 1` bound above, confirmed rather than merely inferred. **And the
+> composition is the FX signature.** 41.3 % of Vinted's price changes move the stored integer by
+> 50 CZK or less, against 1.6 % on Bazos - a **26× enrichment** of sub-50-CZK moves - and 8 of
+> those 19 go *down*. Bazos sellers price on 50 and 100 CZK steps, so a sub-50-CZK edit is rare
+> there by construction; a drifting FX rate on a 1-CZK-granularity string is exactly what
+> produces one. **So §5.3's loop has fired, ~19 times, on a handful of listings.**
+>
+> Two limits. This does not attribute any *individual* row to FX rather than to a seller
+> shaving 20 CZK; the enrichment is the evidence, not a per-row label. And the Vinted scraper
+> was rebuilt on the catalog-page transport inside this window
+> ([`VINTED_REWRITE.md`](../backlog/VINTED_REWRITE.md)), which changes what `Ad.price` stores -
+> but a basis change would show up as one large step per ad on one day, not as 19 sub-50-CZK
+> moves in both directions spread over 22 separate days, so the reading survives it.
+
 ### 5.4 Sbazar's zero is handled correctly
 
 12 of 621 Sbazar rows are `price_raw = "Dohodou"`, `price = NULL`, `price_type = negotiable`. **No
@@ -507,8 +540,10 @@ Three limits bound what any Sbazar level figure can mean:
   time under CR1 and 30 % under CR3** at nominal 5 %; spread the same treated n over 49 equal
   clusters and CR1 is correctly sized at 5.5 %. Only the **pairs cluster bootstrap** held size
   (6–7 %), which is why it is the one quoted. **Quote the number of shops, never the number of ads.**
-- **`Ad.modified` never advances.** A durable +1.3 % ask gap could equally be a longer time-to-sale
-  at the same clearing price. Nothing in the DB separates the two.
+- **Nothing separates an ask gap from a time-to-sale gap.** A durable +1.3 % ask gap could equally
+  be a longer time-to-sale at the same clearing price. `Ad.removed_at` is the column that would
+  eventually separate the two, but it postdates this study's window entirely, it conflates a sale
+  with an expiry, and it is uncalibrated while `AdOutcome` is empty.
 
 Vinted, same protocol on 2.4× the earlier data: **−13.37 % (CI −17.33 % … −5.92 %)** over 76 shared
 cells, collapsing to **−2.66 % (CI −7.30 % … +4.44 %, n=37)** on Apple-silicon cells only. **The
@@ -681,8 +716,10 @@ not.
 ## 8. What to change, in priority order
 
 1. **Do not extend `MacbookPriceModel.applies_to` to Sbazar now.** The extension is correct and
-   nearly worthless (§7.3). Revisit when **either** (a) P24 / `AdOutcome` exists, so precision is
-   measurable at all rather than composition-audited, **or** (b) Sbazar's gate-eligible
+   nearly worthless (§7.3). Revisit when **either** (a) `AdOutcome` carries enough rows to
+   calibrate `Ad.removed_at`, so precision is measurable at all rather than composition-audited
+   - P24 shipped 2026-09-17 and the logbook is still empty, so the gate moved rather than
+   cleared - **or** (b) Sbazar's gate-eligible
    private-seller share rises above ~50 % — today it is **20 %** (46 of 229 ads are outside the top
    two shops).
 2. **Equalise the query price floors, or drop them and filter in `run_filter`.** This is now the
@@ -745,18 +782,21 @@ what rules out every cluster-robust estimator on this design.
 
 ## 10. What this does *not* establish
 
-- **Nothing about realised prices.** Every number here is an *asking* price. `Ad.modified` never
-  advances past `created`, so the DB records **zero** outcomes — the gap
-  [`MACBOOK_PRICE_MODEL.md`](MACBOOK_PRICE_MODEL.md) §6 names, now applying to three marketplaces.
-  Both the case for and the case against shipping rest on alert **volume** and residual structure,
-  never on whether the alerts are good.
+- **Nothing about realised prices.** Every number here is an *asking* price. The DB now records
+  one outcome column, `Ad.removed_at`, but it conflates a sale with an expiry and is
+  uncalibrated while `AdOutcome` is empty - the gap
+  [`MACBOOK_PRICE_MODEL.md`](MACBOOK_PRICE_MODEL.md) §6 names, now applying to three marketplaces,
+  and none of these rows was swept in any case. Both the case for and the case against shipping
+  rest on alert **volume** and residual structure, never on whether the alerts are good.
 - **A Sbazar level, in either direction.** +1.3 % with a CI through zero is not "no premium
   measured"; it is "not measurable on this design". The gate selects sellers (§6.2), one shop holds
   ~80 % of the treated rows, and cluster-robust inference is undefined here.
 - **The Vinted marketplace coefficient**, and §5.2 says it is not merely under-powered — it is not
   identified from a column that mixes CZK sellers with zloty sellers at a drifting rate.
-- **Whether the FX churn of §5.3 has actually fired.** The mechanism is code-verified and the drift
-  is measured; the `PriceChange` count per marketplace was not queried.
+- ~~**Whether the FX churn of §5.3 has actually fired.**~~ **Answered 2026-09-18** - it has, ~19
+  times over 25 days, and the per-marketplace `PriceChange` counts are in §5.3. What is still
+  not established is a per-row attribution: the evidence is a 26× enrichment of sub-50-CZK
+  moves on Vinted against Bazos, not a label on any individual row.
 - **Persistence.** 20 days of Sbazar and Vinted against 118 of Bazos. Nothing here has been observed
   to hold across a season, and Sbazar sorts by *edit* time
   ([`SBAZAR_SCRAPER.md`](../archive/shipped/SBAZAR_SCRAPER.md) §11), so its corpus over-represents

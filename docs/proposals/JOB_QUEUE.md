@@ -1,14 +1,17 @@
 ---
 title: Generic Job Queue — Exploration & Proposal
 status: active
-updated: 2026-09-17
-verified: 2026-09-17
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Generic Job Queue — Exploration & Proposal
 
-> **Nothing here has been built, and it is not scheduled.** Not wired into `PIPELINE_REFACTOR.md`'s stage list or
-> `PROMPTS.md`. Nothing here has been built.
+> **Read the decision banner below before the body.** This began as an exploration with
+> nothing built; a queue now ships, and the recommendation the body spends most of its length
+> arguing for (Option A, a hand-rolled `Job` model) is **not** what was taken. §3 in particular
+> describes a design that does not exist - it is kept because the requirements it derives are
+> what `django-q2` was judged against, not because any of that code was written.
 >
 > **See also**: [`BACKLOG_IDEAS.md`](../backlog/BACKLOG_IDEAS.md) #8 (full-listing rescan flag) and
 > [`DISCORD_BOT.md`](DISCORD_BOT.md) §2.1/§3.2 (`AdWatch`/`run_ad_watch`) — both
@@ -44,6 +47,15 @@ verified: 2026-09-17
 > `marketplace_qcluster` service, and two schedules — the delisting sweep and a heartbeat.
 > **What did not**: §6 Phase 4 (per-`Query` scrape jobs), which is where the Tor lock stops
 > being avoidable.
+>
+> **Updated 2026-09-18.** The day after this decision, [`ENRICHMENT_JOBS.md`](ENRICHMENT_JOBS.md)
+> landed fifteen jobs on top of it, so the numbers above have moved: **eight schedules**, not
+> two (six declared in `bazos.jobs.SCHEDULES`, plus one each contributed by `llm/` and
+> `refprice/` through `register_schedule` at `AppConfig.ready()`), and a `JOB_CATALOG` behind an
+> admin "Run a job" page. Several §4 candidates are now built: the sold/removed sweep (§4.1),
+> repost detection and seller-reputation enrichment (§4.2). §6's phases 1–3 are effectively
+> done by another route - `django-q2` supplied phase 1, and phase 3's lock was not built
+> because `workers: 1` removed the need. Phase 4 remains the open one, unchanged.
 >
 > **Two carve-outs that survive the decision.** Backups stay on their systemd timer — CLAUDE.md
 > is explicit that they must survive the app being broken, and `qcluster` runs inside the app

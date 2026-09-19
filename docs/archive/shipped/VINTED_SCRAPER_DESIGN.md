@@ -1,8 +1,8 @@
 ---
 title: Stage 8 Design Notes — VintedScraper & Multi-Marketplace Queries
 status: shipped
-updated: 2026-08-22
-verified: 2026-08-21
+updated: 2026-09-18
+verified: 2026-09-18
 shipped_in: 0029
 ---
 
@@ -12,8 +12,22 @@ shipped_in: 0029
 > decision log. The executable version is [VINTED_SCRAPER.md](VINTED_SCRAPER.md);
 > the stage entry is [PIPELINE_REFACTOR.md](PIPELINE_REFACTOR.md) Stage 8.
 >
-> **§1a is the durable part** — the measured `VintedItem` field list. Check a change to
-> `bazos/scraping/vinted/vinted_scraper.py` against it.
+> **⛔ Correction, audited 2026-09-18: §1a is NOT the durable part any more, and must not be
+> checked against the code.** The `vinted-scraper` library whose `VintedItem` model §1a
+> enumerates is gone from `pyproject.toml`; Vinted withdrew the anonymous
+> `/api/v2/catalog/items` endpoint around 2026-09-08 and the scraper was rebuilt on the catalog
+> page's Next.js RSC payload (commit `4cf35ec`, 2026-09-16), which names every field
+> differently. The live field list is
+> [`VINTED.md`](../../research/marketplaces/VINTED.md), measured 2026-09-16.
+>
+> §1c's `total_item_price` recommendation was also **reversed**: the code stores `price`
+> (ex-fee), because Vinted's own `price_from`/`price_to` filter keys on `price` and storing the
+> all-in figure made bounded queries return rows the `price_range` rule then rejected.
+>
+> What survives as the durable part is **§3 to §5**: the `Query` model analysis and the Option C
+> decision. `extra_params` is still how a Vinted query is configured, and §3's
+> "a separate `VintedCategory` model would be needed" has since shipped as the
+> marketplace-agnostic `MarketplaceCategory` (migration `0043`).
 
 > **⚠️ §1 and §2 rewritten from a live probe, 2026-08-21.** Everything in those two sections
 > was previously *asserted from the package README, never run*. It has now been measured

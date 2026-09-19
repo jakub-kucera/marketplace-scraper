@@ -1,24 +1,52 @@
 ---
 title: "Stage 8 — `VintedScraper`: implementation spec"
 status: shipped
-updated: 2026-08-23
-verified: 2026-08-23
+updated: 2026-09-18
+verified: 2026-09-18
 shipped_in: 0029
 ---
 
 # Stage 8 — `VintedScraper`: implementation spec
 
+> ## ⛔ DO NOT USE §4 AS A TRAP LIST. THE TRANSPORT IT DESCRIBES NO LONGER EXISTS.
+>
+> **Audited 2026-09-18.** Vinted withdrew the anonymous `/api/v2/catalog/items` endpoint around
+> 2026-09-08 and every Vinted query failed until the scraper was rebuilt on the catalog page's
+> Next.js RSC payload (commit `4cf35ec`, 2026-09-16). The `vinted-scraper` PyPI package and
+> `httpx` that this whole document is written against are **gone from `pyproject.toml`**; the
+> scraper now uses `bazos/scraping/vinted/client.py` + `flight.py` over plain `requests`.
+>
+> **The live trap list for Vinted is [`VINTED.md`](../../research/marketplaces/VINTED.md)**
+> (measured 2026-09-16) with the implementation plan in
+> [`VINTED_REWRITE.md`](../../backlog/VINTED_REWRITE.md). Read those before touching
+> `bazos/scraping/vinted/vinted_scraper.py`. Three §4 instructions here are now **inverted** by
+> the current code, each for a measured reason recorded in the module's docstrings:
+>
+> | This doc says | The code does, deliberately |
+> |---|---|
+> | §4.5 use `total_item_price`, not `price` | uses `price` (ex-fee). Vinted's own `price_from`/`price_to` filter keys on `price`, so storing the all-in figure made a `price_upper=5000` query return rows stored at up to 5268, which `price_range` then rejected |
+> | §4.4/§4.6 leave `short_description` empty | fills it from `itemBox` (`firstLine · secondLine`). Empty silently disabled `blocklist_keyword` and `required_keyword` on Vinted, since both match `name + short_description` |
+> | §4.3 send `per_page` | never sends it. `per_page` was retired with the v2 API; the page is fixed at 96, and the walk is bounded by `VINTED_MAX_PAGES=10` |
+>
+> What is still true and still worth reading: **§2** (the schema widenings, all still in the
+> model), **§4.4's `topped`/`publish_date`/`view_count` decisions**, and **§7**. The mapper now
+> additionally sets `Ad.price`/`price_type` (P22, migration `0032`) and `Ad.attributes`
+> (migration `0043`), neither of which existed when this was written.
+>
 > **✅ Built 2026-08-22** — `Marketplace.VINTED` is live, migration `0029_vinted_support`. See
-> [`SHIPPED.md`](../../SHIPPED.md). Kept because §2's schema traps and §4.4/§4.5's exact field
-> mapping are the record of *why* the scraper looks the way it does; a change to
-> `bazos/scraping/vinted/vinted_scraper.py` should be checked against them.
+> [`SHIPPED.md`](../../SHIPPED.md).
 >
 > Executable expansion of [`VINTED_SCRAPER_DESIGN.md`](VINTED_SCRAPER_DESIGN.md) and the old
 > `PROMPTS.md` P3 + P4, which it superseded and which have since been retired from that file —
 > they predated the live probe and were wrong in nine ways that crash rather than degrade.
 >
 > Field names and API behaviour come from a **live probe of `vinted-scraper` 4.0.0 against
-> `vinted.cz` on 2026-08-21** — see the design doc §1a and §8. They are measured, not assumed.
+> `vinted.cz` on 2026-08-21** — see the design doc §1a and §8. They were measured, not assumed,
+> and they described a transport that has since been withdrawn.
+>
+> Class and file names have moved too (2026-08-23, commit `0a91b9a`): `BazosRunner` is now
+> `ScrapeRunner` in `bazos/scraping/runner.py`, and `BazosQueryRunner` is now `QueryRunner` in
+> `bazos/scraping/query_runner.py`. Read the old names below as the new ones.
 
 ---
 
@@ -157,6 +185,14 @@ Vinted queries satisfy it with **no constraint change**.
 
 **File:** `bazos/scraping/vinted/vinted_scraper.py` (plus an empty `__init__.py`).
 
+> **⛔ §4.1, §4.2 and §4.6 describe the `vinted-scraper` library and are now history.** There is
+> no `VintedApiClient` to alias, no session-cookie bootstrap that intermittently raises
+> `RuntimeError`, and no OpenGraph scrape with a 5/8 success rate. The package directory is now
+> `vinted_scraper.py` + `client.py` + `flight.py`, and `load_full_description` reads the
+> schema.org `Product` JSON-LD (3/3 on probe) behind a bare `except Exception`. The *principle*
+> §4.6 states is the durable part and still holds: a detail fetch escaping here aborts the rest
+> of that query's pass, so everything must be caught.
+
 ### 4.1 ⚠️ The name collision — alias the library class
 
 The library's class is *also* called `VintedScraper`. P4 and the design doc are ambiguous about
@@ -243,6 +279,12 @@ queries that are not bugs — see §8.
 
 ### 4.4 The field mapping — exact
 
+> **⛔ Partly superseded 2026-09-16 (`4cf35ec`).** The RSC payload names these fields differently
+> (`productItem.id` / `.title` / `.url` / `.price.amount` / `.isPromoted` / `.itemBox`), and
+> `short_description` is no longer `""`. The `topped`, `publish_date=None` and `view_count=None`
+> decisions below survived the rewrite unchanged and are still the reason those columns are null
+> on Vinted.
+
 ```python
         Ad(
             external_id=item.id,
@@ -269,6 +311,10 @@ lets `run_existing_query`'s existing `continue`-on-topped / `break`-on-known log
 unchanged. **Do not write a Vinted-specific dedup variant.**
 
 ### 4.5 ⚠️ `_format_price` — the decimal trap
+
+> **⛔ REVERSED 2026-09-16 (`4cf35ec`).** The decimal trap below is still real and the current
+> `_price()` still guards it. The **choice of field is not**: read `price`, not
+> `total_item_price`. See the banner at the top of this file for the measured reason.
 
 `parse_price` in `bazos/filters.py` does `re.sub(r"\D", "", price_raw)`. A price string of
 `"6307.5 CZK"` therefore parses to **63075** — a silent 10× error that would wreck
@@ -469,7 +515,10 @@ the argument for tracking a per-query failure rate rather than eyeballing the li
 
 ## 9. Explicitly out of scope
 
-- `VintedCategory` lookup model — `extra_params["catalog_ids"]` is enough for a first version.
+- ~~`VintedCategory` lookup model — `extra_params["catalog_ids"]` is enough for a first version.~~
+  **Shipped 2026-09-16** as the marketplace-agnostic `MarketplaceCategory` (migration `0043`,
+  commits `8edfaa1` seeding the tree and `511436a` making the admin pick from it instead of
+  typing ids). `extra_params["catalog_ids"]` is still what the scraper reads.
 - Capturing `item.user` / seller identity (§7).
 - Images (`photo`/`photos` are in the payload for free) — that is P16.
 - Async (`AsyncVintedScraper` exists) — that is `BACKLOG_IDEAS.md` #2.

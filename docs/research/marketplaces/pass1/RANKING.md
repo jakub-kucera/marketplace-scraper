@@ -1,7 +1,7 @@
 ---
 title: Pass 1 ranking — written before any Pass 2 work began
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -79,6 +79,12 @@ against a 1024 column.
   calls load-bearing. This is a real Pass-2 legal question, not a technicality.
 
 ## 2. Aukro.cz — the hypothesis the brief was built around, and it did not survive
+
+> ⚠️ **Superseded 2026-08-22 by Pass 2 - and this section is exactly why the study insisted on the
+> difference between "not determinable" and "absent".** Read [`AUKRO.md`](../AUKRO.md) §1.1: from a
+> residential IP, ended auctions carry a publicly readable realised price, and two of the three
+> WSDL-derived inferences below were measured false. The DEFER-rather-than-REJECT call this
+> section argues for is the part that held.
 
 RESEARCH_BRIEF §6a treats completed-auction realised prices as the highest-value prize in the
 study. **On current evidence that prize appears not to exist publicly**, from three independent

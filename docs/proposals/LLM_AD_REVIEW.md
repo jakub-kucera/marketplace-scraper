@@ -1,15 +1,26 @@
 ---
 title: LLM Ad Review & Seller Outreach — Exploration & Proposal
 status: proposal
-updated: 2026-08-07
-verified: 2026-08-07
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # LLM Ad Review & Seller Outreach — Exploration & Proposal
 
-> **Nothing here has been built, and it is not scheduled.** Not wired into `PIPELINE_REFACTOR.md`'s stage list or
-> `PROMPTS.md` — this needs an explicit decision (especially on outreach, §4) before either
-> happens. Nothing here has been built.
+> **Neither headline capability has been built, and neither is scheduled.** There is no
+> `AWAITING_LLM_REVIEW` status, no `run_llm_review`, no `Query.llm_review_enabled`, and nothing
+> drafts or sends a message to a seller. Both still need an explicit decision (especially
+> outreach, §4) before either happens.
+>
+> ⚠️ **Re-checked 2026-09-18: two of the things this doc says are missing now exist.** §1's
+> multiple-filters-per-query shipped as P17 (2026-07-25) and is marked ✅ below. And §2f's
+> undesigned cost/ops layer was built for a different consumer: `llm/` ships a provider-agnostic
+> `LLMProvider` Protocol + registry, `NullProvider` as the default, `LLM_API_KEY`,
+> `LLM_MONTHLY_BUDGET_USD` as a hard pre-call stop, versioned prompt files, a response cache and
+> an `LLMCall` audit row per call - with **Gemini picked on this doc's own §2f measurement** of
+> the free tier and its EEA carve-out. So a judge stage would no longer have to invent any of
+> that; what remains unbuilt is the *stage* (§2a–§2e) and outreach (§4). Design:
+> [`PRICE_REFERENCE_SERVICE.md`](PRICE_REFERENCE_SERVICE.md) §2.
 >
 > **See also**: [`DISCORD_BOT.md`](DISCORD_BOT.md) (2026-07-24) — its Tier 3
 > "draft message to seller" button is effectively this doc's §4.2 delivery mechanism, triggered
@@ -74,6 +85,15 @@ This was worth doing independent of the LLM idea — it's the mechanism that mak
 optional/expensive rule (LLM or otherwise) something a query opts into explicitly, rather than
 something that silently runs (and costs money) for every ad site-wide. The LLM judge stage
 proposed below (§2) can now build on this directly instead of needing it built first.
+
+*(2026-09-18: the snapshot above has moved on, and in the direction this section predicted.
+`RULE_REGISTRY` now holds seven rules - `location_distance` and `price_model` joined the five
+quoted, and `refprice`'s `reference_price` registers itself from another app through
+`register_rule`. `DEFAULT_RULE_NAMES` is no longer `list(RULE_REGISTRY)`: it is the registry
+minus `OPT_IN_RULE_NAMES`, because the two newest rules are **inverted** - they answer "is there
+a reason to send this?" - so defaulting one on would mute every existing query. That is exactly
+the slot an LLM judge would occupy if it were ever made a rule, which §2 argues it should not
+be.)*
 
 ---
 
@@ -149,6 +169,16 @@ while True:
 for exactly this kind of external, rate-limited call — reuse it rather than inventing a new
 pattern.
 
+*(2026-09-18: **this sketch is written against a schema that no longer exists.** Migrations
+0026–0028 moved every piece of pipeline state off `Ad`: the poll is on `AdDelivery`
+(`status`, `filter_reason`, `send_attempts`, plus the `query` FK), and `Ad` carries scraped facts
+only. So the loop locks `AdDelivery.objects.select_for_update(skip_locked=True, of=("self",))`,
+`llm_review_attempts` belongs there too, and §3's caveat below is answered rather than
+outstanding. The `of=("self",)` is not optional - the queryset `select_related`s, and without it
+the joined `Query` row is locked as well. A second option now exists that did not when this was
+written: the whole stage could be a django-q2 job instead of a fourth compose service, which is
+what [`JOB_QUEUE.md`](JOB_QUEUE.md) §4.2 already lists it as.)*
+
 ### 2d. Audit trail
 
 LLM verdicts are non-deterministic and prompts will need tuning. Worth a dedicated table rather
@@ -175,6 +205,16 @@ point of the review is quality control, but this is a real judgment call, not so
 decide silently.
 
 ### 2f. Cost/ops, not yet designed
+
+> ✅ **Designed and built 2026-09-16, for `refprice/` rather than for this stage** - but it is
+> the same layer, so a judge would consume it rather than repeat it. Every bullet below has an
+> answer in code: the setting is `LLM_API_KEY` (plus provider-specific keys), blank disables via
+> a `NullProvider` that declines every call and opens no socket, exactly the `SENTRY_DSN`
+> convention this section asks for; the cap is `LLM_MONTHLY_BUDGET_USD`, enforced **before**
+> reaching the provider rather than reported after; and every call, cached or failed, writes an
+> `LLMCall` row with tokens, cost and the resolved prompt version. What is **not** built is a
+> *per-query* cap - the ceiling is global. The measured figures below are what led to picking
+> Gemini as the second provider.
 
 - New setting, e.g. `LLM_API_KEY` (or reuse `ANTHROPIC_API_KEY` if using Claude directly) —
   empty disables the feature entirely, matching the existing `SENTRY_DSN` convention.
@@ -214,6 +254,12 @@ conclusion — a second vote for "own stage, not a `FilterRule`"; the concrete f
 ---
 
 ## 3. Interaction with the cross-query dedup backlog item
+
+> ✅ **Resolved 2026-09-18.** The split shipped in migrations 0026–0028. "Reviewed for query A,
+> not for query B" is representable now: the review status, reason and attempt counter all
+> belong on `AdDelivery`, and `Ad` keeps only the scraped facts. Rule rows already take an
+> `AdDelivery`, so an LLM stage would inherit the right grain rather than argue for it. The
+> paragraph below is kept as the reasoning that helped prioritise the split.
 
 `BACKLOG_IDEAS.md` #1 (`Ad`/`AdDelivery` split) becomes more relevant here, not less: "should
 this ad get an LLM review" and "should we draft an outreach message" are really properties of
@@ -299,7 +345,7 @@ conversation first is the one thing I'd actively push back on.
 | Piece | Recommendation |
 |---|---|
 | Multiple filters per query (§1) | ✅ Done — built independent of the LLM feature |
-| LLM judge as its own stage (§2) | Build, but as a new `run_llm_review` process + `AWAITING_LLM_REVIEW` status, **not** a `FilterRule` — needs a cost-cap/rate-limit spike first (§2f) |
+| LLM judge as its own stage (§2) | Build, but as a new `run_llm_review` process + `AWAITING_LLM_REVIEW` status, **not** a `FilterRule` — needs a cost-cap/rate-limit spike first (§2f). *(2026-09-18: the spike is no longer a prerequisite - `llm/` ships the provider layer, the budget ceiling and the `LLMCall` audit; and the stage is now more plausibly a django-q2 job than a fourth compose service.)* |
 | Draft-and-suggest outreach via Discord (§4.2) | Build — low risk, reuses existing infra, human stays in the loop for actual contact |
 | Auto-send via email/WhatsApp/SMS (§4.1/§4.3) | **Do not build without a separate, explicit decision** — real ToS/compliance/spam exposure, ill-defined contact-channel access, qualitatively different from everything else this project does |
 

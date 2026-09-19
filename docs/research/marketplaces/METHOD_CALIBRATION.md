@@ -1,7 +1,7 @@
 ---
 title: Scale-method calibration against Bazos — measured 2026-08-22
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -99,6 +99,18 @@ imply ~23 days. A measured 34 days sits between the two bounds and is consistent
 gives the project a per-category velocity figure it did not previously have: `notebook` turns
 over roughly 230 new listings/day, i.e. about **10/hour**, which is the real ceiling on how much
 deal flow any polling interval can capture.
+
+> **Update 2026-09-18 - the 34-day inventory figure is now measurable directly, and is not yet
+> measured.** The delisting sweep (shipped 2026-09-17) writes `Ad.last_seen_at` / `Ad.removed_at`,
+> so listing lifetime no longer has to be inferred from active-count arithmetic. It cannot be read
+> off yet, and the reason is a bug rather than a short window: of 19,008 ads carrying a
+> `removed_at` in production today, roughly **86% are still listed**. The sweep's bulk id fetch
+> sends 210 ids with no `limit`, so the API answers with its default page of 30 and the ~180 it
+> omits are recorded as removed - survivor counts per minute-bucket are every one a multiple of
+> 30 - and because a removed ad is never re-checked, the false rows are permanent. **Open as of
+> 2026-09-18.** `removed_at` also conflates sold, withdrawn, deleted and expired. So §5's
+> cross-validation stands as the best available estimate, and the thing that will replace it is a
+> repaired sweep plus a few weeks of its history, not a new method.
 
 ## 6. Net effect on the brief
 

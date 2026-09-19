@@ -1,12 +1,27 @@
 ---
 title: `Ad` / `AdDelivery` split — implementation spec
 status: shipped
-updated: 2026-08-23
-verified: 2026-08-23
+updated: 2026-09-18
+verified: 2026-09-18
 shipped_in: 0026, 0027, 0028, 0031
 ---
 
 # `Ad` / `AdDelivery` split — implementation spec
+
+> **Audited against the code 2026-09-18.** The six §3 semantic decisions all still hold, and
+> §3.2's deliberately-preserved un-suppression is cited back from
+> `bazos/scraping/query_runner.py`. Two notes for a reader arriving today:
+>
+> - §3.4's SQLite caveat has **reversed**; see the note in that section.
+> - Two §9 "do not do these here" items have since shipped in their own right, so they read as
+>   out-of-scope-for-this-spec rather than as still-unbuilt: `AdOutcome` and the delisting sweep
+>   (commit `5856bf0`, migration `0045`) and `PriceChange`'s parsed-amount columns (P22,
+>   migration `0032`). The other three are still open: P11/P16's `Ad.message` rework, the
+>   per-delivery sender override, and the `SUPPRESSED` → `PRICE_CHANGED` un-suppression in §3.2,
+>   which remains unfixed and deliberate.
+>
+> Class and file names moved on 2026-08-23 (commit `0a91b9a`): `BazosQueryRunner` is now
+> `QueryRunner` in `bazos/scraping/query_runner.py`. Read the old name below as the new one.
 
 > Executable expansion of [`BACKLOG_IDEAS.md`](../../backlog/BACKLOG_IDEAS.md) #1, **Option B**. The option
 > analysis is settled — do not re-open it. This document is the *how*.
@@ -154,8 +169,14 @@ is test-only and is not wired into `run_filter` — update it anyway so the prot
 
 `run_filter` and `run_sender` must `select_for_update(skip_locked=True, of=("self",))` against
 **`AdDelivery`**. Keep `of=("self",)` — both commands `select_related`, and without it the joined
-`Ad` / `Query` / publisher rows get locked too. Note the tests run on SQLite, which silently drops
-`select_for_update` from the SQL, so this is **not** covered by the suite — get it right by reading.
+`Ad` / `Query` / publisher rows get locked too. ~~Note the tests run on SQLite, which silently drops
+`select_for_update` from the SQL, so this is **not** covered by the suite — get it right by reading.~~
+
+> **⚠️ That caveat has reversed since, 2026-09-18.** The suite now runs against real Postgres
+> (root `conftest.py`), so the locking clause does reach the SQL and the `of=("self",)` scoping
+> is exercised rather than silently dropped. `TEST_DB=sqlite` survives for exactly one caller,
+> `contract-check.yml`'s live job. Keep reading the clause carefully anyway, but do not assume
+> the suite is blind to it.
 
 ### 3.5 `Sendable` stays on `Ad`
 

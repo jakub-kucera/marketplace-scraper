@@ -1,7 +1,7 @@
 ---
 title: Where a price model can work — five categories measured against the MacBook recipe
 status: reference
-updated: 2026-09-13
+updated: 2026-09-18
 verified: 2026-09-13
 ---
 
@@ -21,9 +21,15 @@ verified: 2026-09-13
 > Nothing in this document is wired into the pipeline. The shipped registry still holds one
 > model (MacBook) — but `price_model` **is** live on query 8 in production, which §7 is about.
 >
-> The standing caveat applies to every number below: **`Ad.modified` never advances past
-> `Ad.created`, so the database records ZERO outcomes** — no sold flag, no time-to-disappear.
-> Every precision figure here is a composition audit, not a measurement
+> The standing caveat applies to every number below, **re-based 2026-09-18**: the database now
+> records an outcome, and it cannot be calibrated against. The delisting sweep shipped
+> 2026-09-17 and `Ad.removed_at` is populated on 19 008 of 30 037 ads, but the sweep's bulk id
+> fetch omits `limit`, so it asks about 210 ads per request and is answered about 30 and writes
+> the other ~180 off as removed - about 86 % of the column is false, and since a removed ad is
+> never re-checked it stays that way (open as of 2026-09-18). `removed_at` also conflates sold
+> with withdrawn, deleted and **expired**, and `AdOutcome` - the logbook that would tell you how
+> often "removed" means "sold" - holds **zero rows**. Every precision figure here is therefore
+> still a composition audit, not a measurement
 > ([`MACBOOK_PRICE_MODEL.md`](MACBOOK_PRICE_MODEL.md) §6).
 
 ## 1. Summary
@@ -39,7 +45,7 @@ verified: 2026-09-13
 | What does *not* predict it? | **Seller concentration (Spearman −0.15), full-description coverage (+0.02) and corpus size (+0.33).** All three are the obvious screens and all three are worthless (§2) |
 | Is there a result that transfers to every category? | **Yes — one.** Ads within 1% of the query's own price floor are **3.0–14.0× enriched** in the underpriced tail of all eleven corpora, no exception. The gate is free: `Query.price_lower` is already known to the filter (§7) |
 | Which category is worth building next? | **iPhone, query 19** — and none of these five. It is the only corpus that pays no penalty against MacBook's own size-matched control (§8) |
-| Can any threshold here be calibrated? | **No.** Zero outcomes, permanently, until P24 lands (§9) |
+| Can any threshold here be calibrated? | **No** - and P24 landing did not change that. Outcomes exist but are a confounded, uncalibrated proxy (§9) |
 
 **One-line answer: none of the five. Build the iPhone model instead, ship the price-floor gate
 once for every category at the same time, and screen the next candidate with two statistics
@@ -383,7 +389,8 @@ MacBooks found damage 3.3× enriched. The single most "underpriced" listing in t
 
 ## 5. Skis (query 18) — too little, too seasonal, and the floor is in the way
 
-n=127 over 5.64 days (2026-09-07 → 2026-09-12), **of which 77 are the first-run backfill** — so
+n=127 over 5.64 days (2026-09-07 → 2026-09-12), **of which 77 are the query's own `new_query`
+backfill** (nothing to do with the delisting sweep) — so
 50 organic listings. 74 sellers, 86.5% singletons. Only **94 rows (74.0%) are a bare pair of alpine skis**; the other
 26.0% are boots (14), multi-product sets (11), helmets, a snowboard, a roof box, a jacket-and-
 trousers set titled "set", a skiboard, and a 25,000 CZK snowmobile-towed cross-country track
@@ -641,9 +648,11 @@ and url only.
 
 ## 9. Limits
 
-- **Zero outcomes, permanently, until P24.** `Ad.modified` never advances past `Ad.created`.
-  Every R² here measures how well text predicts an *asking* price; no figure anywhere in this
-  document establishes that a flagged listing is a bargain.
+- **No calibrated outcome, and P24 landing did not supply one.** The delisting sweep shipped
+  2026-09-17, after this study's pull, so no row here carries an outcome at all; and the column
+  it writes, `Ad.removed_at`, conflates a sale with an expiry and is uncalibrated while
+  `AdOutcome` is empty. Every R² here measures how well text predicts an *asking* price; no
+  figure anywhere in this document establishes that a flagged listing is a bargain.
 - **Three corpora have a degenerate seller key, and there is no single correction factor.**
   Queries 12 (bazos_api), 13 (Vinted) and 14 (Sbazar) carry no publisher ids, so
   `ph.seller_key` falls back to a per-row unique and `GroupKFold` silently becomes `KFold`.

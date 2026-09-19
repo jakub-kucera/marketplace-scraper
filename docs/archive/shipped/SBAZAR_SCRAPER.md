@@ -1,13 +1,33 @@
 ---
 title: "Stage 10 — `SbazarScraper`: implementation spec"
 status: shipped
-updated: 2026-08-23
-verified: 2026-08-22
+updated: 2026-09-18
+verified: 2026-09-18
 shipped_in: 0030
 ---
 
 # Stage 10 — `SbazarScraper`: implementation spec
 
+> **Audited against the code 2026-09-18.** The §6 traps, the §1 endpoint rules and the §11 dedup
+> fix all still match `bazos/scraping/sbazar/sbazar_scraper.py`; this is the trap list CLAUDE.md
+> sends you to and it is still good. Four things have moved underneath it since 2026-08-23:
+>
+> - **§6.2 is now a stale *reason*, not a stale instruction.** `Ad.short_description` was widened
+>   from `CharField(max_length=300)` to a `TextField` in migration `0035` (a Bazos listing
+>   overflowed it and wedged a query for two hours), so an overflow can no longer raise
+>   `DataError`. The code still slices `[:300]`, which is now a display choice rather than an
+>   overflow guard.
+> - **The mapper also sets `Ad.price` and `Ad.price_type`** via `_price_and_type` (P22, migration
+>   `0032`), which did not exist when §3.1's code block was written. It branches on
+>   `price_by_agreement` first for exactly the §6.1 reason.
+> - **§2.3's rationale names APIs that were deleted.** `renew_ip_bazos_ok`,
+>   `check_bazos_blacklisted` and the pre-flight `blacklist_check(query.url)` are all gone; there
+>   is no pre-flight probe at all now, the query attempt is the probe. The `Query.url` Sbazar
+>   branch §2.3 asks for is in the model and still correct, and the §7.9 test still guards it.
+> - Class and file names moved (2026-08-23, commit `0a91b9a`): `BazosRunner` is now
+>   `ScrapeRunner` in `bazos/scraping/runner.py`, and `BazosQueryRunner` is now `QueryRunner` in
+>   `bazos/scraping/query_runner.py`. Read the old names below as the new ones.
+>
 > **Follow this document literally.** Every field name, endpoint, type and limit below was
 > measured live on 2026-08-22 against the real Sbazar API and is recorded in
 > [`SBAZAR.md`](../../research/marketplaces/SBAZAR.md). **Do not substitute values from
@@ -502,6 +522,14 @@ Sbazar encodes a negotiable price as **`price: 0` plus `price_by_agreement: true
 **Postgres raises `DataError`; SQLite does not — so the test suite will not catch this.** Always
 slice `[:300]`.
 
+> **⚠️ Both halves of that reasoning have since changed, 2026-09-18.** `Ad.short_description` is
+> now a `TextField` (migration `0035`), so there is no column bound left to overflow, and the
+> suite now runs on real Postgres rather than SQLite, so a width violation would be caught. The
+> `[:300]` slice is still in the code and is fine to keep, but keep it as a deliberate choice
+> about how much snippet to store, not as the guard this section describes. Note the widening
+> went the other way for Bazos on purpose: truncating `short_description` silently stops
+> `filter_blocklist`/`filter_required` phrases in the cut tail from matching.
+
 Consequence to be aware of, not to fix here: `load_full_description` only runs when
 `query.load_full_description` is set, so otherwise `short_description` stays `""` and the
 `blocklist_keyword` / `required_keyword` rules (which match on
@@ -647,7 +675,7 @@ measured value like everything else in this spec**, and should be revisited from
 the streak, the walk is still bounded by `SBAZAR_MAX_PAGES` — a mis-tuned streak costs extra
 requests, not an unbounded walk.
 
-**Left deliberately unfixed, same root cause, lower severity:** `run_new_query`'s first-run backfill
+**Left deliberately unfixed, same root cause, lower severity:** `run_new_query`'s `new_query` backfill
 takes the first `NEW_PRODUCT_LOAD_MAX` non-topped ads `run_query` yields, which for Sbazar is the
 50 most-recently-*edited*, not the 50 most-recently-*created*. For the common case
 (`ignore_first_run=True`, the default), this only affects which ads seed the "already known"

@@ -1,7 +1,7 @@
 ---
 title: Sbazar.cz — Pass 1 scale triage
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -11,6 +11,13 @@ verified: 2026-08-22
 > coordinator-authorised **+6 extension spent exclusively on `/static/sitemaps/`**.
 > Egress: VPN datacenter IP **185.242.6.116, M247 Europe AS9009, Prague CZ**.
 > All claims measured unless marked ⚠️ ASSUMED / EXTRAPOLATED or "NOT DETERMINED".
+>
+> **⚠️ Partly superseded - read [`SBAZAR.md`](../SBAZAR.md) §1.1 for the corrections.** The Pass 2
+> workup reached the JSON API this file could not, and re-based three of its numbers: sitemap
+> `<lastmod>` overstates new/day by ~4× (tools ~139/day genuinely new, not ~559), forced expiry
+> *does* exist as a rolling `edit_date + 60 days`, and `publish_date` is safe to map from
+> `create_date`. The **active counts here held to within 1%** against the API's own
+> `pagination.total`. Sbazar was built on 2026-08-22 and is live in production.
 
 ---
 

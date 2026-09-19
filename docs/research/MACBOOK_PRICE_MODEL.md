@@ -1,7 +1,7 @@
 ---
 title: MacBook price prediction — measured on the production corpus
 status: reference
-updated: 2026-09-17
+updated: 2026-09-18
 verified: 2026-08-26
 ---
 
@@ -29,7 +29,7 @@ verified: 2026-08-26
 | Is the bottom tail made of deals? | **No.** 14% visibly damaged, 48% failed spec extraction, 11% at the query price floor |
 | Do dealers charge a premium? | **No — this was the surprise.** Median −2.1% spec-matched; +1.5% in a within-config regression |
 | Is there cross-marketplace arbitrage? | **No.** Spec-matched, Sbazar +1% and Vinted +2% vs Bazos (small n) |
-| Can precision be measured? | **No.** The DB holds zero outcomes — see §6 |
+| Can precision be measured? | **Still no - but the reason moved.** Outcomes now exist (`Ad.removed_at`) and are *uncalibrated*, not absent: see §6 |
 | Should dealers be excluded from the model? | **No.** Training on all sellers scores small sellers *better* (R² 0.818 vs 0.791) — dealers are the price reference (§5.3) |
 | Can dealers be ranked against each other? | **Yes.** A 35-point spread in price level, benchmarked leave-seller-out, with significance (§5.4) |
 | Does a per-seller term improve prediction? | **Barely** — 6.98% → 6.50% MedAPE, and only with ~20× more shrinkage than the textbook estimator suggests. Its real value is fixing the *threshold* (§5.7) |
@@ -99,6 +99,17 @@ Quote the time split for deployment: in production you *do* have the dealers' hi
 statistically level; it just cannot score the 37% of ads with fewer than three comparables.
 P23's "start with a plain ORM aggregate, not an ML service" is the right call — the model is
 what extends it to the long tail.
+
+> ℹ️ **The aggregate now exists in the codebase** (`bazos/comparables.py`, checked 2026-09-18),
+> though as a *display* surface rather than an estimator: it reads the persisted
+> `AdPriceScore.features` back and shows where the ad sits among same-bucket listings, in the
+> Discord message and on the admin ad page. Two differences from the "exact config" measured
+> here, both deliberate. The bucket is
+> `MacbookPriceModel.comparable_keys = ("chip_key", "ram_gb", "ssd_gb", "screen")` - **no
+> `year`**, because year is implied by the chip and is the field listings most often omit - and
+> it is windowed (`COMPARABLE_MAX_AGE_DAYS=90`, `COMPARABLE_MAX_ROWS=60`). So its coverage is
+> not the 63% in the table above, and it is available only for ads a model already scored. Do
+> not read §3.1's numbers as a measurement of that panel.
 
 ## 4. What the bottom tail is actually made of
 
@@ -377,40 +388,84 @@ built, build this one.
 
 ⚠️ Everything in §5.3–§5.7 is measured against *prediction error*, not money. The seller-aware
 rule is demonstrably better at finding listings that are unusual for their seller. It is **not**
-established that those sell faster or resell for more, because §6 still applies: the database
-records no outcomes. This changes which listings you look at; whether that is an improvement in
-profit is the question P24 exists to answer.
+established that those sell faster or resell for more, because §6 still applies: the outcome
+column that exists today (`Ad.removed_at`) is a confounded proxy nobody has calibrated. This
+changes which listings you look at; whether that is an improvement in profit is the question
+P24 was built to answer, and P24 has now shipped without yet answering it (§6).
 
 ## 6. Why none of this can be calibrated yet
 
-> ⚠️ **Updated 2026-09-17 — the mechanism described below has been fixed; the conclusion has
-> not yet changed.** P24 shipped that day: `bazos/delisting.py` re-checks live ads on an
-> age-decayed schedule and records `Ad.last_seen_at` / `Ad.removed_at`, and `AdOutcome` records
-> what a human actually did. So ads *are* re-checked now, and time-to-disappear *is* being
-> collected. What has not changed is this section's conclusion, because **outcome data has to
-> accumulate before it can calibrate anything** — a sweep that started on 2026-09-17 has no
-> history to fit against, and `removed_at` conflates sold with withdrawn, deleted and expired
-> (CLAUDE.md's delisting note). Re-read §4's precision figures as composition audits until
-> there are enough `AdOutcome` rows to test them against. The rest of this section is kept as
-> written because the reasoning is what P24 was built to answer.
+> ⚠️ **Re-based 2026-09-18. The premise below is now wrong; the conclusion still holds, for a
+> different and smaller reason.** P24 shipped on 2026-09-17 (commit `5856bf0`):
+> `bazos/delisting.py` re-checks live ads on an age-decayed schedule and records
+> `Ad.last_seen_at` / `Ad.removed_at`, and `AdOutcome` is the logbook of what a human actually
+> did. So the database *does* record outcomes now. Measured read-only on production
+> 2026-09-18, one day into the sweep:
+>
+> | | |
+> |---|---|
+> | ads | 30 037 |
+> | `last_seen_at` populated | 22 218 |
+> | `removed_at` populated | 19 008 |
+> | …written on the sweep's **first** run (2026-09-17) | **18 403 (96.8 %)** |
+> | …written on 2026-09-18 | 605 |
+> | ads created **after** the sweep began that have since been removed | **1 078** - same broken batches, so mostly false too |
+> | **`AdOutcome` rows** | **0** |
+>
+> Three things follow, and together they keep this section's verdict intact:
+>
+> - **Most of `removed_at` is a data-corruption bug, not an observation.**
+>   `BazosApiScraper.fetch_by_ids` sends a whole `DELIST_BATCH_SIZE` of 210 ids as `ad_id[]=`
+>   and **omits `limit`**, which the working `_fetch_page` sends as `limit=API_PAGE_SIZE`; so
+>   `ads.php` answers with its default page and every id beyond it is absent, which is precisely
+>   the sweep's delisting signal. Survivors per minute-bucket in production are 90, 30, 300, 420,
+>   240, 60, 330, 360, 420, 390, 360, 150 - **every one an exact multiple of 30**. Each 210-id
+>   batch keeps 30 and falsely removes ~180: roughly **86 % of everything the sweep touches**,
+>   first run and 2026-09-18 run alike, so the 1 078 "observed from creation" rows are no more
+>   trustworthy than the rest. And it is **permanent** - `due_for_check` filters
+>   `removed_at__isnull=True` and nothing anywhere clears the column, so a falsely-removed ad is
+>   never re-checked, and these rows will silently enter any later outcome study unless someone
+>   deals with them. **Open as of 2026-09-18**; it is a distinct defect from the 2026-09-17
+>   `None`-vs-`{}` fix, because here the request succeeds and simply answers a narrower question
+>   than the caller believes it asked.
+> - **`removed_at` deliberately conflates sold, withdrawn, deleted and expired**, and there is
+>   deliberately no `sold` boolean (the comment above `Ad.removed_at` in `bazos/models.py` says
+>   so in as many words). Bazos listings age out
+>   on their own, so a disappearance near the expiry horizon says more about the clock than
+>   about a buyer.
+> - **The logbook that would calibrate the proxy is empty.** `AdOutcome` is what turns
+>   "disappeared" into an estimate of "sold", and it holds zero rows.
+>
+> So: **read §4's precision figures as composition audits, as written - not because outcomes
+> are absent, but because the one outcome column that exists is mostly wrong, and what it would
+> mean if it were right is a confounded proxy nobody has calibrated.** The gate is no longer
+> "P24 must land"; it is "the sweep has to record what actually happened, and the logbook has to
+> carry rows". That is a smaller obstacle and a different one.
 >
 > One correction worth carrying, since it is the natural next assumption: **`Ad.modified` is
-> still not the field to read, and that is deliberate.** The sweep writes `last_seen_at` with
-> a queryset `.update()`, which bypasses `auto_now` entirely, and its price-change path saves
-> with `update_fields` that exclude `modified`. Were it otherwise, `modified` would come to
-> mean "we looked at it", which is a fact about the scraper, not about the ad. The fields that
-> answer this question are `last_seen_at`, `removed_at` and `AdOutcome`.
+> still not the field to read.** It is no longer true that it never advances - 4 266 of the
+> 30 037 production ads now have `modified > created + 1 s` - but 4 233 of those advance by
+> under a minute, because `QueryRunner._handle_new_product` re-saves the ad seconds later with
+> its full description, and only 29 advance by more than a day. `modified` therefore means "we
+> fetched more text about it", which is a fact about the scraper, not about the ad. The sweep
+> itself keeps out of the way on purpose: it writes `last_seen_at`/`removed_at` with a queryset
+> `.update()`, which bypasses `auto_now` entirely. The fields that answer this question are
+> `last_seen_at`, `removed_at` and `AdOutcome`.
 
-**`Ad.modified` never advances past `Ad.created`** — measured across all 2,038 rows, max delta
-1.3×10⁻⁸ hours. Ads are written once and never re-checked. There is no time-to-disappear, no
-sold flag, no outcome of any kind.
+**As measured on 2026-08-24, `Ad.modified` never advanced past `Ad.created`** - across all
+2,038 rows of this corpus, max delta 1.3×10⁻⁸ hours. Ads were written once and never
+re-checked. There was no time-to-disappear, no sold flag, no outcome of any kind. That is the
+state every number in this document was measured under, and the blockquote above records what
+has changed since.
 
-Consequence: **every precision figure in §4 is a composition audit, not a measurement.** "49%
-of the top 100 are clean" says they are not visibly broken; it does not say they are bargains.
-The distinction cannot be closed from inside this dataset.
+Consequence, unchanged: **every precision figure in §4 is a composition audit, not a
+measurement.** "49% of the top 100 are clean" says they are not visibly broken; it does not say
+they are bargains. The distinction still cannot be closed from inside this dataset.
 
-This is [`MONETIZATION.md`](../MONETIZATION.md) §7.2(c) confirmed from the data side, and it is
-why `backlog/PROMPTS.md` **P24 must land before P23** can be calibrated rather than merely shipped.
+This is [`MONETIZATION.md`](../MONETIZATION.md) §7.2(c) confirmed from the data side. It was
+written as the reason `backlog/PROMPTS.md` **P24 must land before P23** can be calibrated
+rather than merely shipped; both have since shipped, and the calibration is still outstanding
+for the reason the blockquote gives.
 
 `view_count` does not substitute: it correlates 0.06 with age in corpus because it is captured
 once at discovery. It measures how long an ad had been up before we first saw it — staleness,

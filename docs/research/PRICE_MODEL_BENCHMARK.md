@@ -1,7 +1,7 @@
 ---
 title: Price model benchmark — is a linear model good enough?
 status: reference
-updated: 2026-08-26
+updated: 2026-09-18
 verified: 2026-08-26
 ---
 
@@ -33,14 +33,28 @@ verified: 2026-08-26
 | Does a median-by-config lookup suffice? | Nearly, where it applies: R² 0.836 / MedAPE 10.2% — but only **81% coverage** (62% if all four specs must parse), and R² −0.37 on the chip-unidentified tail |
 | Are naive prediction intervals honest? | **For the linear model, yes** (80.2% empirical at nominal 80%). **For the GBM, catastrophically not** (39.8%) — it needs split conformal, which is one more serving component |
 
-**The headline for the shipped artifact:** the v1 Ridge manifest at
-`bazos/pricing/artifacts/macbook/2026-08-26/manifest.json` records R² 0.861 / MedAPE 11.72%
-over 40 features, with `year` entering as a single `num` coefficient. The model recommended
-here scores **R² 0.866 / MedAPE 10.37%** seller-grouped and **0.885 / 8.57%** past→future —
-same estimator, same 40-ish-feature manifest, **1.35 pp lower median error**, from one change:
-`year` becomes a 15-level `cat` (one dummy per model year, plus an `na` level that also
-retires the separate missing indicator). That is a feature-spec change, not a new model class,
-and it needs no new code in `bazos/pricing/features.py`.
+**The headline for the shipped artifact - ✅ acted on, 2026-08-29.** When this was written, the
+v1 Ridge manifest at `bazos/pricing/artifacts/macbook/2026-08-26/manifest.json` recorded
+R² 0.861 / MedAPE 11.72% over **40** feature rows, with `year` entering as a single `num`
+coefficient plus a `missing` companion. §11.3's recommendation - turn `year` into one dummy per
+model year plus an `na` level - was implemented and the artifact **retrained in place** (commit
+`de41c15`, same `2026-08-26` version directory). Read live on 2026-09-18, that file now records:
+
+| | v1, as published here | shipped today |
+|---|---|---|
+| feature rows | 40 (`num` 4, `missing` 4, `bool` 9, `cat` 23) | **54** (`num` 3, `missing` 3, `bool` 9, `cat` 39) |
+| year form | `year` as `num` + `missing` | **`year_cat`, 16 `cat` levels** |
+| `r2_seller_grouped` | 0.8612 | **0.8604** |
+| `medape_pct` | 11.72% | **10.14%** |
+| `residual_sigma` | 0.2264 | **0.2308** |
+| `n_train` | 2 038 | **2 258** |
+
+Same estimator (`Ridge(alpha=1.0)`), **1.58 pp lower median error**, no new feature kind and no
+new code in `bazos/pricing/features.py` - which is what §11.3 predicted. R² is flat because the
+seller-grouped folds are dominated by dealers the model already fits well; the gain is in the
+middle of the distribution, which is what MedAPE measures and what an alert threshold reads.
+**Anywhere below that says "the shipped artifact" and quotes 0.861 / 11.72% / 0.2264 is
+describing v1, not the file on disk.**
 
 ## 2. Method
 
@@ -187,10 +201,10 @@ Protocol details move these numbers by more than several models do, so:
 
 (non-shuffled `GroupKFold(5)`, repaired features). Pooling the out-of-fold predictions and
 scoring once is ~0.011 higher than averaging per-fold R², because per-fold R² divides by each
-fold's own variance. The shipped v1 Ridge's **0.861** sits exactly on the pooled ridge line
+fold's own variance. The **v1** Ridge's **0.861** sits exactly on the pooled ridge line
 here, which is what it should be — that artifact was trained on repaired features. Its MedAPE
 of **11.72%** is the plain year-linear ridge (row 7, 11.47%); any nonlinear year form recovers
-the ~1 pp.
+the ~1 pp, and the retrain of §1 did exactly that (10.14%).
 
 `MACBOOK_PRICE_MODEL.md` §3's GBM figures (0.873 seller-grouped / 0.905 time) were measured on
 the *unrepaired* features and a single non-shuffled fold assignment; the equivalent here is
@@ -435,9 +449,10 @@ window.
 GBM's training residuals are a fiction — it fits the training set far too closely — so an
 interval built from them covers **39.8% of the time at a nominal 80%**. The linear model's
 training residual sd is nearly unbiased for its test error (80.2% at nominal 80%, 87.4% at
-90%), because with ~1 600 rows and ~60 columns it barely overfits. (The shipped manifest's
+90%), because with ~1 600 rows and ~60 columns it barely overfits. (The v1 manifest's
 `residual_sigma: 0.2264` is exactly this quantity, and §7/§10 put the true out-of-fold sd at
-0.218–0.219 — if anything conservative, which is the safe direction.) A GBM therefore does not
+0.218–0.219 — if anything conservative, which is the safe direction. The retrained artifact on
+disk carries **0.2308** on 2 258 training rows; §1.) A GBM therefore does not
 just drag numpy onto the Pi; it drags a conformal calibration stage with it, or it ships
 intervals that are wrong by a factor of two.
 
@@ -467,10 +482,12 @@ ad), correlation 0.977 on the log scale. But at the 25% threshold they **agree o
 the union of their flags**, and the linear model raises **25% more alerts per week** (9.3 vs
 7.4) because its residual sd is 11% wider (0.2193 vs 0.1974 log points).
 
-Whether those ~2 extra alerts/week are false positives cannot be measured. `Ad.modified` never
-advances past `Ad.created`, so the database records no outcome for any listing
+Whether those ~2 extra alerts/week are false positives still cannot be measured. When this was
+written the database recorded no outcome for any listing; since 2026-09-17 it records
+`Ad.removed_at`, which is a *confounded* proxy - expiry looks identical to a sale - and the
+`AdOutcome` logbook that would calibrate it is empty
 ([`MACBOOK_PRICE_MODEL.md`](MACBOOK_PRICE_MODEL.md) §6). **The cost of the accuracy gap is
-therefore known in volume and unknown in value**, and that asymmetry is itself an argument
+therefore still known in volume and unknown in value**, and that asymmetry is itself an argument
 against paying a permanent deployment price for it today.
 
 ## 11. Recommendation
@@ -485,16 +502,19 @@ against paying a permanent deployment price for it today.
    as `intercept + Σ coef·feature`, reviewable in a git diff, with no version-skew surface. A
    GBM means numpy + scikit-learn on an ARM64 image, *or* a hand-written tree serializer, *plus*
    a conformal calibration stage it cannot ship without (§9). Against that: 1.4 pp of median
-   error whose downstream value cannot be measured until the pipeline records outcomes
-   ([`PROMPTS.md`](../backlog/PROMPTS.md) P24). Paying a permanent, load-bearing cost for an unmeasurable
-   benefit is the wrong order of operations.
+   error whose downstream value cannot be measured until the pipeline records *calibrated*
+   outcomes. [`PROMPTS.md`](../backlog/PROMPTS.md) P24 has shipped and the pipeline now records
+   `Ad.removed_at`, but that proxy conflates a sale with an expiry and its `AdOutcome` logbook
+   is empty, so nothing yet prices a false alert. Paying a permanent, load-bearing cost for an
+   unmeasurable benefit is still the wrong order of operations.
 3. **The specific model to ship**: ridge on the log price with **`year` as a 15-level
    categorical** — one dummy per model year 2013…2026 plus an `na` level — `log2(RAM)` and
    `log2(SSD)` with median imputation and missing indicators, screen size, one-hot family /
    `chip_key` / region, and the 14 boolean text flags. 63 columns, α = 0.1 (OLS is
    statistically identical; keep the small α for numerical stability against rare one-hot
    levels). Scores **R² 0.866 / MedAPE 10.37%** against unseen sellers and **0.885 / 8.57%**
-   past→future, against the v1 artifact's 0.861 / 11.72%.
+   past→future, against the v1 artifact's 0.861 / 11.72%. ✅ **Shipped** - the retrained
+   manifest reads 0.8604 / 10.14% on 2 258 rows (§1).
 
    **Every one of those is already an existing manifest `kind`.** `year` moves from
    `{"kind": "num", "name": "year", "fill": 2020.0}` plus its `missing` companion to a set of
@@ -506,8 +526,10 @@ against paying a permanent deployment price for it today.
    the linear model — more than the entire model-class decision (§3.1). 19.6% of ads still have
    no parseable model year and their MedAPE is 13.8% against 8.8% for fully-parsed ads. That is
    where the next 0.02 R² is, and unlike a GBM it costs nothing to deploy.
-5. **What would change this answer.** (a) Outcome data (P24) that prices a false alert — if 2
-   extra alerts/week turn out to be expensive, 25% more of them is worth a numeric stack.
+5. **What would change this answer.** (a) Outcome data that *prices* a false alert - if 2
+   extra alerts/week turn out to be expensive, 25% more of them is worth a numeric stack. P24
+   has shipped and `Ad.removed_at` exists, but until `AdOutcome` carries enough rows to say how
+   often "disappeared" means "sold", that price is still unknown.
    (b) Extending to a category with far fewer ads: at ~267 training rows the gap is 0.052 R²,
    not 0.026 (§6). (c) If a tree ensemble is ever deployed anyway, **use the random forest** —
    it is statistically indistinguishable from the boosting (ΔR² CI includes zero, §4), and one

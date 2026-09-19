@@ -1,8 +1,8 @@
 ---
 title: "P19 — Zero-results canary: implementation spec"
 status: shipped
-updated: 2026-08-21
-verified: 2026-08-21
+updated: 2026-09-18
+verified: 2026-09-18
 shipped_in: 739815c
 ---
 
@@ -11,6 +11,19 @@ shipped_in: 739815c
 > **Archived — implemented 2026-08-21.** `BazosRunner._check_zero_results_canary` +
 > `BazosQueryRunner.rows_seen_counter` ship exactly this design (see
 > [`PROMPTS.md`](../../backlog/PROMPTS.md) P19). Kept for history/rationale, not as an open task.
+>
+> **Audited 2026-09-18.** The counter, threshold and reset logic in §5e still matches
+> `bazos/scraping/runner.py` line for line, including the load-bearing `return` after the
+> zero-rows branch. Two corrections:
+>
+> - **`ZERO_NEW_ADS_ALERT_THRESHOLD` now defaults to 10, not the 6 written in §2 and §3.** It was
+>   raised after the fact; `scraper/settings.py` is the authority. `ZERO_ROWS_ALERT_THRESHOLD` is
+>   still 2. The asymmetry, and its reason, are unchanged.
+> - Class and file names moved (2026-08-23, commit `0a91b9a`): `BazosRunner` is now
+>   `ScrapeRunner` in `bazos/scraping/runner.py`, and `BazosQueryRunner` is now `QueryRunner` in
+>   `bazos/scraping/query_runner.py`. Read the old names below as the new ones, and note §8's
+>   "do not touch the IP guards at `bazos_runner.py:40-51`" has been overtaken: the pre-flight
+>   blacklist probe those guards ran was deleted, and the query attempt is the probe now.
 >
 > One post-implementation fix beyond what's written below: `zero_new_ads_passes` is now also
 > reset to 0 on a zero-rows pass (previously only `zero_rows_passes` was touched in that
@@ -43,7 +56,7 @@ and "zero new ads" mean very different things:
 | Signal | Meaning | Threshold | Log level |
 |---|---|---|---|
 | **Zero parsed rows** across all successful queries in a pass | Near-certain defect. A live listing page essentially always parses to >0 rows. | low (default **2** passes) | **ERROR** |
-| **Zero new ads**, but rows *were* parsed | Weak signal. A quiet market looks identical. | high (default **6** passes) | **WARNING** |
+| **Zero new ads**, but rows *were* parsed | Weak signal. A quiet market looks identical. | high (default **6** passes, **raised to 10 since**; see the banner) | **WARNING** |
 
 Each counter increments on a qualifying pass, resets to 0 on a non-qualifying pass, and
 resets to 0 immediately after it alerts (so it does not fire every pass forever).
@@ -76,6 +89,9 @@ ZERO_ROWS_ALERT_THRESHOLD = env("ZERO_ROWS_ALERT_THRESHOLD", default=2)
 # genuinely quiet market is indistinguishable — so the threshold is high.
 ZERO_NEW_ADS_ALERT_THRESHOLD = env("ZERO_NEW_ADS_ALERT_THRESHOLD", default=6)
 ```
+
+⚠️ **The shipped default is `10`, not `6`.** It was raised after this spec was written;
+`scraper/settings.py` is the authority.
 
 `env` is the `environ.Env()` instance already defined at the top of the file; passing an
 `int` default makes it cast to `int` automatically, same as `INTERVAL_LOWER` does.

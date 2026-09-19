@@ -805,6 +805,14 @@ class AdAdmin(ModelAdmin):
     # Range filters collect two inputs, so they need something to submit them.
     list_filter_submit = True
     search_fields = ("name", "external_id", "url")
+    # Not cosmetic. A plain FK widget embeds one <option> per row of its target, and all
+    # three of these point at tables that grow with the scrape: measured on production
+    # 2026-09-19, reposted_from (30 057 ads), email_publisher (17 842) and phone_publisher
+    # (19 347) rendered ~67 000 options, 5.8 MB of HTML and 8.0 s of server time - out of
+    # 23 queries, so nothing that counts queries can see it. With autocomplete the same
+    # page is 115 ms and 180 KB. This is the page every Discord notification links to
+    # (Ad.admin_url), which is usually opened on a phone.
+    autocomplete_fields = ("reposted_from", "email_publisher", "phone_publisher")
     readonly_fields = (
         "external_id", "marketplace",
         "seller_ad_counts",
@@ -1053,6 +1061,10 @@ class PublisherAdminBase(ModelAdmin):
     until you look at the pairing. See docs/backlog/BACKLOG_IDEAS.md — this is the cheap
     precursor to reseller detection.
     """
+    # Autocomplete paginates its results, and an unordered queryset makes page 2
+    # arbitrary - Django warns UnorderedObjectListWarning and the picker can repeat
+    # or skip rows as you scroll. bazos_id is the identity, so it is also the sort.
+    ordering = ("bazos_id",)
 
     #: Name of the FK on `Ad` pointing at *this* admin's model.
     own_ad_field: str = ""
@@ -1206,6 +1218,9 @@ class EmailPublisherAdmin(PublisherAdminBase):
 
     list_display = ("bazos_id", "email", "blocked", "ad_count", "partner_count", "ratings_summary")
     readonly_fields = ("ads_link", "partners", "ratings_summary")
+    # `=` because bazos_id is an IntegerField: the default icontains builds
+    # `integer LIKE %...%`, which Postgres refuses outright.
+    search_fields = ("=bazos_id", "email")
 
 
 @admin.register(PhonePublisher)
@@ -1217,6 +1232,11 @@ class PhonePublisherAdmin(PublisherAdminBase):
 
     list_display = ("bazos_id", "phone", "blocked", "ad_count", "partner_count", "ratings_summary")
     readonly_fields = ("ads_link", "partners", "ratings_summary")
+    search_fields = ("=bazos_id", "phone")
+    # FBUser is empty in production today, so this page is fast by accident - `manage.py
+    # import_data` bulk-loads that dataset, and the day it runs this widget inherits the
+    # same defect at a much larger N.
+    autocomplete_fields = ("fb_user",)
 
 
 @admin.register(PostalCode)
@@ -1238,6 +1258,7 @@ class MarketplaceCategoryAdmin(ModelAdmin):
     `Query.extra_params`. See the model docstring for why.
     """
     list_display = ("name", "marketplace", "external_id", "breadcrumb")
+    autocomplete_fields = ("parent",)
     list_filter = (("marketplace", ChoicesDropdownFilter),)
     search_fields = ("name", "external_id", "slug")
     ordering = ("marketplace", "name")
@@ -1295,6 +1316,7 @@ class AdOutcomeAdmin(ModelAdmin):
     """
     list_display = ("ad", "kind", "realised_price", "created")
     list_filter = (("kind", ChoicesDropdownFilter), ("created", RangeDateTimeFilter))
+    list_filter_submit = True
     search_fields = ("ad__name", "ad__external_id", "note")
     autocomplete_fields = ("ad",)
     ordering = ("-created",)

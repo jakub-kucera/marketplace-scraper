@@ -1,8 +1,8 @@
 ---
 title: Vinted — the v2 API is gone; the catalog page is the replacement
 status: reference
-updated: 2026-09-16
-verified: 2026-09-16
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Vinted — the v2 API is gone; the catalog page is the replacement
@@ -10,6 +10,14 @@ verified: 2026-09-16
 > **Verdict: VIABLE, via a different transport.** Everything below was measured live against
 > `vinted.cz` on **2026-09-16** from a residential Czech connection, unauthenticated, with no
 > third-party library. Claims not measured are marked ⚠️ ASSUMED.
+>
+> **Re-probed live 2026-09-18** - the repo's own `pytest -m live
+> bazos/tests/live/test_vinted_contract.py` (6 checks, all green) plus one extra catalog fetch.
+> Unchanged: 96 rows on page 1, `per_page: 96` / `total_entries: 960` / `total_pages: 10`,
+> `sortBy` and `catalogIds` echoed back, `price.amount` still a decimal string, `itemBox`
+> `firstLine`/`secondLine` at 96/96, ids still past int4 (max seen `10049733256`). **Not**
+> re-probed, so still carrying their 2026-09-16 date: §3's condition-id table, §6b's price-band
+> measurement, §8's detail page, §10's burst run and robots.txt.
 >
 > This supersedes the API facts in [`VINTED_SCRAPER.md`](../../archive/shipped/VINTED_SCRAPER.md)
 > and [`VINTED_SCRAPER_DESIGN.md`](../../archive/shipped/VINTED_SCRAPER_DESIGN.md). Those two
@@ -147,6 +155,16 @@ equivalent of a Bazos TOP ad — and, like TOP ads, they sit out of chronologica
 on Vinted it was always a weak one — it matches `name + short_description`, and §5 explains why
 `short_description` was empty for every Vinted ad.
 
+**Re-measured 2026-09-18, same filter pair: 96 of 96 again** - and this sample adds a second
+point. Only **88** of the 96 titles contain the string "macbook" at all; the other eight are
+genuine Apple laptops whose sellers typed `MackBook Pro 13"`, `MaxBook Air 13`, `Mackbuk`,
+`Mackbook Air 11`, `Mac Book Air 2017`, `McBook Air 13 palcu`, `MackBook Neo (512gb)` or
+`Prodám notebook apple`. `itemBox.firstLine` normalises every one of them to `Apple MacBook …`
+(§5.1). So on a structurally-filtered query the keyword backstop is now the *lossy* half: a
+`filter_required=["macbook"]` would reject 8 of the 96 ads the filter pair got right. Keep it for
+`search_text` queries; drop it for `catalog[]`+`brand_ids[]` ones, or key it on the normalised
+`short_description` rather than the seller's spelling.
+
 ### ⚠️ `searchScore` is not a relevance signal — do not filter on it
 
 Each row carries `catalogTracking.searchScore`, and it is tempting: 1.0015 for the first result,
@@ -193,8 +211,9 @@ keyword rules. That is now fixable **without a detail fetch**. `productItem.item
 - `accessibilityLabel` = title, brand, model, condition and both prices in one string.
 
 **Coverage: 96/96 on all three fields**, across two different queries. Length of
-`accessibilityLabel`: min 87, max 179, mean 118 characters — comfortably inside a
-`CharField(300)`.
+`accessibilityLabel`: min 87, max 179, mean 118 characters (re-measured 2026-09-18: min 67, max
+167, mean 114). Short either way, and `Ad.short_description` has been a `TextField` since
+migration `0035`, so there is no column width left to fit inside.
 
 `firstLine + secondLine` is the honest `short_description`: it is descriptive, it is not a
 duplicate of the title, and it makes `blocklist_keyword` / `required_keyword` work on Vinted for
@@ -376,6 +395,8 @@ on it selects unbranded listings, which is almost never what is wanted.
 ## 12. Reproducing this
 
 No dependencies beyond the standard library; `vinted-scraper` is not needed and should be dropped.
+(Done - the rewrite landed on 2026-09-16 and `vinted-scraper` no longer appears in
+`pyproject.toml`; the shipped transport is `bazos/scraping/vinted/client.py`.)
 
 ```python
 import gzip, json, re, urllib.request, http.cookiejar

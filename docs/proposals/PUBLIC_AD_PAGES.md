@@ -2,7 +2,7 @@
 title: Public Ad Pages
 status: proposal
 updated: 2026-08-24
-verified: 2026-08-24
+verified: 2026-09-18
 ---
 
 # Public Ad Pages

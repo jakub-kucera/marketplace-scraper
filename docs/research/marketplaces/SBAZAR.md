@@ -1,7 +1,7 @@
 ---
 title: Sbazar.cz — feasibility assessment
 status: reference
-updated: 2026-08-22
+updated: 2026-09-18
 verified: 2026-08-22
 ---
 
@@ -13,6 +13,15 @@ verified: 2026-08-22
 > `ip-api.com`). Pass 1 ran from an M247 datacenter VPN and could not retrieve a single content
 > byte; §4.1 explains what actually changed and what did not.
 > Requests used: **28 of 30** (full log in §8).
+>
+> **Update 2026-09-18 - this is now the record behind a shipped scraper, not a candidate
+> assessment.** `SbazarScraper` landed 2026-08-22 ([`SHIPPED.md`](../../SHIPPED.md)) and Sbazar is
+> live in production: 734 ads, 115 of them in the last seven days, one enabled `Query`
+> (`phrase=macbook`, `load_full_description=False`). Three things below were overtaken by the
+> build and carry their own dated notes - the `short_description` column width (§5a, §5b.2, §7),
+> the dedup-walk inference (§5b.4), and the P24 cross-reference (§6b). Everything else is still
+> the 2026-08-22 live measurement and has **not** been re-probed: `/api/` is `Disallow:`-ed
+> (§3.1), so re-probing it is a deliberate act rather than routine doc maintenance.
 
 ## 1. Verdict and why
 
@@ -281,7 +290,7 @@ Sources: **L** = `GET /api/v1/items/search?category_id=22&limit=1000` and `…ca
 | `name` | **L/D** `name` | `Acer Nitro V 15 (i5 13. gen / 16GB RAM / RTX 2050)` (50 chars) | ✅ **Max 50 chars across 1,100 rows; zero over 90.** Sbazar appears to hard-cap titles at 50. Never empty (0/1,100). Column is 120 — huge margin. |
 | `price_raw` | **L/D** `price` (**int**) + `price_by_agreement` (**bool**) | `11990` / `0` + `true` | ⚠️ **Requires composition — see §5b.3.** `price` is a plain **integer in whole CZK**. Max seen `1000000` ⇒ 7 digits; rendered `"1 000 000 Kč"` = 12 chars vs a 30-char column. ✅ Fits. |
 | `location` | **L/D** `locality.municipality`, `.district`, `.region` | `Červený Kostelec, Náchod, Královéhradecký kraj` | ✅ **Max 64 chars** composed all three ways, vs a 128 column. ⚠️ `municipality` is **empty in 58/1,100** (exactly the rows with `locality.entity_type == "district"`); `district` and `region` are **never** empty. Compose with a filter, not a bare f-string. |
-| `short_description` | **D only** `description` | `Nabízím k prodeji herní notebook Acer Nitro V 15 ve stavu nového kusu…` | ⚠️ **Detail-only — absent from every one of the 1,100 listing rows** (key not present at all). ⚠️ **Overflows the 300-char column**: measured lengths **679 / 241 / 0**. Must be truncated. ⚠️ Can be the **empty string** (1 of 3 detail probes) — see §5b.10. |
+| `short_description` | **D only** `description` | `Nabízím k prodeji herní notebook Acer Nitro V 15 ve stavu nového kusu…` | ⚠️ **Detail-only — absent from every one of the 1,100 listing rows** (key not present at all). ⚠️ **Overflowed the then-300-char column**: measured lengths **679 / 241 / 0**. ⚠️ Can be the **empty string** (1 of 3 detail probes) — see §5b.10. **Update 2026-09-18:** `Ad.short_description` is a `TextField` (migration `0035`), so nothing overflows and truncation is no longer a correctness requirement - the shipped scraper still cuts at 300 out of caution. |
 | `full_description` | **D** `description` | same | Full text, untruncated. |
 | `publish_date` | **D/L** `create_date` | `2026-08-22T17:16:53` | ✅ **A genuine creation timestamp at second resolution**, distinct from `edit_date`. Safe to map — no synthesis. Retires Pass 1 open question #4. Naive local time (no `Z`, no offset) — ⚠️ timezone **NOT OBSERVED**, presumably Europe/Prague. |
 | `view_count` | **— absent** | **NOT OBSERVED** | No `view_count`, `views` or `visits` key in any listing row (1,100) or any of 3 detail responses. Store `NULL`, as with Vinted. |
@@ -317,11 +326,18 @@ likely hard blocker in the brief and Sbazar clears it with no schema change at a
 | `location` | 128 | **64** | 0/1,100 | ✅ |
 | `url` | 1024 | **90** | 0/1,100 | ✅ |
 | `publisher_name` | 100 | **32** | 0/1,100 | ✅ |
-| `short_description` | 300 | **679** (n=3 detail probes) | **1/3** | ⚠️ **MUST truncate** |
+| `short_description` | 300 *(at the time)* | **679** (n=3 detail probes) | **1/3** | ⚠️ **MUST truncate** - see the update below |
 
 `short_description` is the only overflow, and it is the one field that lives on the *detail*
 endpoint where the sample is only 3. **Postgres raises `DataError` and SQLite silently accepts**,
 so the test suite will not catch it — truncate at the scraper, as the Bazos scraper already does.
+
+> **Update 2026-09-18.** The column is gone: `Ad.short_description` became a `TextField` in
+> migration `0035`, for the reason this row anticipates from the other direction - a truncated
+> tail silently stops `blocklist_keyword` / `required_keyword` phrases matching. The 679-char
+> measurement stands; the `DataError` consequence does not. Every other width in this table is
+> unchanged in `bazos/models.py` (`name` 120, `price_raw` 30, `location` 128, `url` 1024,
+> `publisher_name` 100).
 
 **3. Price shape — `parse_price` is SAFE, but `price_raw` composition is where the bug will be.**
 This was the headline risk and the answer is good news, with one sharp edge.
@@ -350,12 +366,24 @@ This was the headline risk and the answer is good news, with one sharp edge.
 on the 1,000-row tools page: after dropping the 334 promoted rows, `sorting_date` across the
 remaining **666 organic rows is monotonically non-increasing with zero violations**
 (`all(sd[i] >= sd[i+1])` → `True`, violations list empty). The same held on the 100-row notebooks
-page. So `QueryRunner.run_existing_query`'s "walk newest→oldest, break on the first known
-non-topped ad" is **correct as written**.
+page. ~~So `QueryRunner.run_existing_query`'s "walk newest→oldest, break on the first known
+non-topped ad" is **correct as written**.~~
 ⚠️ Two caveats worth writing into any spec: the ordering key is **`sorting_date` (≈ `edit_date`),
 not `create_date`** — `create_date` is *not* monotonic in the response (an item created 2017-05-30
 appears mid-page after a bump). And an unknown `sort=` value is **silently ignored**, so there is
 no way to assert the sort server-side; the walk must rely on the default.
+
+> **Correction 2026-09-18 - the struck sentence is the one claim in this file the build proved
+> wrong, and it is the second caveat eating the first.** The measurement holds (organic rows are
+> monotonic by `sorting_date`); the inference about our dedup walk does not. Because the sort key
+> is edit time, an already-known ad that was merely edited resurfaces *above* genuinely new
+> listings, and break-on-first-known stops there and never reaches them - silently, every pass.
+> §2.1 of this file is what quantifies it: of 666 organic rows spanning 35.1 h, only 204 had a
+> `create_date` inside the window, so most of what sorts near the top is edit noise.
+> `run_existing_query` now breaks after `scraper.dedup_break_streak` **consecutive** known
+> non-topped ads, and `SbazarScraper` sets it to `SBAZAR_DEDUP_BREAK_STREAK = 40`
+> (`bazos/const.py`) - itself derived from §2.1's bump rate, not measured. Written up in
+> [`SBAZAR_SCRAPER.md`](../../archive/shipped/SBAZAR_SCRAPER.md) §11.
 
 **5. Topped/promoted — labelled, deterministic, and it does NOT bump the timestamp.** ✅ The
 Bazos hazard is absent.
@@ -521,6 +549,15 @@ values in one request**. **Whether Sbazar's API accepts a batch of ids is NOT OB
 does not, delisting detection costs one request per tracked ad and the economics are much worse.
 This is a 1–2 request follow-up and it materially changes the effort estimate.
 
+> **Update 2026-09-18 - P24 shipped on 2026-09-17 (commit `5856bf0`) and it is Bazos-only.**
+> `bazos/delisting.py` sets `SWEEPABLE_MARKETPLACES = (BAZOS, BAZOS_API)` for exactly the reason
+> the cost caveat above gives: no bulk-id endpoint is known for Sbazar, and one request per ad
+> inverts the economics. So none of this section is built, and §9 item 3 is still what would
+> unblock it. What did ship also vindicates the `valid_to` argument: `Ad.removed_at` deliberately
+> conflates sold, withdrawn, deleted and **expired**, and past `DELIST_MAX_AGE_DAYS=60` an ad just
+> stops being watched with `removed_at` left NULL - which is the censored-observation problem this
+> section says Sbazar's per-item deadline could resolve.
+
 ### 6c. Real second-resolution timestamps — ✅ **YES, and this unblocks a named backlog item**
 > Connects to: **`BACKLOG_IDEAS.md` #6** (posting-time-of-day analysis → interval tuning),
 > **`METHOD_CALIBRATION.md` §4**.
@@ -617,8 +654,9 @@ boolean; `check_blacklisted` is a one-line probe. Realistically a day's work plu
    the 186-byte routing 404 from the 49-byte item 404 (§5b.8) gives a cheap rename canary.
 5. ⚠️ **Rate limits are unmeasured.** 16 API requests at ~2 s spacing drew no throttling; **no
    burst test was run**. Do not size a production poller on this.
-6. **`short_description` truncation** — measured at 679 chars against a 300-char column. Postgres
-   `DataError`, and SQLite will not catch it in tests.
+6. ~~**`short_description` truncation** — measured at 679 chars against a 300-char column. Postgres
+   `DataError`, and SQLite will not catch it in tests.~~ **Resolved 2026-09-18:** the column is a
+   `TextField` (migration `0035`); nothing to overflow. See §5b.2.
 7. **Detail-fetch cost** — the keyword filters need `description`, which is detail-only, so a
    filtering deployment is one extra request per new ad (~139/day for tools).
 
@@ -754,7 +792,8 @@ guarantee.
 3. ⚠️ **Whether the API accepts a batch of ids in one request.** Bazos takes 210 `ad_id[]=` values,
    which is the whole reason P24's delisting design is affordable. **NOT OBSERVED for Sbazar.** If
    it does not, delisting detection is one request per tracked ad — a different project. 1–2
-   requests to settle.
+   requests to settle. **Still open as of 2026-09-18, and now the binding one:** P24 shipped
+   Bazos-only on 2026-09-17 precisely because this is unanswered (§6b).
 4. ⚠️ **Whether `status` ever returns a non-`active` value, and whether `deactivation_reason` is
    ever populated.** Both fields exist; `status` was `active` and `deactivation_reason` `null` in
    all 3 detail probes, and delisted items appear to just 404. This decides whether the

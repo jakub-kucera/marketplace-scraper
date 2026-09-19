@@ -1,8 +1,8 @@
 ---
 title: Zboží.cz — the `/api/v3` surface, measured
 status: reference
-updated: 2026-09-16
-verified: 2026-09-16
+updated: 2026-09-18
+verified: 2026-09-18
 ---
 
 # Zboží.cz — the `/api/v3` surface, measured
@@ -10,6 +10,19 @@ verified: 2026-09-16
 > Re-probe of 2026-09-16 from CESNET Prague (`147.32.96.2`, AS2852 — academic NAT, a third
 > vantage point after the 2026-08-22 VPN datacenter IP and the residential re-test).
 > ~120 requests, none blocked, none throttled.
+>
+> **Re-probed live 2026-09-18** via the repo's own `pytest -m live
+> refprice/tests/test_zbozi_contract.py` (9 checks, all green): `/suggestV2?phrase=` still
+> resolves `makita-dhp484*`, `/api/v3/product/<slug>/?filterFields=…` still carries
+> `medianPrice`, `shopCount`, `vendorName` and hundredths-scale prices, the pricetrend POST still
+> returns an ordered recent series in haléře, and an unknown slug is still a clean miss. **Not**
+> re-probed: §2 (Heureka's block), §3c's two 13-month price tables, §4's `robots.txt` parse, §5's
+> 17-archetype top-1 study, §7's burst/sustained figures.
+>
+> This is the file `refprice/` was built from - the resolution ladder in
+> `refprice/resolution/validate.py` implements §5's gates one for one (brand against
+> `vendorName`, prefix-tolerant model codes for `DHP484`/`DHP484Z`, bundle words, contrast
+> tokens, `shopCount >= 2`), and `refprice/providers/zbozi.py` is §3 verbatim.
 >
 > **This supersedes the transport and join findings of
 > [`HEUREKA_ZBOZI.md`](HEUREKA_ZBOZI.md).** That file's verdict rested on the only search
