@@ -16,6 +16,16 @@ class Discord(TimeStampedModel):
         ),
     )
 
+    for_daily_digest = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text=(
+            "Post the 13:00 daily digest here — embeds with charts, once a day. Never pings, "
+            "whatever `notify` says. Best kept off `for_summary`: that one fires ~32x a day and "
+            "would bury the digest within minutes of it arriving."
+        ),
+    )
+
     class Meta:
         # "Discords" is what Django pluralises the model name into, and the sidebar and
         # app list both show it. These are webhook targets, so name them that.

@@ -11,6 +11,7 @@ class SenderAdmin(ModelAdmin):
         "notify",
         "for_logging",
         "for_summary",
+        "for_daily_digest",
     )
-    list_filter = ("notify", "for_logging", "for_summary")
+    list_filter = ("notify", "for_logging", "for_summary", "for_daily_digest")
     search_fields = ("channel_name",)
