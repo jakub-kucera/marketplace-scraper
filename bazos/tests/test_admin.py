@@ -1185,3 +1185,103 @@ def test_publisher_autocomplete_endpoint_finds_a_publisher(
     assert response.status_code == 200, response.content[:200]
     ids = [row["id"] for row in response.json()["results"]]
     assert str(publisher.pk) in ids
+
+
+# ---------------------------------------------------------------------------
+# Listing-state filter — the delisting sweep's vocabulary, on the changelist
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def listing_state_corpus(query, make_ad, db):
+    """One ad in each of the four states the filter distinguishes."""
+    from datetime import timedelta
+
+    from bazos.const import DELIST_MAX_AGE_DAYS
+    from bazos.models import Ad, Marketplace
+
+    now = timezone.now()
+    old = now - timedelta(days=DELIST_MAX_AGE_DAYS + 5)
+
+    def build(bazos_id, **kwargs):
+        ad = make_ad(query, bazos_id=bazos_id)
+        for field, value in kwargs.items():
+            setattr(ad, field, value)
+        ad.save()
+        # `created` is auto_now_add, so it has to be written back after the insert.
+        if "created_override" in kwargs:
+            Ad.objects.filter(pk=ad.pk).update(created=kwargs["created_override"])
+        return ad
+
+    build(9001, last_seen_at=now)                                   # listed, watched
+    build(9002, last_seen_at=now - timedelta(days=2), removed_at=now)  # gone
+    aged = build(9003, last_seen_at=now - timedelta(days=61))       # watch expired
+    Ad.objects.filter(pk=aged.pk).update(created=old)
+    build(9004)                                                     # never checked
+    vinted = build(9005, last_seen_at=now, marketplace=Marketplace.VINTED)  # unwatchable
+    return {"listed": 9001, "gone": 9002, "expired": 9003, "unchecked": 9004, "vinted": vinted.external_id}
+
+
+def _filtered_ids(admin_client, value):
+    """Drive the filter through the real changelist, not its constructor.
+
+    Django 5 hands `ListFilter` its params as lists taken from `request.GET.lists()`, so
+    building one by hand is a test of that calling convention rather than of the filter.
+    """
+    response = admin_client.get(reverse("admin:bazos_ad_changelist"), {"listing_state": value})
+    assert response.status_code == 200
+    return sorted(response.context["cl"].queryset.values_list("external_id", flat=True))
+
+
+@pytest.mark.django_db
+def test_listing_state_filter_separates_the_four_states(admin_client_logged_in, listing_state_corpus):
+    assert _filtered_ids(admin_client_logged_in, "listed") == [9001]
+    assert _filtered_ids(admin_client_logged_in, "gone") == [9002]
+    # aged past the watch horizon, and a marketplace the sweep cannot check at all
+    assert _filtered_ids(admin_client_logged_in, "unwatched") == [9003, 9005]
+    assert _filtered_ids(admin_client_logged_in, "unchecked") == [9004]
+
+
+@pytest.mark.django_db
+def test_listing_state_options_partition_the_table(admin_client_logged_in, listing_state_corpus):
+    """Every ad lands in exactly one bucket — otherwise the filter hides rows.
+
+    The point of the four options is that `removed_at IS NULL` is not one state, so this
+    is the assertion that stops someone collapsing them back into two.
+    """
+    from bazos.models import Ad
+
+    seen = []
+    for value in ("listed", "gone", "unwatched", "unchecked"):
+        seen.extend(_filtered_ids(admin_client_logged_in, value))
+
+    assert sorted(seen) == sorted(Ad.objects.values_list("external_id", flat=True))
+    assert len(seen) == len(set(seen)), "an ad matched more than one listing state"
+
+
+@pytest.mark.django_db
+def test_changelist_renders_with_the_listing_state_filter(admin_client_logged_in, listing_state_corpus):
+    response = admin_client_logged_in.get(reverse("admin:bazos_ad_changelist"), {"listing_state": "gone"})
+
+    assert response.status_code == 200
+    assert response.context["cl"].result_count == 1
+
+
+@pytest.mark.django_db
+def test_listing_state_column_agrees_with_the_filter(listing_state_corpus, rf):
+    """The column must not call a censored row "listed" — see ListingStateFilter."""
+    from django.contrib.admin.sites import AdminSite
+
+    from bazos.admin import AdAdmin
+    from bazos.models import Ad
+
+    model_admin = AdAdmin(Ad, AdminSite())
+    rendered = {
+        ad.external_id: model_admin.listing_state(ad)
+        for ad in Ad.objects.all()
+    }
+
+    assert rendered[9001] == "listed"
+    assert rendered[9002].startswith("gone after")
+    assert rendered[9003].startswith("last seen ")   # aged out of the sweep
+    assert rendered[9004] == "—"
+    assert rendered[9005].startswith("last seen ")   # Vinted: never sweepable

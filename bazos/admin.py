@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from datetime import timedelta
 from typing import Any
 
 from django import forms
@@ -7,12 +8,13 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.admin.exceptions import NotRegistered
 from django.db import models
-from django.db.models import Count, IntegerField, Max, OuterRef, Subquery
+from django.db.models import Count, IntegerField, Max, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
+from django.utils import timezone
 from django.utils.http import urlencode
 from django_db_logger.admin import StatusLogAdmin
 from django_db_logger.models import StatusLog
@@ -22,6 +24,7 @@ from django_q.tasks import async_task
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.filters.admin import (
     ChoicesDropdownFilter,
+    DropdownFilter,
     RangeDateTimeFilter,
     RangeNumericFilter,
     RelatedDropdownFilter,
@@ -33,6 +36,8 @@ from unfold.widgets import (
 )
 
 from bazos.comparables import find_comparables
+from bazos.const import DELIST_MAX_AGE_DAYS
+from bazos.delisting import SWEEPABLE_MARKETPLACES
 from bazos.jobs import (
     DETECT_REPOSTS,
     FETCH_FULL_DESCRIPTION,
@@ -55,6 +60,53 @@ class CategoryInline(TabularInline):
         "url",
         "bazos_id",
     ]
+
+
+class ListingStateFilter(DropdownFilter):
+    """Delisted / still listed / no longer watched / never checked.
+
+    Four options rather than two because `removed_at IS NULL` does not mean "for sale".
+    The sweep stops looking after `DELIST_MAX_AGE_DAYS`, and it only covers
+    `SWEEPABLE_MARKETPLACES` at all, so an ad can be unremoved for three different
+    reasons: we checked and it was there, we stopped checking, or we never could. Folding
+    those together is what would turn this filter into a way to build a wrong study — the
+    third group is censored observations, not survivors.
+
+    The predicates mirror `bazos.delisting.due_for_check`, deliberately: if the sweep's
+    notion of "watchable" changes, this filter should be changed with it, and the shared
+    vocabulary is what makes that obvious.
+    """
+
+    title = "listing state"
+    parameter_name = "listing_state"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("listed", "Listed — checked, still up"),
+            ("gone", "Delisted — checked, gone"),
+            ("unwatched", "No longer watched (censored)"),
+            ("unchecked", "Never checked"),
+        )
+
+    def queryset(self, request, queryset):
+        horizon = timezone.now() - timedelta(days=DELIST_MAX_AGE_DAYS)
+        value = self.value()
+        if value == "gone":
+            return queryset.filter(removed_at__isnull=False)
+        if value == "listed":
+            return queryset.filter(
+                removed_at__isnull=True, last_seen_at__isnull=False,
+                created__gt=horizon, marketplace__in=SWEEPABLE_MARKETPLACES,
+            )
+        if value == "unwatched":
+            # Seen at least once and never seen gone, but the sweep has moved past it —
+            # either aged out or on a marketplace with no bulk-id endpoint.
+            return queryset.filter(removed_at__isnull=True, last_seen_at__isnull=False).filter(
+                Q(created__lte=horizon) | ~Q(marketplace__in=SWEEPABLE_MARKETPLACES)
+            )
+        if value == "unchecked":
+            return queryset.filter(last_seen_at__isnull=True, removed_at__isnull=True)
+        return queryset
 
 
 class HasFullDescriptionFilter(admin.SimpleListFilter):
@@ -800,6 +852,8 @@ class AdAdmin(ModelAdmin):
         ("price", RangeNumericFilter),
         ("price_type", ChoicesDropdownFilter),
         ("created", RangeDateTimeFilter),
+        ListingStateFilter,
+        ("removed_at", RangeDateTimeFilter),
         HasFullDescriptionFilter,
     )
     # Range filters collect two inputs, so they need something to submit them.
@@ -943,15 +997,24 @@ class AdAdmin(ModelAdmin):
         """How long it stayed up — the one outcome-ish number in the database.
 
         Says "gone", never "sold": a disappearance conflates sold, withdrawn and expired.
-        A never-swept ad and one past the watch horizon both read "—", because neither is
-        evidence of anything.
+        A never-swept ad reads "—", because it is not evidence of anything.
+
+        "last seen" rather than "listed" once the sweep has moved past an ad — aged out of
+        `DELIST_SCHEDULE` or on a marketplace with no bulk-id endpoint. The row is then a
+        censored observation, and the distinction has to survive into the column: filtering
+        to `ListingStateFilter`'s "No longer watched" and reading a page of rows that all
+        say "listed" is how a censored cohort gets counted as survivors.
         """
         if obj.removed_at:
             days = (obj.removed_at - obj.created).days
             return f"gone after {days}d"
-        if obj.last_seen_at:
-            return "listed"
-        return "—"
+        if not obj.last_seen_at:
+            return "—"
+        watched = (
+            obj.marketplace in SWEEPABLE_MARKETPLACES
+            and obj.created > timezone.now() - timedelta(days=DELIST_MAX_AGE_DAYS)
+        )
+        return "listed" if watched else f"last seen {obj.last_seen_at:%Y-%m-%d}"
 
     @admin.display(description="Seller history")
     @admin.display(description="Comparable listings")
