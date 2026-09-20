@@ -1,0 +1,139 @@
+{% extends "admin/base_site.html" %}
+
+{% comment %}
+Context from `bazos.admin_pricing.price_model_view`. Lives in the app template directory
+rather than the project one because nothing in unfold claims `admin/price_model.html` —
+only `admin/index.html` collided, which is why that one sits in `templates/`.
+{% endcomment %}
+
+{% load i18n unfold %}
+
+{% block content %}
+<div class="flex flex-col gap-6">
+
+    {% component "unfold/components/card.html" with title="Artifact" title_icon="function" %}
+        {% if artifact.loaded %}
+            <div class="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                <div><p class="text-subtle">Version</p><p class="font-medium">{{ artifact.version }}</p></div>
+                <div><p class="text-subtle">Trained</p><p class="font-medium">{{ artifact.trained_at|default:"unknown" }}</p></div>
+                <div><p class="text-subtle">Trained on</p><p class="font-medium">{{ artifact.n_train|default:"?" }} ads</p></div>
+                <div><p class="text-subtle">Features</p><p class="font-medium">{{ artifact.features }}</p></div>
+            </div>
+        {% else %}
+            {# The failure this page exists to make visible: every uncertain path in
+               bazos/pricing returns neutral, so elsewhere a missing artifact looks exactly
+               like a model with no opinion. #}
+            <p class="font-semibold text-red-500 dark:text-red-400">
+                {% if artifact.registered %}No artifact loaded — the model is registered but has nothing to evaluate, so every ad silently gets "no opinion".
+                {% else %}No model registered under that name.{% endif %}
+            </p>
+        {% endif %}
+    {% endcomponent %}
+
+    {% component "unfold/components/card.html" with title="Coverage" description="Where the model loses ads, in order" title_icon="filter_alt" %}
+        <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <div>
+                <p class="font-semibold text-2xl text-important">{{ funnel.candidates }}</p>
+                <p class="text-subtle text-sm">MacBook ads in the archive</p>
+            </div>
+            <div>
+                <p class="font-semibold text-2xl text-important">{{ funnel.scored }}</p>
+                <p class="text-subtle text-sm">
+                    ever scored{% if funnel.scored_pct is not None %} — {{ funnel.scored_pct }}%{% endif %}
+                </p>
+                {% if funnel.scored_pct is not None and funnel.scored_pct < 50 %}
+                    <p class="text-orange-700 dark:text-orange-400 text-sm">most predate the feature — run rescore_ads</p>
+                {% endif %}
+            </div>
+            <div>
+                <p class="font-semibold text-2xl text-important">{{ funnel.predicted }}</p>
+                <p class="text-subtle text-sm">
+                    got a prediction{% if funnel.declined_pct is not None %} — {{ funnel.declined_pct }}% declined{% endif %}
+                </p>
+            </div>
+            <div>
+                <p class="font-semibold text-2xl text-important">{{ funnel.deals }}</p>
+                <p class="text-subtle text-sm">at z ≤ −2</p>
+                {% if shadow_mode %}
+                    <p class="text-orange-700 dark:text-orange-400 text-sm">shadow mode — none were sent</p>
+                {% endif %}
+            </div>
+        </div>
+    {% endcomponent %}
+
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {% component "unfold/components/card.html" with title="Why it declined" description="First blocker per ad — this is the extractor's work queue" title_icon="block" %}
+            {% if declines %}
+                <table class="w-full text-sm">
+                    <tbody>
+                        {% for row in declines %}
+                            <tr class="border-b border-base-200 dark:border-base-800 last:border-0">
+                                <td class="py-2 pr-4">{{ row.declined_reason|default:"(no reason recorded)" }}</td>
+                                <td class="py-2 text-right tabular-nums">{{ row.n }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="text-subtle text-sm">Nothing declined yet.</p>
+            {% endif %}
+        {% endcomponent %}
+
+        {% component "unfold/components/card.html" with title="Drift" description="Median gap to prediction, by week. Away from 0% means the market moved and the artifact did not." title_icon="show_chart" %}
+            {% if drift %}
+                <table class="w-full text-sm">
+                    <tbody>
+                        {% for row in drift %}
+                            <tr class="border-b border-base-200 dark:border-base-800 last:border-0">
+                                <td class="py-2 pr-4">{{ row.week|date:"j M Y" }}</td>
+                                <td class="py-2 pr-4 text-subtle">{{ row.n }} score{{ row.n|pluralize }}</td>
+                                <td class="py-2 text-right tabular-nums">{{ row.median_pct }}%</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="text-subtle text-sm">No predictions yet.</p>
+            {% endif %}
+        {% endcomponent %}
+    </div>
+
+    {% component "unfold/components/card.html" with title="What it would have alerted on" description="Ordered by z, not discount — a flat percentage is ~1σ for a private seller and ~3σ for a dealer" title_icon="notifications_active" %}
+        {% if would_alert %}
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-base-200 text-subtle dark:border-base-800">
+                        <th class="py-2 pr-4 text-left font-normal">Ad</th>
+                        <th class="py-2 pr-4 text-right font-normal">Asking</th>
+                        <th class="py-2 pr-4 text-right font-normal">Predicted</th>
+                        <th class="py-2 pr-4 text-right font-normal">Discount</th>
+                        <th class="py-2 text-right font-normal">z</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for score in would_alert %}
+                        <tr class="border-b border-base-200 dark:border-base-800 last:border-0">
+                            <td class="py-2 pr-4">
+                                <a class="text-primary-600 dark:text-primary-500" href="{% url 'admin:bazos_ad_change' score.ad_id %}">{{ score.ad.name|truncatechars:52 }}</a>
+                            </td>
+                            <td class="py-2 pr-4 text-right tabular-nums">{{ score.ad.price }}</td>
+                            <td class="py-2 pr-4 text-right tabular-nums">{{ score.predicted }}</td>
+                            {# `|default` after `floatformat`: a null renders as "" and a bare
+                               "%" reads like a broken column rather than a missing number. #}
+                            <td class="py-2 pr-4 text-right tabular-nums">{% if score.discount_pct is not None %}{{ score.discount_pct|floatformat:1 }}%{% else %}—{% endif %}</td>
+                            <td class="py-2 text-right tabular-nums font-medium">{{ score.z_score|floatformat:2|default:"—" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p class="text-subtle text-sm mt-4">
+                Read these before turning shadow mode off: the measured composition of a naive
+                underpricing alert is ~70% damage, parse failures and price-floor artifacts
+                (MACBOOK_PRICE_MODEL.md §4).
+            </p>
+        {% else %}
+            <p class="text-subtle text-sm">Nothing at z ≤ −2.</p>
+        {% endif %}
+    {% endcomponent %}
+</div>
+{% endblock %}

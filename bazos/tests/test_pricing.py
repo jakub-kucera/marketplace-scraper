@@ -449,3 +449,70 @@ def test_message_ignores_a_declined_score(model, monkeypatch):
     score_ad(ad)
 
     assert ad.price_score_summary == ""
+
+
+# ---------------------------------------------------------------------------
+# Why the model declined — the column that used to say the same thing every time
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "over,expected",
+    [
+        ({"name": "MacBook Pro 14 M3 Max / 36GB / 1TB"}, "missing year"),
+        ({"name": "MacBook Pro 14 2023 / 36GB RAM / 1TB SSD"}, "missing chip"),
+        ({"name": "MacBook Pro 14 2023 / M3 Max / 1TB SSD"}, "missing ram"),
+        ({"name": "MacBook Pro 14 2023 / M3 Max / 36GB RAM"}, "missing storage"),
+        ({"price_type": PriceType.NEGOTIABLE, "price": None}, "no parsed price"),
+        ({"short_description": "Rozbity displej, na dily."}, "damage word"),
+    ],
+)
+def test_decline_names_the_gate_that_refused(model, over, expected):
+    """One reason per ad, first blocker wins — see `_REQUIRED_FEATURES`.
+
+    Before this the column read "model declined (gates or missing artifact)" for every
+    decline, so a third of all MacBook scores were indistinguishable from each other and
+    "which extractor would unlock the most ads" had no answer in the database.
+    """
+    assert model.explain_decline(_ad(**over)).startswith(expected)
+
+
+@pytest.mark.django_db
+def test_a_missing_artifact_is_named_as_such(monkeypatch):
+    """Distinct from a gate: nothing is wrong with the ad, the model is not loaded."""
+    m = MacbookPriceModel()
+    monkeypatch.setattr(type(m), "manifest", property(lambda self: None))
+
+    assert m.explain_decline(_ad()) == "no artifact loaded"
+
+
+@pytest.mark.django_db
+def test_score_ad_persists_the_specific_reason(model, monkeypatch):
+    from bazos.pricing.scoring import score_ad
+
+    monkeypatch.setattr("bazos.pricing.registry.MODEL_REGISTRY", {"macbook": model})
+    ad = _ad(name="MacBook Pro 14 M3 Max / 36GB / 1TB")   # no year
+
+    score = score_ad(ad)
+
+    assert score.predicted is None
+    assert score.declined_reason == "missing year"
+
+
+@pytest.mark.django_db
+def test_a_model_that_cannot_explain_itself_still_gets_a_row(model, monkeypatch):
+    """`explain_decline` is optional, and allowed to fail — a lost row is worse."""
+    from bazos.pricing.scoring import _decline_reason
+
+    class Mute:
+        name = "mute"
+
+    class Broken:
+        name = "broken"
+
+        def explain_decline(self, ad):
+            raise RuntimeError("boom")
+
+    ad = _ad()
+    assert _decline_reason(Mute(), ad) == "model declined (no reason given)"
+    assert _decline_reason(Broken(), ad) == "model declined (explanation failed)"

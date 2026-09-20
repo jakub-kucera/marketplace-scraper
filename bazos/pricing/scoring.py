@@ -12,6 +12,28 @@ from bazos.pricing.registry import get_price_model
 logger = logging.getLogger(__name__)
 
 
+#: `AdPriceScore.declined_reason` is varchar(255).
+MAX_DECLINE_REASON = 255
+
+
+def _decline_reason(model, ad: Ad) -> str:
+    """Why this model had no opinion, as specifically as the model will say.
+
+    `explain_decline` is optional on a model, and is allowed to fail: a score that records
+    *nothing* is worse than one that records a vague reason, so an explanation that raises
+    must not take the row down with it. Same principle as the rest of this package — every
+    uncertain path stays neutral.
+    """
+    explain = getattr(model, "explain_decline", None)
+    if explain is None:
+        return "model declined (no reason given)"
+    try:
+        return (explain(ad) or "")[:MAX_DECLINE_REASON] or "model declined (empty reason)"
+    except Exception:  # pragma: no cover - defensive; a reason must never lose the row
+        logger.exception("explain_decline failed for model %r on ad %s", model.name, ad.pk)
+        return "model declined (explanation failed)"
+
+
 def score_ad(ad: Ad, *, refresh: bool = False) -> AdPriceScore | None:
     """Score `ad` with whichever registered model claims it, and persist the result.
 
@@ -48,7 +70,7 @@ def score_ad(ad: Ad, *, refresh: bool = False) -> AdPriceScore | None:
         defaults.update(
             predicted=None, residual_log=None, discount_pct=None, z_score=None,
             seller_prior_ads=None, features=None,
-            declined_reason="model declined (gates or missing artifact)",
+            declined_reason=_decline_reason(model, ad),
         )
     else:
         defaults.update(

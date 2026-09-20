@@ -146,6 +146,48 @@ class MacbookPriceModel:
             feats[dst] = math.log(v) if v else None
         return feats
 
+    #: Order matters: the gates are reported one at a time, first blocker wins. Listing
+    #: every missing field would fragment the breakdown ("missing year, ram" is a
+    #: different group from "missing year") and answer a question nobody asks — an ad
+    #: whose year *and* ram are missing is not unlocked by finding the ram. The question
+    #: this column exists to answer is "which extractor would unlock the most ads", and
+    #: that is the first blocker, counted.
+    _REQUIRED_FEATURES = (("year", "year"), ("chip_key", "chip"), ("ram_gb", "ram"),
+                          ("ssd_gb", "storage"))
+
+    def explain_decline(self, ad: Ad) -> str:
+        """Which gate refused this ad. Re-derives rather than being told.
+
+        Deliberately **not** a `PriceModel` protocol member — the same call as
+        `comparable_keys` above and `dedup_break_streak` on the scraper protocol: a model
+        that cannot explain itself is still a model, and `score_ad` reads this with
+        `getattr`. Cheap enough to re-run (regex over two short strings, no DB, no
+        network) that threading the reason back out of `predict` would cost more in
+        protocol surface than it saves in work.
+
+        Extraction, not model class, is the measured weak point
+        (`docs/research/PRICE_MODEL_BENCHMARK.md` §3.1: two extractor regexes were worth
+        more R² than the entire choice of estimator), so the breakdown this feeds is how
+        you choose which regex to write next.
+        """
+        if self.manifest is None:
+            return "no artifact loaded"
+        if ad.price is None or ad.price <= 0:
+            return "no parsed price"
+        if ad.price_type != PriceType.EXACT:
+            return f"price type is {ad.price_type}"
+
+        feats = self.extract(ad)
+        for key, label in self._REQUIRED_FEATURES:
+            if feats.get(key) is None:
+                return f"missing {label}"
+
+        haystack = features.norm(f"{ad.name} {ad.short_description or ''}")
+        for term in _DAMAGE:
+            if term in haystack:
+                return f"damage word: {term}"
+        return "declined, gate not identified"
+
     def _gates_pass(self, ad: Ad, feats: dict[str, Any]) -> bool:
         """Refuse to score what the model is measurably bad at.
 
