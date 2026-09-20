@@ -24,12 +24,12 @@ Context comes from `bazos.dashboard.dashboard_callback` (UNFOLD["DASHBOARD_CALLB
 
             {% component "unfold/components/card.html" with title="Queue" title_icon="conveyor_belt" %}
                 <div class="flex flex-col gap-1">
-                    <p class="font-semibold text-2xl {% if queue.stalled %}text-red-600 dark:text-red-500{% else %}text-important{% endif %}">
+                    <p class="font-semibold text-2xl {% if queue.stalled %}text-red-500 dark:text-red-400{% else %}text-important{% endif %}">
                         {% if queue.last_minutes is None %}never run{% else %}{{ queue.last_minutes }} min ago{% endif %}
                     </p>
                     <p class="text-subtle text-sm">last task{% if queue.stalled %} — heartbeat is hourly, so this is stalled{% endif %}</p>
                     <p class="text-sm mt-2">{{ queue.day }} run{{ queue.day|pluralize }} in 24h · {{ queue.queued }} queued</p>
-                    <p class="text-sm {% if queue.failed_week %}text-red-600 dark:text-red-500{% else %}text-subtle{% endif %}">
+                    <p class="text-sm {% if queue.failed_week %}text-red-500 dark:text-red-400{% else %}text-subtle{% endif %}">
                         {{ queue.failed_week }} failure{{ queue.failed_week|pluralize }} in 7d
                     </p>
                 </div>
@@ -37,7 +37,7 @@ Context comes from `bazos.dashboard.dashboard_callback` (UNFOLD["DASHBOARD_CALLB
 
             {% component "unfold/components/card.html" with title="Scrape passes" title_icon="travel_explore" %}
                 <div class="flex flex-col gap-1">
-                    <p class="font-semibold text-2xl {% if scraper.blocked_out %}text-red-600 dark:text-red-500{% else %}text-important{% endif %}">
+                    <p class="font-semibold text-2xl {% if scraper.blocked_out %}text-red-500 dark:text-red-400{% else %}text-important{% endif %}">
                         {% if scraper.pass_rate is None %}—{% else %}{{ scraper.pass_rate }}%{% endif %}
                     </p>
                     <p class="text-subtle text-sm">of {{ scraper.attempts }} attempt{{ scraper.attempts|pluralize }} succeeded (24h)</p>
@@ -52,7 +52,7 @@ Context comes from `bazos.dashboard.dashboard_callback` (UNFOLD["DASHBOARD_CALLB
                     <p class="font-semibold text-2xl text-important">{{ pipeline.pending }} / {{ pipeline.approved }}</p>
                     <p class="text-subtle text-sm">pending (filter) / approved (sender)</p>
                     <p class="text-sm mt-2">{{ pipeline.sent }} sent all-time</p>
-                    <p class="text-sm {% if pipeline.failed %}text-red-600 dark:text-red-500{% else %}text-subtle{% endif %}">
+                    <p class="text-sm {% if pipeline.failed %}text-red-500 dark:text-red-400{% else %}text-subtle{% endif %}">
                         {{ pipeline.failed }} failed
                     </p>
                 </div>
@@ -63,7 +63,7 @@ Context comes from `bazos.dashboard.dashboard_callback` (UNFOLD["DASHBOARD_CALLB
                     <p class="font-semibold text-2xl text-important">{{ discovery.day }}</p>
                     <p class="text-subtle text-sm">new in 24h · {{ discovery.week }} in 7d</p>
                     <p class="text-sm mt-2">{{ discovery.watched }} watched · {{ discovery.removed_week }} delisted (7d)</p>
-                    <p class="text-sm {% if not discovery.outcomes %}text-red-600 dark:text-red-500{% else %}text-subtle{% endif %}">
+                    <p class="text-sm {% if not discovery.outcomes %}text-red-500 dark:text-red-400{% else %}text-subtle{% endif %}">
                         {{ discovery.outcomes }} recorded outcome{{ discovery.outcomes|pluralize }}
                     </p>
                 </div>
@@ -81,7 +81,72 @@ Context comes from `bazos.dashboard.dashboard_callback` (UNFOLD["DASHBOARD_CALLB
             {% endcomponent %}
         </div>
 
-        {# Row 3 — the timeout watch. The sweep's budget is 30 minutes. #}
+        {# Row 3 — marketplace health, each card judged against its own history: 56% failures is normal for Bazos and would be an emergency for Sbazar. #}
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+            {% for market in markets %}
+                {% component "unfold/components/card.html" with title=market.label title_icon="storefront" %}
+                    <div class="flex flex-col gap-1">
+                        <p class="font-semibold text-2xl
+                            {% if market.state == 'silent' or market.state == 'down' %}text-red-500 dark:text-red-400
+                            {% elif market.state == 'elevated' %}text-orange-700 dark:text-orange-400
+                            {% else %}text-important{% endif %}">
+                            {% if market.state == 'silent' %}nothing tried
+                            {% elif market.state == 'down' %}no runs got through
+                            {% elif market.rate is None %}—
+                            {% else %}{{ market.rate }}% failing{% endif %}
+                        </p>
+                        <p class="text-subtle text-sm">
+                            {{ market.attempts }} attempt{{ market.attempts|pluralize }} in 24h{% if market.baseline is not None %} · usually {{ market.baseline }}%{% endif %}
+                        </p>
+                        <p class="text-sm mt-2">{{ market.enabled }} of {{ market.total }} quer{{ market.total|pluralize:"y,ies" }} enabled</p>
+                        <p class="text-sm {% if not market.ads_week %}text-orange-700 dark:text-orange-400{% else %}text-subtle{% endif %}">
+                            {{ market.ads_week }} ad{{ market.ads_week|pluralize }} found in 7d
+                        </p>
+                    </div>
+                {% endcomponent %}
+            {% endfor %}
+        </div>
+
+        <div class="grid grid-cols-1 gap-6 {% if other_failures %}lg:grid-cols-2{% endif %}">
+            {% component "unfold/components/card.html" with title="Failures per day" description="Blocks are the floor, not the signal — ~half of all Tor exits are 403'd" title_icon="error" %}
+                {% component "unfold/components/chart/bar.html" with data=failures_chart height="220" %}{% endcomponent %}
+            {% endcomponent %}
+
+            {% if other_failures %}
+                {% component "unfold/components/card.html" with title="Failures that are not blocks (7 days)" description="No retry fixes these — a contract broke" title_icon="report" %}
+                    <table class="w-full text-sm">
+                        <tbody>
+                            {% for row in other_failures %}
+                                <tr class="border-b border-base-200 dark:border-base-800 last:border-0">
+                                    <td class="py-2 pr-4 font-medium">{{ row.marketplace }}</td>
+                                    <td class="py-2 pr-4 text-subtle">{{ row.error }}</td>
+                                    <td class="py-2 text-right tabular-nums">{{ row.n }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% endcomponent %}
+            {% endif %}
+        </div>
+
+        {# Hidden when empty: "no query is stuck" is the normal state and needs no panel saying so — this appearing IS the alert. #}
+        {% if stalled_queries %}
+            {% component "unfold/components/card.html" with title="Queries that never got through (24h)" description="Attempted, and not one attempt succeeded" title_icon="running_with_errors" %}
+                <table class="w-full text-sm">
+                    <tbody>
+                        {% for row in stalled_queries %}
+                            <tr class="border-b border-base-200 dark:border-base-800 last:border-0">
+                                <td class="py-2 pr-4 font-medium">{{ row.marketplace }}</td>
+                                <td class="py-2 pr-4">{{ row.text }}</td>
+                                <td class="py-2 text-right tabular-nums">{{ row.attempts }} attempt{{ row.attempts|pluralize }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endcomponent %}
+        {% endif %}
+
+        {# Row 4 — the timeout watch. The sweep's budget is 30 minutes. #}
         {% if slowest_jobs %}
             {% component "unfold/components/card.html" with title="Slowest jobs (7 days)" description="Average duration — the delisting sweep's timeout is 30 minutes" title_icon="timer" %}
                 <table class="w-full text-sm">

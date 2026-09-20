@@ -504,7 +504,12 @@ class QueryChange(TimeStampedModel):
 
 class QueryRun(models.Model):
     query = models.ForeignKey(Query, on_delete=models.CASCADE, related_name='runs')
-    run_start = models.DateTimeField()
+    # Indexed because every reader of this table filters on a time window and none of them
+    # could use an index before: the admin dashboard's three aggregates, the changelist's
+    # date-range filter, and `prune_query_runs`' `run_start__lt` cutoff. Measured on
+    # production 2026-09-20 at 26 131 rows: a 14-day aggregate was a 10.8 ms sequential
+    # scan, and the table grows ~900 rows/day against a 90-day horizon.
+    run_start = models.DateTimeField(db_index=True)
     run_end = models.DateTimeField(null=True, blank=True)
     new_ads_count = models.IntegerField(null=True)
     success = models.BooleanField(default=True)

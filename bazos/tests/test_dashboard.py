@@ -4,10 +4,13 @@ The panels are judgement calls, so what is worth asserting is not their wording 
 three things that would make them lie: a stalled cluster reading as healthy, a day with no
 activity drawing as a gap instead of a zero, and the page growing a query per row.
 """
+import re
 from datetime import timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
@@ -138,7 +141,10 @@ def test_dashboard_cost_does_not_grow_with_the_table(django_assert_max_num_queri
         make_delivery(ad, query, status=AdStatus.PENDING)
         _task("bazos.jobs.heartbeat", minutes_ago=i + 1)
 
-    with django_assert_max_num_queries(10):
+    # 14 aggregates: eight for the operational panels, six for marketplace health. The
+    # number is what matters less than its shape — it is constant in the size of every
+    # table it reads, which is the property this test exists to keep.
+    with django_assert_max_num_queries(14):
         dashboard_callback(None, {})
 
 
@@ -220,3 +226,144 @@ def test_durations_read_like_durations(seconds, expected):
     from bazos.dashboard import humanise_duration
 
     assert humanise_duration(timedelta(seconds=seconds)) == expected
+
+
+# ---------------------------------------------------------------------------
+# Marketplace health — each judged against its own history, not a shared number
+# ---------------------------------------------------------------------------
+
+def _runs(query, *, n, ok, error="MarketplaceBlockedError: blocked", when=None, days_ago=0):
+    """`n` attempts of which `ok` succeeded, on one day."""
+    from bazos.models import QueryRun
+
+    start = (when or timezone.now()) - timedelta(days=days_ago)
+    for i in range(n):
+        QueryRun.objects.create(
+            query=query, run_start=start, run_end=start,
+            success=i < ok, error="" if i < ok else error,
+        )
+
+
+def _market(context, label):
+    return next(m for m in context["markets"] if m["label"] == label)
+
+
+@pytest.mark.django_db
+def test_a_blocked_marketplace_at_its_usual_rate_is_not_flagged(query):
+    """Bazos failed 56% of attempts in the week this was written and was perfectly fine."""
+    for day in range(1, 8):
+        _runs(query, n=20, ok=9, days_ago=day)
+    _runs(query, n=20, ok=9)
+
+    card = _market(dashboard_callback(None, {}), "Bazos")
+
+    assert card["state"] == "ok"
+    assert card["rate"] == 55
+    assert card["baseline"] == 55
+
+
+@pytest.mark.django_db
+def test_a_marketplace_failing_far_more_than_usual_is_flagged(query):
+    for day in range(1, 8):
+        _runs(query, n=20, ok=18, days_ago=day)   # usually 10% failures
+    _runs(query, n=20, ok=2)                      # today 90%
+
+    card = _market(dashboard_callback(None, {}), "Bazos")
+
+    assert card["state"] == "elevated"
+    assert card["baseline"] == 10
+
+
+@pytest.mark.django_db
+def test_nothing_getting_through_beats_any_rate(query):
+    _runs(query, n=12, ok=0)
+
+    assert _market(dashboard_callback(None, {}), "Bazos")["state"] == "down"
+
+
+@pytest.mark.django_db
+def test_an_enabled_marketplace_that_tried_nothing_is_silent(query):
+    """Worse than failing: the runner never even reached it."""
+    assert query.enabled
+    assert _market(dashboard_callback(None, {}), "Bazos")["state"] == "silent"
+
+
+@pytest.mark.django_db
+def test_non_block_failures_are_separated_from_blocks(query):
+    """One RuntimeError has to stay visible beside three thousand blocks."""
+    import json
+
+    _runs(query, n=30, ok=0)
+    _runs(query, n=2, ok=0, error="RuntimeError: endpoint 404")
+
+    context = dashboard_callback(None, {})
+    chart = json.loads(context["failures_chart"])
+
+    assert chart["datasets"][0]["label"] == "Blocked (expected)"
+    assert chart["datasets"][0]["data"][-1] == 30
+    assert chart["datasets"][1]["data"][-1] == 2
+    assert context["other_failures"] == [
+        {"marketplace": "bazos", "error": "RuntimeError", "n": 2}
+    ], "blocks must not appear in the contract-break table"
+
+
+@pytest.mark.django_db
+def test_stalled_queries_lists_only_enabled_ones_that_never_succeeded(query, category):
+    from bazos.models import Query
+
+    disabled = Query.objects.create(text="off", category=category, enabled=False,
+                                    price_lower=0, price_upper=0, new_query=False)
+    _runs(query, n=5, ok=0)
+    _runs(disabled, n=5, ok=0)
+
+    stalled = dashboard_callback(None, {})["stalled_queries"]
+
+    assert [row["text"] for row in stalled] == [query.text]
+
+
+@pytest.mark.django_db
+def test_a_query_that_eventually_got_through_is_not_stalled(query):
+    """The retry loop is the point: 4 blocks and a success is a healthy pass."""
+    _runs(query, n=5, ok=1)
+
+    assert dashboard_callback(None, {})["stalled_queries"] == []
+
+
+# ---------------------------------------------------------------------------
+# Two failure modes of the template itself, both invisible without rendering
+# ---------------------------------------------------------------------------
+
+DASHBOARD_TEMPLATE = Path(settings.BASE_DIR) / "templates" / "admin" / "index.html"
+
+
+def test_every_colour_class_exists_in_unfolds_compiled_css():
+    """Unfold ships a *precompiled* Tailwind build, so an unknown utility is a silent no-op.
+
+    `text-orange-500` looked right, passed review and did nothing: the bundle carries
+    `orange-700` and `dark:orange-400`. Nothing fails, the element just renders unstyled —
+    which for a colour that means "this marketplace is unhealthy" is the worst way to be
+    wrong.
+    """
+    import unfold
+
+    css = (Path(unfold.__file__).parent / "static" / "unfold" / "css" / "styles.css").read_text()
+    used = set(re.findall(r"(?:dark:)?text-(?:red|orange|green|blue|yellow|amber)-\d00",
+                          DASHBOARD_TEMPLATE.read_text()))
+    missing = [c for c in used if c.replace(":", "\\:") not in css]
+
+    assert used, "no colour utilities found — did the template move?"
+    assert not missing, f"not in unfold's compiled CSS, so these do nothing: {sorted(missing)}"
+
+
+@pytest.mark.django_db
+def test_template_comments_do_not_reach_the_page(client):
+    """`{# ... #}` is single-line only; spanning lines makes Django emit it as text."""
+    user = get_user_model().objects.create_superuser(
+        username="dash3", email="dash3@test.local", password="password"
+    )
+    client.force_login(user)
+
+    content = client.get(reverse("admin:index")).content.decode()
+
+    assert "{#" not in content and "#}" not in content
+    assert "Row 3" not in content, "a multi-line {# #} comment leaked into the page"

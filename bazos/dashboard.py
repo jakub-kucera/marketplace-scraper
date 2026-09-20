@@ -15,6 +15,11 @@ on a changelist, because this page is rendered on every visit to `/admin/`.
    can see before it fires.
 5. **Is outcome data accumulating?** `AdOutcome` is the only ground truth about a sale, and
    it only fills up if a human fills it. A counter sitting at zero is the nudge.
+6. **Which marketplace is unhealthy?** Not "what is the failure rate" — that number is
+   meaningless pooled. Measured 2026-09-20 over 7 days: Bazos 56% of attempts failed and
+   was fine, Vinted 31% and was broken. Blocks are a *cost* the retry loop absorbs; a
+   `RuntimeError` is a contract break no retry fixes. So health is judged per marketplace,
+   against that marketplace's own recent history, and blocks are demoted everywhere.
 
 Cost: eight aggregate queries, none of them per-row. `_ONE_QUERY_PER_TABLE` is the rule —
 conditional aggregation rather than a query per number — because this runs on a Raspberry
@@ -72,6 +77,134 @@ def _chart(labels, datasets):
     time, so the chart follows the light/dark theme instead of fighting it.
     """
     return json.dumps({"labels": labels, "datasets": datasets})
+
+
+#: A failure rate this many points above a marketplace's own 14-day median is worth a
+#: colour. Absolute thresholds cannot work here: 56% is normal for Bazos and would be an
+#: emergency for Sbazar, and a new marketplace would need a new constant on the day it
+#: ships. The margin is wide because the denominator is small — one bad hour on a
+#: once-a-day marketplace should not light the board up.
+ELEVATED_MARGIN_PCT = 25
+
+#: Below this many attempts a rate is noise, so only the absolute states (nothing tried,
+#: nothing succeeded) are reported.
+MIN_ATTEMPTS_FOR_RATE = 10
+
+#: Prefix of the exception whose failures are expected. `QueryRun.error` is written as
+#: f"{type(e).__name__}: {e}", so the class name is a prefix match — no parsing, and it
+#: keeps working on any database (the suite's one SQLite caller included).
+BLOCK_ERROR = "MarketplaceBlockedError"
+
+
+def _median(values):
+    ordered = sorted(values)
+    if not ordered:
+        return None
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _marketplace_health(now, today, day_ago, week_ago, chart_start):
+    """Per-marketplace state, judged against each marketplace's own trailing median.
+
+    Four states, each a distinct failure mode rather than a band of one number:
+
+    * **silent** — enabled queries but nothing even attempted in 24h. The runner is stuck,
+      or every query on it is disabled by something upstream. Worse than failing.
+    * **down** — attempted and not one attempt succeeded. For Bazos that takes a shutout
+      across `MAX_BLACKLIST_RETRIES` rotations; for Vinted one broken endpoint does it.
+    * **elevated** — succeeding, but failing much more than it usually does.
+    * **ok**.
+    """
+    from django.db.models import Case, Count, IntegerField, Q, When
+
+    from bazos.models import Ad, Marketplace, Query, QueryRun
+
+    queries = {
+        row["marketplace"]: row
+        for row in Query.objects.values("marketplace").annotate(
+            enabled=Count("id", filter=Q(enabled=True)), total=Count("id")
+        )
+    }
+    ads = {
+        row["marketplace"]: row["n"]
+        for row in Ad.objects.filter(created__gte=week_ago)
+        .values("marketplace").annotate(n=Count("id"))
+    }
+
+    # One query feeds the cards, the baselines and the chart: attempts per marketplace per
+    # day, split into blocked / other / succeeded.
+    daily = list(
+        QueryRun.objects.filter(run_start__gte=chart_start)
+        .annotate(
+            day=TruncDate("run_start"),
+            marketplace=F("query__marketplace"),
+            blocked=Case(
+                When(success=False, error__startswith=BLOCK_ERROR, then=1),
+                default=0, output_field=IntegerField(),
+            ),
+        )
+        .values("day", "marketplace", "blocked")
+        .annotate(attempts=Count("id"), ok=Count("id", filter=Q(success=True)))
+        .order_by("day")
+    )
+
+    per_market: dict[str, dict] = {}
+    for row in daily:
+        bucket = per_market.setdefault(row["marketplace"], {})
+        day = bucket.setdefault(row["day"], {"attempts": 0, "ok": 0, "blocked": 0})
+        day["attempts"] += row["attempts"]
+        day["ok"] += row["ok"]
+        if row["blocked"]:
+            day["blocked"] += row["attempts"]
+
+    cards = []
+    for value, label in Marketplace.choices:
+        counts = queries.get(value, {"enabled": 0, "total": 0})
+        if not counts["total"]:
+            continue
+        days = per_market.get(value, {})
+        recent = days.get(today, {"attempts": 0, "ok": 0})
+        yesterday = days.get(today - timedelta(days=1), {"attempts": 0, "ok": 0})
+        attempts = recent["attempts"] + yesterday["attempts"]
+        ok = recent["ok"] + yesterday["ok"]
+        rate = round(100 * (attempts - ok) / attempts) if attempts else None
+        # The baseline deliberately excludes today: comparing a partial day against a
+        # window that contains it drags the reference toward the very thing being judged.
+        history = [
+            round(100 * (d["attempts"] - d["ok"]) / d["attempts"])
+            for day, d in days.items()
+            if day < today and d["attempts"] >= MIN_ATTEMPTS_FOR_RATE
+        ]
+        baseline = _median(history)
+
+        if counts["enabled"] and not attempts:
+            state = "silent"
+        elif attempts and not ok:
+            state = "down"
+        elif (
+            attempts >= MIN_ATTEMPTS_FOR_RATE
+            and baseline is not None
+            and rate is not None
+            and rate > baseline + ELEVATED_MARGIN_PCT
+        ):
+            state = "elevated"
+        else:
+            state = "ok"
+
+        cards.append({
+            "label": label,
+            "enabled": counts["enabled"],
+            "total": counts["total"],
+            "attempts": attempts,
+            "rate": rate,
+            "baseline": None if baseline is None else round(baseline),
+            "ads_week": ads.get(value, 0),
+            "state": state,
+        })
+    return cards, per_market
 
 
 def dashboard_callback(request, context):
@@ -136,6 +269,57 @@ def dashboard_callback(request, context):
     ok_labels, ok_values = _series([r for r in task_rows if r["success"]], "day", CHART_DAYS, today)
     _, fail_values = _series([r for r in task_rows if not r["success"]], "day", CHART_DAYS, today)
 
+    # 6. marketplace health ----------------------------------------------------
+    markets, per_market = _marketplace_health(now, today, day_ago, week_ago, chart_start)
+
+    # Failures per day, blocked vs everything else. Two series rather than one per
+    # marketplace: eight lines is unreadable, and the split that matters is not *which*
+    # marketplace failed but *whether the failure was the expected kind*. A single
+    # RuntimeError has to be visible beside three thousand blocks, so the marketplace
+    # detail lives in the cards and in `other_failures` below, where it can be named.
+    blocked_by_day: dict = {}
+    other_by_day: dict = {}
+    for market_days in per_market.values():
+        for day, counts in market_days.items():
+            failed = counts["attempts"] - counts["ok"]
+            blocked_by_day[day] = blocked_by_day.get(day, 0) + counts["blocked"]
+            other_by_day[day] = other_by_day.get(day, 0) + failed - counts["blocked"]
+    fail_labels, blocked_values = _series(
+        [{"day": d, "n": n} for d, n in blocked_by_day.items()], "day", CHART_DAYS, today
+    )
+    _, other_values = _series(
+        [{"day": d, "n": n} for d, n in other_by_day.items()], "day", CHART_DAYS, today
+    )
+
+    # Everything that is not a block, named and counted. Small by construction — 70 rows
+    # in the week this was written against 3 369 blocks — so grouping it in Python is
+    # cheaper than teaching the database to split an exception string.
+    other_failures: dict = {}
+    rows = (
+        QueryRun.objects.filter(run_start__gte=week_ago, success=False)
+        .exclude(error__startswith=BLOCK_ERROR)
+        .values_list("query__marketplace", "error")
+    )
+    for marketplace, error in rows:
+        key = (marketplace, (error or "unknown").split(":", 1)[0].strip())
+        other_failures[key] = other_failures.get(key, 0) + 1
+
+    # The alarm list: an enabled query that tried and never got through. Empty is the
+    # healthy state, so the panel hides itself rather than showing a reassuring zero.
+    stalled_queries = [
+        {
+            "marketplace": row["query__marketplace"],
+            "text": row["query__text"],
+            "attempts": row["attempts"],
+        }
+        for row in (
+            QueryRun.objects.filter(run_start__gte=day_ago, query__enabled=True)
+            .values("query__marketplace", "query__text")
+            .annotate(attempts=Count("id"), ok=Count("id", filter=Q(success=True)))
+            .filter(ok=0).order_by("-attempts")[:10]
+        )
+    ]
+
     slowest = (
         Task.objects.filter(started__gte=week_ago, stopped__isnull=False)
         .exclude(func=HEARTBEAT)
@@ -191,6 +375,25 @@ def dashboard_callback(request, context):
                      "backgroundColor": "var(--color-red-500)", "borderRadius": 4},
                 ],
             ),
+            "markets": markets,
+            "failures_chart": _chart(
+                fail_labels,
+                [
+                    # Blocked is drawn first and muted: it is the floor, not the signal.
+                    {"label": "Blocked (expected)", "data": blocked_values,
+                     "backgroundColor": "var(--color-base-400)", "borderRadius": 4, "stack": "f"},
+                    {"label": "Other errors", "data": other_values,
+                     "backgroundColor": "var(--color-red-500)", "borderRadius": 4, "stack": "f"},
+                ],
+            ),
+            "other_failures": sorted(
+                (
+                    {"marketplace": m, "error": e, "n": n}
+                    for (m, e), n in other_failures.items()
+                ),
+                key=lambda row: -row["n"],
+            )[:6],
+            "stalled_queries": stalled_queries,
             "slowest_jobs": [
                 {
                     "label": JOB_CATALOG[row["func"]].label if row["func"] in JOB_CATALOG else row["func"],
