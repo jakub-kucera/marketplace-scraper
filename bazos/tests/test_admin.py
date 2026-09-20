@@ -6,6 +6,7 @@ Covers the admin-friendly checkbox UI for `Query.filter_rule_names`, backed by
 import json
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from bs4 import BeautifulSoup
@@ -19,7 +20,7 @@ from django.utils import timezone
 
 from bazos.admin import AdAdmin, QueryAdmin, QueryAdminForm, QueryRunAdmin
 from bazos.filters import RULE_REGISTRY
-from bazos.models import Ad
+from bazos.models import Ad, AdDelivery, AdStatus
 from senders.models import Discord
 
 
@@ -1285,3 +1286,201 @@ def test_listing_state_column_agrees_with_the_filter(listing_state_corpus, rf):
     assert rendered[9003].startswith("last seen ")   # aged out of the sweep
     assert rendered[9004] == "—"
     assert rendered[9005].startswith("last seen ")   # Vinted: never sweepable
+
+
+@pytest.mark.django_db
+def test_requeue_action_revives_failed_deliveries(admin_client_logged_in, query, make_ad, make_delivery):
+    """A FAILED delivery should be a dead-letter queue, not a dead end."""
+    from bazos.models import AdDelivery, AdStatus
+
+    ad = make_ad(query, bazos_id=900)
+    ad.save()
+    failed = make_delivery(ad, query, status=AdStatus.FAILED)
+    AdDelivery.objects.filter(pk=failed.pk).update(send_attempts=5)
+    other = make_ad(query, bazos_id=901)
+    other.save()
+    sent = make_delivery(other, query, status=AdStatus.SENT)
+
+    response = admin_client_logged_in.post(
+        reverse("admin:bazos_addelivery_changelist"),
+        {"action": "requeue", "_selected_action": [failed.pk, sent.pk]},
+        follow=True,
+    )
+
+    failed.refresh_from_db()
+    sent.refresh_from_db()
+    assert response.status_code == 200
+    assert failed.status == AdStatus.APPROVED
+    assert failed.send_attempts == 0, "the budget counts attempts against the current cause"
+    assert sent.status == AdStatus.SENT, "only FAILED rows are requeued"
+
+
+# ---------------------------------------------------------------------------
+# Publisher detail-page actions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("model_name", ["phonepublisher", "emailpublisher"])
+def test_publisher_detail_page_offers_the_seller_jobs(admin_client, model_name):
+    """`actions` is a changelist dropdown only, so before `actions_detail` a seller's own
+    page had no way to run any of this without going back to the list and re-finding them."""
+    from bazos.models import EmailPublisher, PhonePublisher
+
+    model = PhonePublisher if model_name == "phonepublisher" else EmailPublisher
+    pub = model.objects.create(bazos_id=555)
+
+    html = admin_client.get(reverse(f"admin:bazos_{model_name}_change", args=[pub.pk])).content.decode()
+
+    for label in ("Fetch ratings", "Fetch listings", "Find relisted"):
+        assert label in html, f"{label!r} button missing from the {model_name} change form"
+
+
+@pytest.mark.django_db
+def test_the_detail_ratings_button_queues_exactly_that_seller(admin_client):
+    from bazos.models import PhonePublisher
+
+    pub = PhonePublisher.objects.create(bazos_id=556)
+    url = reverse("admin:bazos_phonepublisher_fetch_ratings_detail", args=[pub.pk])
+
+    with patch("bazos.admin.async_task") as queued:
+        response = admin_client.get(url)
+
+    queued.assert_called_once()
+    job, kind, pk = queued.call_args.args
+    assert kind == "phone" and pk == pub.pk
+    assert response.status_code == 302
+
+
+@pytest.mark.django_db
+def test_the_queued_message_tells_the_truth_about_what_is_stored(admin_client, settings):
+    """The old text promised unconditionally that reviewer data was discarded. With
+    STORE_SELLER_REVIEWS on that is the opposite of what happens, and a reassurance that is
+    sometimes false is worse than none."""
+    from bazos.models import PhonePublisher
+
+    pub = PhonePublisher.objects.create(bazos_id=557)
+    url = reverse("admin:bazos_phonepublisher_fetch_ratings_detail", args=[pub.pk])
+
+    settings.STORE_SELLER_REVIEWS = True
+    with patch("bazos.admin.async_task"):
+        response = admin_client.get(url, follow=True)
+    assert "are stored as well as the counts" in response.content.decode()
+
+    settings.STORE_SELLER_REVIEWS = False
+    with patch("bazos.admin.async_task"):
+        response = admin_client.get(url, follow=True)
+    assert "are discarded" in response.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# Detail-page actions on Ad, PostalCode and AdDelivery
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_ad_detail_page_offers_every_per_ad_job(admin_client, query, make_ad):
+    """`Ad.admin_url` is where a Discord notification lands, usually on a phone. Before
+    these, acting on an alert meant going back to a 30 000-row changelist to re-find the
+    row you were already looking at."""
+    ad = make_ad(query, 424242)
+
+    ad.save()
+    html = admin_client.get(reverse("admin:bazos_ad_change", args=[ad.pk])).content.decode()
+
+    for label in ("Score", "Fetch description", "Re-read listing"):
+        assert label in html, f"{label!r} missing from the ad change form"
+
+
+@pytest.mark.django_db
+def test_other_apps_can_add_their_own_detail_buttons(admin_client, query, make_ad):
+    """`refprice` and `llm` append to `AdAdmin.actions_detail` from their own admin.py,
+    the same seam `actions` and `inlines` use - the dependency points inward, so `bazos`
+    cannot import them. Without this they would have a changelist action and no button on
+    the page you actually arrive at."""
+    ad = make_ad(query, 424243)
+
+    ad.save()
+    html = admin_client.get(reverse("admin:bazos_ad_change", args=[ad.pk])).content.decode()
+
+    assert "Reference price" in html
+    assert "Extract specs" in html
+
+
+@pytest.mark.django_db
+def test_the_ad_score_button_queues_that_ad(admin_client, query, make_ad):
+    ad = make_ad(query, 424244)
+
+    ad.save()
+    with patch("bazos.admin.async_task") as queued:
+        response = admin_client.get(reverse("admin:bazos_ad_score_this_ad", args=[ad.pk]))
+
+    queued.assert_called_once()
+    assert queued.call_args.args[1] == ad.pk
+    assert response.status_code == 302
+
+
+@pytest.mark.django_db
+def test_re_reading_is_refused_for_a_marketplace_with_no_bulk_id_endpoint(
+    admin_client, query, make_ad
+):
+    """Refused here rather than left to fail in the worker: a Failure row would report
+    "something broke" about a marketplace that simply has no such endpoint."""
+    from bazos.models import Marketplace
+
+    ad = make_ad(query, 424245)
+
+    ad.save()
+    Ad.objects.filter(pk=ad.pk).update(marketplace=Marketplace.VINTED)
+
+    with patch("bazos.admin.async_task") as queued:
+        response = admin_client.get(
+            reverse("admin:bazos_ad_refresh_this_ad", args=[ad.pk]), follow=True
+        )
+
+    queued.assert_not_called()
+    assert "no bulk-id endpoint" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_requeue_button_refuses_a_delivery_that_did_not_fail(admin_client, query, make_ad):
+    """One row, so "nothing happened" and "it worked" would look identical - say which."""
+    ad = make_ad(query, 424246)
+
+    ad.save()
+    delivery = AdDelivery.objects.create(ad=ad, query=query, status=AdStatus.SENT)
+
+    response = admin_client.get(
+        reverse("admin:bazos_addelivery_requeue_this_delivery", args=[delivery.pk]), follow=True
+    )
+
+    delivery.refresh_from_db()
+    assert delivery.status == AdStatus.SENT
+    assert "Only a FAILED delivery can be requeued" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_requeue_button_revives_a_failed_delivery(admin_client, query, make_ad):
+    ad = make_ad(query, 424247)
+
+    ad.save()
+    delivery = AdDelivery.objects.create(
+        ad=ad, query=query, status=AdStatus.FAILED, send_attempts=5
+    )
+
+    admin_client.get(reverse("admin:bazos_addelivery_requeue_this_delivery", args=[delivery.pk]))
+
+    delivery.refresh_from_db()
+    assert (delivery.status, delivery.send_attempts) == (AdStatus.APPROVED, 0)
+
+
+@pytest.mark.django_db
+def test_postal_code_page_can_ask_zip_php_again(admin_client):
+    """This admin exists as the escape hatch for a code zip.php places badly, so "ask
+    again" is the one action worth having on the row."""
+    from bazos.models import PostalCode
+
+    code = PostalCode.objects.create(code="11000", city="Praha", latitude=50.0, longitude=14.4)
+    with patch("bazos.admin.async_task") as queued:
+        admin_client.get(reverse("admin:bazos_postalcode_regeocode_this_code", args=[code.pk]))
+
+    queued.assert_called_once()
+    assert queued.call_args.args[1] == "11000"

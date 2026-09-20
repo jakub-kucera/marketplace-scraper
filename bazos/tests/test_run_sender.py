@@ -292,3 +292,134 @@ def test_a_senderless_delivery_does_not_block_the_rest_of_the_batch(make_ad, mak
     good.refresh_from_db()
     assert bad.status == AdStatus.FAILED
     assert good.status == AdStatus.SENT
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting is backpressure, not failure
+# ---------------------------------------------------------------------------
+
+def _rate_limited(retry_after):
+    from senders.exceptions import RateLimitError
+
+    return RateLimitError(retry_after=retry_after)
+
+
+@pytest.mark.django_db
+def test_a_retry_after_does_not_spend_the_failure_budget(query, make_ad, make_delivery):
+    """Discord saying "wait 2s" is flow control. Charging it to MAX_SEND_ATTEMPTS is how
+    65 deliveries were marked permanently FAILED inside about a second each."""
+    ad = make_ad(query, bazos_id=300)
+    ad.save()
+    delivery = make_delivery(ad, query, status=AdStatus.APPROVED)
+
+    run_sender_once(send_side_effect=_rate_limited(2.0))
+
+    delivery.refresh_from_db()
+    assert delivery.status == AdStatus.APPROVED, "must stay queued, not fail"
+    assert delivery.send_attempts == 0, "backpressure is not an attempt"
+
+
+@pytest.mark.django_db
+def test_a_refusal_with_no_retry_after_does_spend_it(query, make_ad, make_delivery):
+    """That is the case the budget exists for: refused, and we cannot tell for how long."""
+    ad = make_ad(query, bazos_id=301)
+    ad.save()
+    delivery = make_delivery(ad, query, status=AdStatus.APPROVED)
+
+    run_sender_once(send_side_effect=_rate_limited(None))
+
+    delivery.refresh_from_db()
+    assert delivery.send_attempts == 1
+    assert delivery.status == AdStatus.APPROVED
+
+
+@pytest.mark.django_db
+def test_one_rate_limited_channel_does_not_block_the_others(make_ad, make_delivery, category):
+    """Discord rate-limits per webhook, and the batch is the oldest N by `created`. A burst
+    on one channel must not fill the batch with rows nobody can send."""
+    from unittest.mock import MagicMock
+
+    from bazos.models import Query
+    from senders.services.discord_sender import DiscordSender
+
+    busy_channel = Discord.objects.create(channel_name="busy", url="https://discord.test/busy")
+    calm_channel = Discord.objects.create(channel_name="calm", url="https://discord.test/calm")
+    busy_q = Query.objects.create(text="busy", category=category, sender=busy_channel,
+                                  price_lower=0, price_upper=0, new_query=False)
+    calm_q = Query.objects.create(text="calm", category=category, sender=calm_channel,
+                                  price_lower=0, price_upper=0, new_query=False)
+
+    busy_deliveries = []
+    for i in range(3):                       # oldest in the queue, all for the busy channel
+        ad = make_ad(busy_q, bazos_id=400 + i)
+        ad.save()
+        busy_deliveries.append(make_delivery(ad, busy_q, status=AdStatus.APPROVED))
+    calm_ad = make_ad(calm_q, bazos_id=500)
+    calm_ad.save()
+    calm_delivery = make_delivery(calm_ad, calm_q, status=AdStatus.APPROVED)
+
+    def per_channel(sendables):
+        # The fake sender is shared, so route on the ad that reached it.
+        if sendables[0].external_id < 500:
+            raise _rate_limited(5.0)
+
+    fake = MagicMock(spec=DiscordSender)
+    fake.send_sendable.side_effect = per_channel
+    with patch.object(DiscordSender, "from_model", return_value=fake):
+        call_command("run_sender", once=True)
+
+    calm_delivery.refresh_from_db()
+    assert calm_delivery.status == AdStatus.SENT, "the calm channel must still go out"
+    for d in busy_deliveries:
+        d.refresh_from_db()
+        assert d.status == AdStatus.APPROVED
+        assert d.send_attempts == 0
+
+
+@pytest.mark.django_db
+def test_a_cooling_channel_is_excluded_from_the_next_batch(query, make_ad, make_delivery):
+    """Excluded in the queryset, not skipped in Python — otherwise a burst fills the batch."""
+    from unittest.mock import MagicMock
+
+    from bazos.management.commands.run_sender import Command
+    from senders.services.discord_sender import DiscordSender
+
+    ad = make_ad(query, bazos_id=600)
+    ad.save()
+    make_delivery(ad, query, status=AdStatus.APPROVED)
+
+    command = Command()
+    fake = MagicMock(spec=DiscordSender)
+    fake.send_sendable.side_effect = _rate_limited(30.0)
+    with patch.object(DiscordSender, "from_model", return_value=fake):
+        command.run_once()                       # trips the cooldown
+        fake.send_sendable.side_effect = None
+        handled = command.run_once()             # ...second pass must not even select it
+
+    assert handled == 0
+    assert fake.send_sendable.call_count == 1
+
+
+@pytest.mark.django_db
+def test_a_permanent_failure_is_announced_to_the_logging_channel(query, make_ad, make_delivery):
+    """A lost notification used to be silent — 65 accumulated before anyone noticed."""
+    from unittest.mock import MagicMock
+
+    from senders.services.discord_sender import DiscordSender
+
+    Discord.objects.create(channel_name="log", url="https://discord.test/log", for_logging=True)
+    ad = make_ad(query, bazos_id=700)
+    ad.save()
+    delivery = make_delivery(ad, query, status=AdStatus.APPROVED)
+    delivery.send_attempts = MAX_SEND_ATTEMPTS - 1
+    delivery.save()
+
+    fake = MagicMock(spec=DiscordSender)
+    fake.send_sendable.side_effect = _rate_limited(None)
+    with patch.object(DiscordSender, "from_model", return_value=fake):
+        call_command("run_sender", once=True)
+
+    delivery.refresh_from_db()
+    assert delivery.status == AdStatus.FAILED
+    fake.send_plain.assert_called_once()
+    assert "permanently failed" in fake.send_plain.call_args[0][0]

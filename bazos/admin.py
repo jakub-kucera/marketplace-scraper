@@ -43,7 +43,7 @@ from unfold.widgets import (
 )
 
 from bazos.comparables import find_comparables
-from bazos.const import DELIST_MAX_AGE_DAYS
+from bazos.const import DELIST_MAX_AGE_DAYS, STORE_SELLER_REVIEWS
 from bazos.delisting import SWEEPABLE_MARKETPLACES
 from bazos.jobs import (
     DETECT_REPOSTS,
@@ -56,7 +56,23 @@ from bazos.jobs import (
 )
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
-from bazos.models import AdOutcome, AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun, SellerReview
+from bazos.models import AdOutcome, AdPriceScore, AdStatus, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun, SellerReview
+
+
+def _ratings_privacy_note() -> str:
+    """What a ratings lookup will actually keep, said at the moment it is queued.
+
+    `STORE_SELLER_REVIEWS` decides whether the reviewer's name, unmasked phone and review
+    text are persisted as `SellerReview` rows or dropped by `summarise()`. The old message
+    promised unconditionally that they were discarded, which stopped being true the moment
+    the setting was turned on - and a reassurance that is sometimes false is worse than none.
+    """
+    if getattr(settings, "STORE_SELLER_REVIEWS", STORE_SELLER_REVIEWS):
+        return (
+            "STORE_SELLER_REVIEWS is ON: the reviewer's name, phone number and review text "
+            "are stored as well as the counts."
+        )
+    return "Only counts are stored - reviewer names, numbers and review text are discarded."
 
 
 class CategoryInline(TabularInline):
@@ -1001,6 +1017,61 @@ class AdAdmin(ModelAdmin):
             messages.INFO,
         )
 
+    #: Buttons on the ad's own page, not only in the changelist dropdown. This is the page
+    #: `Ad.admin_url` points at, so it is where a Discord notification lands - usually on a
+    #: phone - and without these, acting on an alert meant going back to a 30 000-row
+    #: changelist to re-find the row you had just been looking at.
+    #:
+    #: A tuple, and appended to rather than replaced by `refprice` and `llm` from their own
+    #: `admin.py` (the same seam as `actions` and `inlines`, for the same reason: the
+    #: dependency points inward and `bazos` cannot import them). A list here would be
+    #: mutated in place by the first app to arrive and silently shared with the next.
+    actions_detail: tuple[Any, ...] = (
+        "score_this_ad", "fetch_this_description", "refresh_this_ad",
+    )
+
+    def _queue_for_ad(self, request, object_id, job: str, note: str) -> HttpResponseRedirect:
+        async_task(job, int(object_id))
+        self.message_user(request, note, messages.INFO)
+        return HttpResponseRedirect(reverse("admin:bazos_ad_change", args=[object_id]))
+
+    @unfold_action(description="Score", icon="function", url_path="score")
+    def score_this_ad(self, request, object_id):
+        return self._queue_for_ad(
+            request, object_id, SCORE_AD,
+            "Queued scoring. The result appears on this page once the worker picks it up.",
+        )
+
+    @unfold_action(description="Fetch description", icon="description", url_path="fetch-description")
+    def fetch_this_description(self, request, object_id):
+        """Unlike the changelist action this does not skip an ad that already has one.
+
+        There the skip protects you from spending fifty paced requests re-fetching text you
+        already hold; here you have asked about one specific ad, and "re-read it" is a
+        reasonable thing to want when the stored copy looks wrong.
+        """
+        return self._queue_for_ad(
+            request, object_id, FETCH_FULL_DESCRIPTION,
+            "Queued a detail fetch. One paced request; it will overwrite any stored description.",
+        )
+
+    @unfold_action(description="Re-read listing", icon="refresh", url_path="refresh")
+    def refresh_this_ad(self, request, object_id):
+        ad = self.model.objects.filter(pk=object_id).only("marketplace").first()
+        if ad is not None and ad.marketplace not in SWEEPABLE_MARKETPLACES:
+            # Refused here rather than left to fail in the worker: a Failure row would say
+            # "something broke" about a marketplace that simply has no bulk-id endpoint.
+            self.message_user(
+                request,
+                f"{ad.marketplace} has no bulk-id endpoint, so a listing cannot be re-read.",
+                messages.WARNING,
+            )
+            return HttpResponseRedirect(reverse("admin:bazos_ad_change", args=[object_id]))
+        return self._queue_for_ad(
+            request, object_id, REFRESH_AD,
+            "Queued a re-read. Price, view count and whether it is still listed.",
+        )
+
     @admin.action(description="Fetch the full description")
     def fetch_full_descriptions(self, request, queryset):
         """Queue a detail fetch per ad, regardless of its query's `load_full_description`.
@@ -1157,6 +1228,24 @@ class AdDeliveryAdmin(ModelAdmin):
     """The pipeline view: one row per (ad, query), where `Ad.status` used to live."""
 
     list_display = ("ad", "query", "status", "filter_reason", "sent_at", "send_attempts", "created")
+    #: Requeueing the delivery whose page you are on, without going back to the list. Only
+    #: meaningful for a FAILED row, and it says so rather than silently doing nothing -
+    #: the changelist action filters a selection, but here there is exactly one row and
+    #: "nothing happened" would be indistinguishable from "it worked".
+    actions_detail = ["requeue_this_delivery"]
+
+    @unfold_action(description="Requeue", icon="send", url_path="requeue")
+    def requeue_this_delivery(self, request, object_id):
+        updated = self.model.objects.filter(pk=object_id, status=AdStatus.FAILED).update(
+            status=AdStatus.APPROVED, send_attempts=0
+        )
+        if updated:
+            self.message_user(request, "Requeued for sending; attempt budget reset.", messages.INFO)
+        else:
+            self.message_user(
+                request, "Only a FAILED delivery can be requeued; this one is not.", messages.WARNING
+            )
+        return HttpResponseRedirect(reverse("admin:bazos_addelivery_change", args=[object_id]))
     list_filter = (
         ("status", ChoicesDropdownFilter),
         ("query", RelatedDropdownFilter),
@@ -1166,6 +1255,28 @@ class AdDeliveryAdmin(ModelAdmin):
     search_fields = ("ad__name", "ad__external_id")
     ordering = ("-created",)
     readonly_fields = ("ad", "query", "status", "filter_reason", "sent_at", "send_attempts")
+    actions = ["requeue"]
+
+    @admin.action(description="Requeue for sending (FAILED → APPROVED)")
+    def requeue(self, request, queryset):
+        """Give up-for-dead notifications another go.
+
+        Without this a FAILED delivery is a dead end rather than a dead-letter queue: the
+        ad is in the database, the reason it never arrived has usually been fixed, and
+        there is no way back. A *bulk* action rather than a per-row one because the
+        recovery case is 65 deliveries stranded by one cause, not one unlucky ad.
+
+        `send_attempts` resets because the budget counts attempts against *the current
+        cause*, not against one that was fixed weeks ago.
+        """
+        updated = queryset.filter(status=AdStatus.FAILED).update(
+            status=AdStatus.APPROVED, send_attempts=0
+        )
+        skipped = queryset.count() - updated
+        message = f"{updated} delivery(ies) requeued; run_sender will pick them up within a poll."
+        if skipped:
+            message += f" {skipped} skipped — only FAILED deliveries can be requeued."
+        self.message_user(request, message, level=messages.WARNING if skipped else messages.SUCCESS)
 
 
 PARTNER_DISPLAY_LIMIT = 50
@@ -1260,6 +1371,41 @@ class PublisherAdminBase(ModelAdmin):
     def ads_link(self, obj):
         return ads_browse_link(self.own_ad_field, obj)
 
+    #: Unfold renders `actions` as a changelist dropdown only, so on a seller's own page
+    #: there was no way to run any of this without going back to the list and re-finding the
+    #: row. These are the same three jobs as buttons at the top of the change form.
+    actions_detail = ["fetch_ratings_detail", "fetch_listings_detail", "detect_reposts_detail"]
+
+    def _queue_one(self, request, object_id, job: str, note: str) -> HttpResponseRedirect:
+        """Enqueue one job for the seller whose page this is, then come back to it."""
+        async_task(job, self.publisher_kind, int(object_id))
+        self.message_user(request, note, messages.INFO)
+        return HttpResponseRedirect(
+            reverse(f"admin:bazos_{self.model._meta.model_name}_change", args=[object_id])
+        )
+
+    @unfold_action(description="Fetch ratings", icon="star", url_path="fetch-ratings")
+    def fetch_ratings_detail(self, request, object_id):
+        return self._queue_one(
+            request, object_id, FETCH_SELLER_RATINGS,
+            f"Queued a ratings lookup. {_ratings_privacy_note()}",
+        )
+
+    @unfold_action(description="Fetch listings", icon="inventory_2", url_path="fetch-listings")
+    def fetch_listings_detail(self, request, object_id):
+        return self._queue_one(
+            request, object_id, FETCH_SELLER_LISTINGS,
+            "Queued an inventory pull. New ads are stored with no delivery and "
+            "source='seller_sweep' — they are not notified.",
+        )
+
+    @unfold_action(description="Find relisted", icon="repeat", url_path="detect-reposts")
+    def detect_reposts_detail(self, request, object_id):
+        return self._queue_one(
+            request, object_id, DETECT_REPOSTS,
+            "Queued repost detection. Reads our own archive; makes no requests.",
+        )
+
     @admin.action(description="Block selected publishers")
     def block_publishers(self, request, queryset):
         updated = queryset.update(blocked=True)
@@ -1281,12 +1427,7 @@ class PublisherAdminBase(ModelAdmin):
         pks = list(queryset.values_list("pk", flat=True))
         for pk in pks:
             async_task(FETCH_SELLER_RATINGS, self.publisher_kind, pk)
-        self.message_user(
-            request,
-            f"Queued {len(pks)} ratings lookup(s). Only counts are stored — reviewer "
-            f"names, numbers and review text are discarded.",
-            messages.INFO,
-        )
+        self.message_user(request, f"Queued {len(pks)} ratings lookup(s). {_ratings_privacy_note()}", messages.INFO)
 
     @admin.action(description="Fetch this seller's current listings")
     def fetch_listings(self, request, queryset):
@@ -1372,6 +1513,17 @@ class PostalCodeAdmin(ModelAdmin):
     """
     list_display = ("code", "city", "latitude", "longitude", "created")
     search_fields = ("code", "city")
+    #: This admin exists as the escape hatch for a code `zip.php` places badly, so the one
+    #: action worth having on the row is "go and ask again". Otherwise it is reachable only
+    #: through Jobs -> Run a job, by typing back the code you are already looking at.
+    actions_detail = ["regeocode_this_code"]
+
+    @unfold_action(description="Re-geocode", icon="location_on", url_path="regeocode")
+    def regeocode_this_code(self, request, object_id):
+        code = self.model.objects.filter(pk=object_id).values_list("code", flat=True).first()
+        async_task(GEOCODE_POSTAL_CODE, code)
+        self.message_user(request, f"Queued a geocode lookup for {code}.", messages.INFO)
+        return HttpResponseRedirect(reverse("admin:bazos_postalcode_change", args=[object_id]))
     ordering = ("code",)
 
 

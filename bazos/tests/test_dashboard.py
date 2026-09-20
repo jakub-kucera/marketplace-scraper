@@ -141,10 +141,11 @@ def test_dashboard_cost_does_not_grow_with_the_table(django_assert_max_num_queri
         make_delivery(ad, query, status=AdStatus.PENDING)
         _task("bazos.jobs.heartbeat", minutes_ago=i + 1)
 
-    # 14 aggregates: eight for the operational panels, six for marketplace health. The
+    # 15 aggregates: eight for the operational panels, six for marketplace health, one
+    # for failures-in-the-last-week (an all-time count read as history, not an alert). The
     # number is what matters less than its shape — it is constant in the size of every
     # table it reads, which is the property this test exists to keep.
-    with django_assert_max_num_queries(14):
+    with django_assert_max_num_queries(15):
         dashboard_callback(None, {})
 
 
