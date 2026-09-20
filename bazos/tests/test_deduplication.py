@@ -123,6 +123,12 @@ def test_new_query_stops_before_max_non_topped_ads(query, make_ad, monkeypatch):
     import bazos.scraping.query_runner as qr_module
     monkeypatch.setattr(qr_module, "NEW_PRODUCT_LOAD_MAX", 3)
 
+    # `ignore_first_run=False` is now load-bearing: the cap bounds how many ads a new query
+    # *notifies* about, so it only stops the walk when the first run is actually sending.
+    # A suppressed first run walks the whole catalog on purpose — see test_flood_guard.py.
+    query.ignore_first_run = False
+    query.save()
+
     # 5 non-topped products; with limit=3 the 3rd triggers break before being saved
     products = [make_ad(query, bazos_id=i, topped=False) for i in range(1, 6)]
     runner = make_runner(query)
@@ -137,6 +143,9 @@ def test_new_query_stops_before_max_non_topped_ads(query, make_ad, monkeypatch):
 def test_new_query_topped_ads_do_not_count_toward_limit(query, make_ad, monkeypatch):
     import bazos.scraping.query_runner as qr_module
     monkeypatch.setattr(qr_module, "NEW_PRODUCT_LOAD_MAX", 2)
+
+    query.ignore_first_run = False   # the cap only stops a walk that is notifying
+    query.save()
 
     products = [
         make_ad(query, bazos_id=1, topped=True),   # doesn't count

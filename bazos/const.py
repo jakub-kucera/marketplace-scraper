@@ -24,7 +24,22 @@ BAZOS_API_BASE_URL: Final[str] = "https://www.bazos.cz/api/v1"
 # silently clamped back down to this value.
 API_PAGE_SIZE: Final[int] = 210
 
+#: How many ads a brand-new query may *notify* about on its very first pass. It bounds
+#: notifications, not the walk: when `ignore_first_run` is set the first pass sends nothing
+#: and runs to the scraper's own page limit instead, because stopping early would leave the
+#: rest of the catalog unknown and the *next* pass would deliver all of it as "new".
 NEW_PRODUCT_LOAD_MAX: Final[int] = 50
+
+#: Ads one query may notify about in a single pass before the rest are suppressed.
+#:
+#: Not tuning — a blast-radius limit. On 2026-09-20 a newly added Sbazar query suppressed 71
+#: ads on its first pass and then sent **1 536 in the next hour**, because everything past
+#: the first-run cap was still unknown to it. The first-run path is fixed, but the shape
+#: recurs for any cause: a widened filter, a marketplace answering with its whole catalog, a
+#: dedup regression. Past this many, the ads are still recorded — as SUPPRESSED, so the query
+#: knows them and the next pass stays quiet — and one warning is logged. A person cannot read
+#: 1 500 notifications, so delivering them is never the useful outcome.
+MAX_NEW_ADS_NOTIFIED_PER_PASS: Final[int] = 25
 
 MAX_ATTEMPTS = 5
 

@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import requests
 from django.db import DatabaseError
 
-from bazos.const import NEW_PRODUCT_LOAD_MAX
+from bazos.const import MAX_NEW_ADS_NOTIFIED_PER_PASS, NEW_PRODUCT_LOAD_MAX
 from bazos.geo import ensure_postal_code, parse_postal_code
 from bazos.models import Ad, AdDelivery, AdStatus, Marketplace, PriceChange, Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
@@ -14,6 +14,14 @@ from bazos.scraping.sbazar.sbazar_scraper import SbazarScraper
 from bazos.scraping.vinted.vinted_scraper import VintedScraper
 
 logger = logging.getLogger(__name__)
+
+#: Written to `AdDelivery.filter_reason` when the per-pass cap suppressed an ad. The filter
+#: never saw these — the column is reused because it is the only place a delivery can say
+#: why it was not sent, and "suppressed by a cap" is exactly that kind of answer. The prefix
+#: keeps them distinguishable from a rule's rejection.
+FLOOD_SUPPRESSED_REASON = "not sent: more than %d new ads for this query in one pass" % (
+    MAX_NEW_ADS_NOTIFIED_PER_PASS,
+)
 
 
 def _build_scrapers(session: requests.Session) -> dict[str, MarketplaceScraper]:
@@ -35,6 +43,8 @@ class QueryRunner:
         self.session = session
         self.scraper: MarketplaceScraper = get_scraper(query.marketplace, session)
         self.new_product_counter = 0
+        #: New ads this pass that were recorded but deliberately not notified.
+        self.flood_suppressed_counter = 0
         self.rows_seen_counter = 0
 
     def _get_known_delivery(self, product: Ad) -> AdDelivery | None:
@@ -84,15 +94,33 @@ class QueryRunner:
         IntegrityError every pass.
         """
         ad = self._resolve_ad(product)
-        if self.query.load_full_description and ad.full_description is None:
+        # Past the per-pass cap the ad is still recorded — as SUPPRESSED, so this query
+        # knows it and the next pass does not rediscover it — but nobody is told. The
+        # detail fetch is skipped with it: 1 500 paced GETs is over an hour of Tor traffic
+        # spent enriching ads that are not being delivered. `fetch_full_description` can
+        # fill them in later if one turns out to matter.
+        flooding = self.new_product_counter >= MAX_NEW_ADS_NOTIFIED_PER_PASS
+        if self.query.load_full_description and ad.full_description is None and not flooding:
             self.scraper.load_full_description(ad)
             ad.save()
         _, created = AdDelivery.objects.get_or_create(
-            ad=ad, query=self.query, defaults={"status": AdStatus.PENDING}
+            ad=ad, query=self.query,
+            defaults={
+                "status": AdStatus.SUPPRESSED if flooding else AdStatus.PENDING,
+                "filter_reason": FLOOD_SUPPRESSED_REASON if flooding else "",
+            },
         )
         if created:
-            logger.info("New product %s", product)
             self.new_product_counter += 1
+            if flooding:
+                self.flood_suppressed_counter += 1
+                if self.flood_suppressed_counter == 1:
+                    logger.warning(
+                        "Query %s found more than %d new ads this pass — the rest are being "
+                        "suppressed rather than sent", self.query, MAX_NEW_ADS_NOTIFIED_PER_PASS,
+                    )
+            else:
+                logger.info("New product %s", product)
 
     @contextmanager
     def _tolerating_one_bad_ad(self, product: Ad):
@@ -146,7 +174,13 @@ class QueryRunner:
             self.rows_seen_counter += 1
             if not product.topped:
                 counter += 1
-                if counter >= NEW_PRODUCT_LOAD_MAX:
+                # The cap bounds *notifications*, so it does not apply when the first run is
+                # suppressed — and stopping early there is what caused the 2026-09-20 flood:
+                # everything past the 50th stayed unknown to the query, so the next pass saw
+                # the remaining catalog as new and sent 1 536 messages in an hour. Suppressing
+                # the whole first walk is what `ignore_first_run` was always supposed to mean,
+                # and it stays bounded by the scraper's own max-pages net.
+                if counter >= NEW_PRODUCT_LOAD_MAX and not self.query.ignore_first_run:
                     break
 
             with self._tolerating_one_bad_ad(product):
