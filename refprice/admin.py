@@ -12,6 +12,9 @@ Admin modules are loaded in `INSTALLED_APPS` order, and `refprice` sits after `b
 import logging
 
 from django.contrib import admin, messages
+from django.http import HttpResponseRedirect
+from django.urls import reverse
+from unfold.decorators import action as unfold_action
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 
@@ -172,9 +175,31 @@ def look_up_reference_price(modeladmin, request, queryset):
     )
 
 
+@unfold_action(description="Reference price", icon="sell", url_path="reference-price")
+def look_up_reference_price_detail(self, request, object_id):
+    """The same lookup as the changelist action, on the ad's own page.
+
+    Registered onto `AdAdmin.actions_detail` from here rather than declared there, the same
+    seam `actions` and `inlines` already use: the dependency points inward and `bazos` must
+    stay independent of what is built on it.
+    """
+    async_task(LOOKUP_REFERENCE_PRICE, int(object_id))
+    self.message_user(
+        request,
+        "Queued a reference lookup. The result appears in the Reference price panel below.",
+        messages.INFO,
+    )
+    return HttpResponseRedirect(reverse("admin:bazos_ad_change", args=[object_id]))
+
 # Appended rather than imported by bazos: see the module docstring. mypy infers the
 # original tuple's exact member types from the literal, so widening it needs the ignore.
 AdAdmin.inlines = (*AdAdmin.inlines, ReferenceLinkInline)  # type: ignore[assignment]
 AdAdmin.actions = (*(AdAdmin.actions or ()), look_up_reference_price)
+# `actions_detail` is resolved by NAME via getattr on the admin instance, unlike
+# `actions`, which accepts a callable. So the function has to be attached to the
+# class first and referenced as a string - appending the bare function raises
+# "attribute name must be string" at import time.
+AdAdmin.look_up_reference_price_detail = look_up_reference_price_detail
+AdAdmin.actions_detail = (*AdAdmin.actions_detail, "look_up_reference_price_detail")
 admin.site.unregister(Ad)
 admin.site.register(Ad, AdAdmin)

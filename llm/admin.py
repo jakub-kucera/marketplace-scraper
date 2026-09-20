@@ -5,6 +5,9 @@ Read-only by construction: an audit log that can be edited is not an audit log. 
 `test_every_registered_changelist_renders` would not notice an unthemed page.
 """
 from django.contrib import admin
+from django.http import HttpResponseRedirect
+from django.urls import reverse
+from unfold.decorators import action as unfold_action
 from django.db.models import Sum
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
@@ -108,7 +111,21 @@ def extract_ad_specs(modeladmin, request, queryset):
     )
 
 
+@unfold_action(description="Extract specs", icon="auto_awesome", url_path="extract-specs")
+def extract_ad_specs_detail(self, request, object_id):
+    """The changelist action, on the ad's own page. Appended to `AdAdmin.actions_detail`
+    from here for the same reason `actions` is - `bazos` cannot import this app."""
+    async_task(EXTRACT_AD_SPECS, int(object_id))
+    self.message_user(request, "Queued a spec extraction.", messages.INFO)
+    return HttpResponseRedirect(reverse("admin:bazos_ad_change", args=[object_id]))
+
 AdAdmin.inlines = (*AdAdmin.inlines, AdSpecExtractionInline)  # type: ignore[assignment]
 AdAdmin.actions = (*(AdAdmin.actions or ()), extract_ad_specs)
+# `actions_detail` is resolved by NAME via getattr on the admin instance, unlike
+# `actions`, which accepts a callable. So the function has to be attached to the
+# class first and referenced as a string - appending the bare function raises
+# "attribute name must be string" at import time.
+AdAdmin.extract_ad_specs_detail = extract_ad_specs_detail
+AdAdmin.actions_detail = (*AdAdmin.actions_detail, "extract_ad_specs_detail")
 admin.site.unregister(Ad)
 admin.site.register(Ad, AdAdmin)
