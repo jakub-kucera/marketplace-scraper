@@ -130,6 +130,14 @@ MAX_SEND_ATTEMPTS: Final[int] = 5
 # has to remember to set: precision cannot be measured until P24 (delisting) exists, so the
 # thresholds below are a defensible starting point, not a calibrated one.
 PRICE_MODEL_SHADOW_MODE: Final[bool] = True
+
+#: Persist the *text* of seller reviews, not only the counts. Default off, which is the
+#: escape hatch `SellerRatingFields` prescribes for exactly this question rather than a
+#: decision taken lightly: `ratings.php` returns each reviewer's real name, unmasked phone
+#: and free-text message, and those reviewers are private individuals with no relationship
+#: to this project. Turning it on widens `./backups/` from seller PII to third-party PII.
+#: Counts are always stored either way - this gates the review rows alone.
+STORE_SELLER_REVIEWS: Final[bool] = False
 # z <= -2 means ~44% below prediction for an unknown private seller but ~14% for a 50-ad
 # dealer. That asymmetry is the point -- it is one standard of evidence, not one percentage.
 PRICE_MODEL_Z_THRESHOLD: Final[float] = -2.0

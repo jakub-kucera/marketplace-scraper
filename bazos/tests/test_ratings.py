@@ -7,6 +7,7 @@ is stored. A decision nothing enforces is a comment.
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.db import transaction
 from django.utils import timezone
 
 from bazos.models import EmailPublisher, PhonePublisher
@@ -158,3 +159,93 @@ def test_the_summary_string_leads_with_what_matters():
                           last_at=timezone.now())
 
     assert "2+" in str(counts) and "1-" in str(counts)
+
+
+# ---------------------------------------------------------------------------
+# store_reviews — the deliberate widening, off by default
+# ---------------------------------------------------------------------------
+
+def _fetch(publisher, entries=None):
+    with patch("bazos.ratings.BazosApiScraper") as scraper_cls:
+        scraper_cls.return_value.fetch_ratings.return_value = (
+            LIVE_ENTRIES if entries is None else entries
+        )
+        return fetch_seller_ratings(publisher, MagicMock())
+
+
+@pytest.mark.django_db
+def test_reviews_are_not_stored_by_default(publisher):
+    """The default is the old behaviour exactly: counts, and no third-party data anywhere.
+
+    Asserted on the table rather than on the setting, because "we shipped a flag" and "the
+    flag is what decides" are different claims and only the second one matters.
+    """
+    from bazos.models import SellerReview
+
+    _fetch(publisher)
+
+    assert publisher.ratings_positive == 2
+    assert SellerReview.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_reviews_are_stored_verbatim_when_enabled(publisher, settings):
+    from bazos.models import SellerReview
+
+    settings.STORE_SELLER_REVIEWS = True
+    _fetch(publisher)
+
+    reviews = SellerReview.objects.filter(email_publisher=publisher)
+    assert reviews.count() == len(LIVE_ENTRIES)
+    negative = reviews.get(verdict="negative")
+    assert negative.reviewer_name == "Milan"
+    assert negative.reviewer_phone == "720704959"
+    assert negative.message == "nikdy neodeslal"
+    assert negative.rated_at is not None
+    # The counts are unchanged by storing the text - they are computed from the same
+    # payload by a separate, pure function and must not start disagreeing with it.
+    publisher.refresh_from_db()
+    assert (publisher.ratings_positive, publisher.ratings_negative) == (2, 1)
+
+
+@pytest.mark.django_db
+def test_refetching_replaces_rather_than_duplicates(publisher, settings):
+    """The endpoint returns the whole history each time, so the response is the truth:
+    a review withdrawn upstream must disappear here, not survive as a stale row."""
+    from bazos.models import SellerReview
+
+    settings.STORE_SELLER_REVIEWS = True
+    _fetch(publisher)
+    _fetch(publisher, entries=LIVE_ENTRIES[:1])
+
+    assert SellerReview.objects.count() == 1
+    assert SellerReview.objects.get().verdict == LIVE_ENTRIES[0]["type"]
+
+
+@pytest.mark.django_db
+def test_a_review_is_keyed_to_the_publisher_id_that_was_queried(publisher, settings):
+    """`ratings.php` takes email_id OR phone_id, and a seller is a *pair* of ids - so a
+    review fetched by one cannot be attributed to the other."""
+    from bazos.models import SellerReview
+
+    settings.STORE_SELLER_REVIEWS = True
+    phone = PhonePublisher.objects.create(bazos_id=999)
+    _fetch(publisher, entries=LIVE_ENTRIES[:1])
+    _fetch(phone, entries=LIVE_ENTRIES[:1])
+
+    assert SellerReview.objects.filter(email_publisher=publisher, phone_publisher=None).count() == 1
+    assert SellerReview.objects.filter(phone_publisher=phone, email_publisher=None).count() == 1
+
+
+@pytest.mark.django_db
+def test_a_review_cannot_belong_to_both_or_neither():
+    from django.db.utils import IntegrityError
+
+    from bazos.models import SellerReview
+
+    email = EmailPublisher.objects.create(bazos_id=1)
+    phone = PhonePublisher.objects.create(bazos_id=2)
+    for kwargs in ({}, {"email_publisher": email, "phone_publisher": phone}):
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                SellerReview.objects.create(verdict="positive", **kwargs)
