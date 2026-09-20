@@ -45,12 +45,6 @@ ARCHIVE_DAYS = 30
 #: Rows in the "biggest drops" table.
 TABLE_ROWS = 12
 
-#: A day producing fewer than this fraction of a marketplace's typical output counts as a
-#: hole rather than a quiet day. Deliberately generous: the claim being made is "we lost
-#: data here, permanently", and a false one sends someone hunting a bug that is a weekend.
-GAP_FRACTION = 0.2
-
-
 def _quantiles(values):
     """(median, p90) in minutes, or (None, None). Computed here rather than in SQL.
 
@@ -120,8 +114,21 @@ def _local_midnight(day):
 
 
 def _archive(today):
-    """Per-marketplace holdings, and the days that are missing from them."""
-    from bazos.models import Ad, Marketplace
+    """Per-marketplace holdings, and the days that are genuinely missing from them.
+
+    **A hole is a day the scraper did not successfully run, not a day it found little.**
+    The first version used ad count against a median and was wrong on production
+    immediately: Bazos went 20 → 6 561 → 83 → 138 → 1 142 ads on consecutive days in
+    August, because a backfill drains the supply of new listings for a day or two
+    afterwards. 22 Aug looked like a catastrophic hole and had **133 successful runs** —
+    nothing was lost, the market was quiet.
+
+    This is the same asymmetry the canary thresholds are built on (see Environment in
+    CLAUDE.md): zero rows parsed is a near-certain defect, while "rows parsed, no new ads"
+    is indistinguishable from a quiet market. Ad count is still shown, because knowing the
+    daily rate is useful — it just cannot define the alert.
+    """
+    from bazos.models import Ad, Marketplace, QueryRun
 
     # From local midnight, not "now minus 30 days": a timestamp cutoff makes the earliest
     # day in the range a partial one, and a partial day looks exactly like a hole.
@@ -134,6 +141,15 @@ def _archive(today):
     daily: dict[str, dict] = {}
     for row in rows:
         daily.setdefault(row["marketplace"], {})[row["day"]] = row["n"]
+
+    # Successful runs per marketplace per day — the actual evidence of coverage.
+    run_days: dict[str, set] = {}
+    for row in (
+        QueryRun.objects.filter(success=True, run_start__gte=_local_midnight(window_start))
+        .annotate(day=TruncDate("run_start"))
+        .values("query__marketplace", "day").distinct()
+    ):
+        run_days.setdefault(row["query__marketplace"], set()).add(row["day"])
 
     totals = {
         row["marketplace"]: row
@@ -154,14 +170,13 @@ def _archive(today):
         window = [start + timedelta(days=i) for i in range((today - start).days + 1)]
         counts = [days.get(day, 0) for day in window]
         typical = statistics.median(counts) if counts else 0
-        # Two days can never be holes, and both were false positives on the first run
-        # against production: **today**, which is still in progress, and a marketplace's
-        # **first day**, which began whenever its first ad was scraped. A gap panel that
-        # cries wolf every single day is worse than no gap panel.
+        # Today is excluded because it is still in progress, and the marketplace's first
+        # day because it began whenever its first ad was scraped — both were false
+        # positives on the first run against production.
+        scraped = run_days.get(market, set())
         gaps = [
-            day for day, n in zip(window, counts)
-            if typical > 0 and n < typical * GAP_FRACTION
-            and day != today and day != first_local
+            day for day in window
+            if day not in scraped and day != today and day != first_local
         ]
         out.append({
             "label": labels.get(market, market),

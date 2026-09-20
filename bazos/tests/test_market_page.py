@@ -112,17 +112,40 @@ def test_biggest_drops_are_ranked_by_percentage_not_absolute(staff_client):
     assert [row["ad"].pk for row in drops] == [cheap.pk, pricey.pk]
 
 
+def _successful_run(query, days_ago):
+    start = timezone.now() - timedelta(days=days_ago)
+    QueryRun.objects.create(query=query, run_start=start, run_end=start, success=True)
+
+
 @pytest.mark.django_db
-def test_a_missing_day_is_reported_as_a_gap(staff_client):
+def test_a_day_the_scraper_never_ran_is_a_gap(query):
     """The panel's whole value is the absence: a lost day can never be backfilled."""
-    for days_ago in (0, 1, 2, 4, 5):     # day 3 missing
-        for n in range(5):
-            _ad(days_ago * 10 + n, days_ago=days_ago)
+    from bazos.admin_market import _archive
 
-    row = staff_client.get(reverse(URL_NAME)).context["archive"][0]
+    for days_ago in range(0, 6):
+        _ad(days_ago * 10, days_ago=days_ago)
+        if days_ago != 3:                      # day 3: no successful run at all
+            _successful_run(query, days_ago)
 
-    assert row["gap_count"] >= 1
+    row = _archive(timezone.localdate())[0]
+
     assert (timezone.localdate() - timedelta(days=3)) in row["gaps"]
+
+
+@pytest.mark.django_db
+def test_a_quiet_day_is_not_a_gap(query):
+    """Measured on production: Bazos went 6 561 ads one day and 83 the next, with 133
+    successful runs on the quiet one. A backfill drains the supply; nothing was lost."""
+    from bazos.admin_market import _archive
+
+    for days_ago in range(0, 6):
+        _successful_run(query, days_ago)
+        for n in range(40 if days_ago == 4 else 1):    # one huge day, the rest tiny
+            _ad(days_ago * 100 + n, days_ago=days_ago)
+
+    row = _archive(timezone.localdate())[0]
+
+    assert row["gaps"] == [], "ad volume swings by orders of magnitude; only runs prove coverage"
 
 
 @pytest.mark.django_db
@@ -138,11 +161,11 @@ def test_days_before_a_marketplace_existed_are_not_gaps(staff_client):
 
 
 @pytest.mark.django_db
-def test_today_is_never_a_gap(staff_client):
+def test_today_is_never_a_gap(staff_client, query):
     """It is still in progress. Flagging it means the panel cries wolf every single day."""
     for days_ago in range(1, 8):
-        for n in range(6):
-            _ad(days_ago * 10 + n, days_ago=days_ago)
+        _ad(days_ago * 10, days_ago=days_ago)
+        _successful_run(query, days_ago)
     # nothing yet today
 
     row = staff_client.get(reverse(URL_NAME)).context["archive"][0]
@@ -151,12 +174,12 @@ def test_today_is_never_a_gap(staff_client):
 
 
 @pytest.mark.django_db
-def test_the_first_day_of_a_marketplace_is_never_a_gap(staff_client):
+def test_the_first_day_of_a_marketplace_is_never_a_gap(staff_client, query):
     """It began whenever its first ad was scraped, so it is partial by construction."""
-    _ad(1, days_ago=9)                       # a single ad on the first day
-    for days_ago in range(1, 9):
-        for n in range(6):
-            _ad(days_ago * 10 + n, days_ago=days_ago)
+    _ad(1, days_ago=9)                       # a single ad on the first day, no run row
+    for days_ago in range(0, 9):
+        _ad(days_ago * 10 + 2, days_ago=days_ago)
+        _successful_run(query, days_ago)
 
     row = staff_client.get(reverse(URL_NAME)).context["archive"][0]
 
