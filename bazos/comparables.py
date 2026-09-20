@@ -83,9 +83,9 @@ class ComparableSet:
         if self.count < 2:
             return ""
         span = (
-            f"{_kc(self.cheapest)}"
+            f"{kc(self.cheapest)}"
             if self.cheapest == self.dearest
-            else f"{_kc(self.cheapest)}–{_kc(self.dearest)}"
+            else f"{kc(self.cheapest)}–{kc(self.dearest)}"
         )
         line = f"Similar ({self.label}): {self.count} listed, {span}"
         rank = self.subject_rank
@@ -96,9 +96,13 @@ class ComparableSet:
         return line
 
 
-def _kc(amount: int) -> str:
+def kc(amount: int) -> str:
     """`61000` -> `61k`. Notifications are read on a phone; four significant digits of a
-    used-laptop price are noise."""
+    used-laptop price are noise.
+
+    Public because the daily digest formats prices the same way, and two money formats in
+    one product is one too many.
+    """
     return f"{round(amount / 1000)}k"
 
 

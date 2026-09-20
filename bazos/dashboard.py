@@ -26,31 +26,26 @@ conditional aggregation rather than a query per number — because this runs on 
 Pi behind every admin page load.
 """
 
-import json
 from datetime import timedelta
 
-from django.db.models import Avg, Count, F, Max, Q
+from django.db.models import Avg, Count, F, Q
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-#: How far back the trend charts look. Two weeks covers a weekend dip plus the weekly jobs.
-CHART_DAYS = 14
-
-
-def _series(rows, key, days, today):
-    """Dense daily series — a day with no rows is a zero, not a gap.
-
-    Chart.js joins across missing labels, so a sparse queryset would draw a line that
-    implies activity on days when nothing happened.
-    """
-    counts = {row[key]: row["n"] for row in rows}
-    start = today - timedelta(days=days - 1)
-    labels, values = [], []
-    for offset in range(days):
-        day = start + timedelta(days=offset)
-        labels.append(day.strftime("%d.%m"))
-        values.append(counts.get(day, 0))
-    return labels, values
+# Chart shapes and health states live outside this module because the daily Discord digest
+# answers the same questions and must not answer them differently. This page is one
+# consumer of them, not their owner.
+from bazos.charts import CHART_DAYS, Series, chart_json, series
+from bazos.health import (
+    BLOCK_ERROR,
+    ELEVATED_MARGIN_PCT,
+    MIN_ATTEMPTS_FOR_RATE,
+    median,
+    other_failures,
+    queue_state,
+    scraper_state,
+    stalled_queries,
+)
 
 
 def humanise_duration(delta):
@@ -68,42 +63,6 @@ def humanise_duration(delta):
     if total < 60:
         return f"{int(total)}s"
     return f"{int(total) // 60}m {int(total) % 60:02d}s"
-
-
-def _chart(labels, datasets):
-    """Chart.js `data`, JSON-encoded for unfold's `data-value` attribute.
-
-    Colours are CSS variables rather than literals: unfold resolves `var(...)` at render
-    time, so the chart follows the light/dark theme instead of fighting it.
-    """
-    return json.dumps({"labels": labels, "datasets": datasets})
-
-
-#: A failure rate this many points above a marketplace's own 14-day median is worth a
-#: colour. Absolute thresholds cannot work here: 56% is normal for Bazos and would be an
-#: emergency for Sbazar, and a new marketplace would need a new constant on the day it
-#: ships. The margin is wide because the denominator is small — one bad hour on a
-#: once-a-day marketplace should not light the board up.
-ELEVATED_MARGIN_PCT = 25
-
-#: Below this many attempts a rate is noise, so only the absolute states (nothing tried,
-#: nothing succeeded) are reported.
-MIN_ATTEMPTS_FOR_RATE = 10
-
-#: Prefix of the exception whose failures are expected. `QueryRun.error` is written as
-#: f"{type(e).__name__}: {e}", so the class name is a prefix match — no parsing, and it
-#: keeps working on any database (the suite's one SQLite caller included).
-BLOCK_ERROR = "MarketplaceBlockedError"
-
-
-def _median(values):
-    ordered = sorted(values)
-    if not ordered:
-        return None
-    mid = len(ordered) // 2
-    if len(ordered) % 2:
-        return ordered[mid]
-    return (ordered[mid - 1] + ordered[mid]) / 2
 
 
 def _marketplace_health(now, today, day_ago, week_ago, chart_start):
@@ -178,7 +137,7 @@ def _marketplace_health(now, today, day_ago, week_ago, chart_start):
             for day, d in days.items()
             if day < today and d["attempts"] >= MIN_ATTEMPTS_FOR_RATE
         ]
-        baseline = _median(history)
+        baseline = median(history)
 
         if counts["enabled"] and not attempts:
             state = "silent"
@@ -208,32 +167,21 @@ def _marketplace_health(now, today, day_ago, week_ago, chart_start):
 
 
 def dashboard_callback(request, context):
-    from django_q.models import OrmQ, Task
+    from django_q.models import Task
 
     from bazos.jobs import HEARTBEAT, JOB_CATALOG
-    from bazos.models import Ad, AdDelivery, AdOutcome, AdStatus, QueryRun
+    from bazos.models import Ad, AdDelivery, AdOutcome, AdStatus
 
     now = timezone.now()
     today = timezone.localdate()
     day_ago, week_ago = now - timedelta(days=1), now - timedelta(days=7)
     chart_start = now - timedelta(days=CHART_DAYS - 1)
 
-    # 1. queue -----------------------------------------------------------------
-    tasks = Task.objects.aggregate(
-        day=Count("id", filter=Q(started__gte=day_ago)),
-        failed_week=Count("id", filter=Q(started__gte=week_ago, success=False)),
-        last=Max("started"),
-    )
-    queued = OrmQ.objects.count()
-    last_task_age = (now - tasks["last"]).total_seconds() / 60 if tasks["last"] else None
-
-    # 2. scraper ---------------------------------------------------------------
-    runs = QueryRun.objects.aggregate(
-        attempts=Count("id", filter=Q(run_start__gte=day_ago)),
-        ok=Count("id", filter=Q(run_start__gte=day_ago, success=True)),
-        last_ok=Max("run_start", filter=Q(success=True)),
-    )
-    pass_rate = round(100 * runs["ok"] / runs["attempts"]) if runs["attempts"] else None
+    # 1. queue, 2. scraper -----------------------------------------------------
+    # Both from `bazos.health`, so "stalled" and "blocked out" mean the same thing here as
+    # they do in the daily digest.
+    queue = queue_state(now)
+    scraper = scraper_state(now)
 
     # 3. pipeline --------------------------------------------------------------
     by_status = {
@@ -259,7 +207,7 @@ def dashboard_callback(request, context):
         .annotate(day=TruncDate("created")).values("day")
         .annotate(n=Count("id")).order_by("day")
     )
-    ad_labels, ad_values = _series(list(ad_rows), "day", CHART_DAYS, today)
+    ad_labels, ad_values = series(list(ad_rows), "day", CHART_DAYS, today)
 
     # 5. outcomes --------------------------------------------------------------
     outcomes = AdOutcome.objects.count()
@@ -272,8 +220,8 @@ def dashboard_callback(request, context):
         .annotate(day=TruncDate("started")).values("day", "success")
         .annotate(n=Count("id")).order_by("day")
     )
-    ok_labels, ok_values = _series([r for r in task_rows if r["success"]], "day", CHART_DAYS, today)
-    _, fail_values = _series([r for r in task_rows if not r["success"]], "day", CHART_DAYS, today)
+    ok_labels, ok_values = series([r for r in task_rows if r["success"]], "day", CHART_DAYS, today)
+    _, fail_values = series([r for r in task_rows if not r["success"]], "day", CHART_DAYS, today)
 
     # 6. marketplace health ----------------------------------------------------
     markets, per_market = _marketplace_health(now, today, day_ago, week_ago, chart_start)
@@ -290,41 +238,17 @@ def dashboard_callback(request, context):
             failed = counts["attempts"] - counts["ok"]
             blocked_by_day[day] = blocked_by_day.get(day, 0) + counts["blocked"]
             other_by_day[day] = other_by_day.get(day, 0) + failed - counts["blocked"]
-    fail_labels, blocked_values = _series(
+    fail_labels, blocked_values = series(
         [{"day": d, "n": n} for d, n in blocked_by_day.items()], "day", CHART_DAYS, today
     )
-    _, other_values = _series(
+    _, other_values = series(
         [{"day": d, "n": n} for d, n in other_by_day.items()], "day", CHART_DAYS, today
     )
 
-    # Everything that is not a block, named and counted. Small by construction — 70 rows
-    # in the week this was written against 3 369 blocks — so grouping it in Python is
-    # cheaper than teaching the database to split an exception string.
-    other_failures: dict = {}
-    rows = (
-        QueryRun.objects.filter(run_start__gte=week_ago, success=False)
-        .exclude(error__startswith=BLOCK_ERROR)
-        .values_list("query__marketplace", "error")
-    )
-    for marketplace, error in rows:
-        key = (marketplace, (error or "unknown").split(":", 1)[0].strip())
-        other_failures[key] = other_failures.get(key, 0) + 1
-
-    # The alarm list: an enabled query that tried and never got through. Empty is the
-    # healthy state, so the panel hides itself rather than showing a reassuring zero.
-    stalled_queries = [
-        {
-            "marketplace": row["query__marketplace"],
-            "text": row["query__text"],
-            "attempts": row["attempts"],
-        }
-        for row in (
-            QueryRun.objects.filter(run_start__gte=day_ago, query__enabled=True)
-            .values("query__marketplace", "query__text")
-            .annotate(attempts=Count("id"), ok=Count("id", filter=Q(success=True)))
-            .filter(ok=0).order_by("-attempts")[:10]
-        )
-    ]
+    # The alarm list is empty in the healthy state, so the panel hides itself rather than
+    # showing a reassuring zero.
+    errors = other_failures(week_ago, limit=6)
+    stalled = stalled_queries(day_ago, limit=10)
 
     slowest = (
         Task.objects.filter(started__gte=week_ago, stopped__isnull=False)
@@ -336,24 +260,8 @@ def dashboard_callback(request, context):
 
     context.update(
         {
-            "queue": {
-                "day": tasks["day"],
-                "failed_week": tasks["failed_week"],
-                "queued": queued,
-                "last_minutes": None if last_task_age is None else round(last_task_age),
-                # The heartbeat is hourly, so silence beyond ~70 minutes is a dead cluster
-                # rather than a quiet one.
-                "stalled": last_task_age is None or last_task_age > 70,
-            },
-            "scraper": {
-                "attempts": runs["attempts"],
-                "ok": runs["ok"],
-                "pass_rate": pass_rate,
-                "last_ok": runs["last_ok"],
-                # Not "below 50%": half of all exits are blocked by design, so only a
-                # complete shutout is news.
-                "blocked_out": runs["attempts"] > 0 and runs["ok"] == 0,
-            },
+            "queue": queue,
+            "scraper": scraper,
             "pipeline": {
                 "pending": by_status.get(AdStatus.PENDING, 0),
                 "approved": by_status.get(AdStatus.APPROVED, 0),
@@ -368,39 +276,19 @@ def dashboard_callback(request, context):
                 "removed_week": ads["removed_week"],
                 "outcomes": outcomes,
             },
-            "ads_chart": _chart(
-                ad_labels,
-                [{"label": "New ads", "data": ad_values,
-                  "backgroundColor": "var(--color-primary-500)", "borderRadius": 4}],
-            ),
-            "tasks_chart": _chart(
-                ok_labels,
-                [
-                    {"label": "Succeeded", "data": ok_values,
-                     "backgroundColor": "var(--color-primary-500)", "borderRadius": 4},
-                    {"label": "Failed", "data": fail_values,
-                     "backgroundColor": "var(--color-red-500)", "borderRadius": 4},
-                ],
-            ),
+            "ads_chart": chart_json(ad_labels, [Series("primary", "New ads", ad_values)]),
+            "tasks_chart": chart_json(ok_labels, [
+                Series("primary", "Succeeded", ok_values),
+                Series("danger", "Failed", fail_values),
+            ]),
             "markets": markets,
-            "failures_chart": _chart(
-                fail_labels,
-                [
-                    # Blocked is drawn first and muted: it is the floor, not the signal.
-                    {"label": "Blocked (expected)", "data": blocked_values,
-                     "backgroundColor": "var(--color-base-400)", "borderRadius": 4, "stack": "f"},
-                    {"label": "Other errors", "data": other_values,
-                     "backgroundColor": "var(--color-red-500)", "borderRadius": 4, "stack": "f"},
-                ],
-            ),
-            "other_failures": sorted(
-                (
-                    {"marketplace": m, "error": e, "n": n}
-                    for (m, e), n in other_failures.items()
-                ),
-                key=lambda row: -row["n"],
-            )[:6],
-            "stalled_queries": stalled_queries,
+            "failures_chart": chart_json(fail_labels, [
+                # Blocked is drawn first and muted: it is the floor, not the signal.
+                Series("muted", "Blocked (expected)", blocked_values, stack="f"),
+                Series("danger", "Other errors", other_values, stack="f"),
+            ]),
+            "other_failures": errors,
+            "stalled_queries": stalled,
             "slowest_jobs": [
                 {
                     "label": JOB_CATALOG[row["func"]].label if row["func"] in JOB_CATALOG else row["func"],
