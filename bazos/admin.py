@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.admin.exceptions import NotRegistered
 from django.db import models
-from django.db.models import Count, IntegerField, Max, OuterRef, Q, Subquery
+from django.db.models import Count, F, IntegerField, Max, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpResponseRedirect
 from django.urls import reverse
@@ -19,10 +19,17 @@ from django.utils.http import urlencode
 from django_db_logger.admin import StatusLogAdmin
 from django_db_logger.models import StatusLog
 from django_q.admin import FailAdmin, QueueAdmin, ScheduleAdmin, TaskAdmin
-from django_q.models import Failure as QFailure, OrmQ as QTask, Schedule as QSchedule, Success as QSuccess
+from django_q.models import (
+    Failure as QFailure,
+    OrmQ as QTask,
+    Schedule as QSchedule,
+    Success as QSuccess,
+    Task as QTaskHistory,
+)
 from django_q.tasks import async_task
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.filters.admin import (
+    BooleanRadioFilter,
     ChoicesDropdownFilter,
     DropdownFilter,
     RangeDateTimeFilter,
@@ -1385,6 +1392,34 @@ class AdOutcomeAdmin(ModelAdmin):
     ordering = ("-created",)
 
 
+class JobFuncFilter(DropdownFilter):
+    """Filter task history by job, labelled the way the Run-a-job page labels them.
+
+    Lookups come from the funcs actually present in the table rather than from
+    `JOB_CATALOG` alone: a job that was renamed or removed still has history, and a
+    filter that cannot reach it hides rows. The catalog supplies the human label when it
+    knows the func, so the dropdown reads "Delisting sweep (chunked)" rather than
+    `bazos.jobs.sweep_delisted`.
+    """
+
+    title = "job"
+    parameter_name = "job_func"
+
+    def lookups(self, request, model_admin):
+        from bazos.jobs import JOB_CATALOG
+
+        funcs = (
+            model_admin.model.objects.order_by()
+            .values_list("func", flat=True)
+            .distinct()
+        )
+        seen = sorted(f for f in funcs if f)
+        return [(f, JOB_CATALOG[f].label if f in JOB_CATALOG else f) for f in seen]
+
+    def queryset(self, request, queryset):
+        return queryset.filter(func=self.value()) if self.value() else queryset
+
+
 # django-q2 ships stock ModelAdmins, which render unthemed under unfold — the same problem
 # and the same fix as StatusLog above. These are not incidental third-party tables: they are
 # the run log, and "see what ran and what it returned" is the reason the queue was adopted
@@ -1426,14 +1461,66 @@ class ThemedScheduleAdmin(ScheduleAdmin, ModelAdmin):
 
 @admin.register(QSuccess)
 class ThemedSuccessAdmin(TaskAdmin, ModelAdmin):
-    list_filter = (("started", RangeDateTimeFilter),)
+    list_filter = (JobFuncFilter, ("started", RangeDateTimeFilter))
     list_filter_submit = True
 
 
 @admin.register(QFailure)
 class ThemedFailureAdmin(FailAdmin, ModelAdmin):
-    list_filter = (("started", RangeDateTimeFilter),)
+    list_filter = (JobFuncFilter, ("started", RangeDateTimeFilter))
     list_filter_submit = True
+
+
+@admin.register(QTaskHistory)
+class ThemedTaskHistoryAdmin(ModelAdmin):
+    """Every run of every job, successes and failures in one list.
+
+    django-q models `Success` and `Failure` as proxies over this one table, so those two
+    changelists are the same rows split by a boolean. That split is wrong for the question
+    people actually ask — "has the delisting sweep been failing lately?" — which needs the
+    two interleaved in time. Both proxies stay registered: they are what the sidebar's
+    "Failed tasks" link means, and a list that is *only* failures is worth one click.
+
+    Read-only, like django-q's own admins: the queue owns these rows.
+    """
+
+    list_display = ("name", "job", "started", "duration", "outcome", "attempt_count")
+    list_filter = (JobFuncFilter, ("success", BooleanRadioFilter), ("started", RangeDateTimeFilter))
+    list_filter_submit = True
+    search_fields = ("name", "func", "group")
+    ordering = ("-started",)
+
+    def get_queryset(self, request):
+        # Annotated because `Task.time_taken()` is a method: django-q's own columns render
+        # it but cannot sort by it, and "which runs are creeping toward the 30-minute
+        # timeout" is a sort, not a scan.
+        return super().get_queryset(request).annotate(_duration=F("stopped") - F("started"))
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        return [f.name for f in self.model._meta.fields]
+
+    @admin.display(description="Job", ordering="func")
+    def job(self, obj):
+        from bazos.jobs import JOB_CATALOG
+
+        spec = JOB_CATALOG.get(obj.func)
+        return spec.label if spec else obj.func
+
+    @admin.display(description="Duration", ordering="_duration")
+    def duration(self, obj):
+        from bazos.dashboard import humanise_duration
+
+        return humanise_duration(getattr(obj, "_duration", None))
+
+    @admin.display(description="Outcome", ordering="success", boolean=True)
+    def outcome(self, obj):
+        return obj.success
 
 
 @admin.register(QTask)

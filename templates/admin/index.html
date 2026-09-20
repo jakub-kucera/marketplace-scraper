@@ -1,0 +1,103 @@
+{% extends 'admin/base.html' %}
+
+{% comment %}
+Overrides unfold's own admin/index.html to put the operational panels above the app list.
+It reproduces that template's three blocks rather than extending it, because a template
+cannot extend one with the same name; the app list below is unfold's, untouched.
+
+Context comes from `bazos.dashboard.dashboard_callback` (UNFOLD["DASHBOARD_CALLBACK"]).
+{% endcomment %}
+
+{% load i18n unfold %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+    <div class="flex flex-col gap-6 mb-8">
+
+        {# Row 1 — the four "is it running" numbers, worst news leftmost. #}
+        <div class="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+
+            {% component "unfold/components/card.html" with title="Queue" title_icon="conveyor_belt" %}
+                <div class="flex flex-col gap-1">
+                    <p class="font-semibold text-2xl {% if queue.stalled %}text-red-600 dark:text-red-500{% else %}text-important{% endif %}">
+                        {% if queue.last_minutes is None %}never run{% else %}{{ queue.last_minutes }} min ago{% endif %}
+                    </p>
+                    <p class="text-subtle text-sm">last task{% if queue.stalled %} — heartbeat is hourly, so this is stalled{% endif %}</p>
+                    <p class="text-sm mt-2">{{ queue.day }} run{{ queue.day|pluralize }} in 24h · {{ queue.queued }} queued</p>
+                    <p class="text-sm {% if queue.failed_week %}text-red-600 dark:text-red-500{% else %}text-subtle{% endif %}">
+                        {{ queue.failed_week }} failure{{ queue.failed_week|pluralize }} in 7d
+                    </p>
+                </div>
+            {% endcomponent %}
+
+            {% component "unfold/components/card.html" with title="Scrape passes" title_icon="travel_explore" %}
+                <div class="flex flex-col gap-1">
+                    <p class="font-semibold text-2xl {% if scraper.blocked_out %}text-red-600 dark:text-red-500{% else %}text-important{% endif %}">
+                        {% if scraper.pass_rate is None %}—{% else %}{{ scraper.pass_rate }}%{% endif %}
+                    </p>
+                    <p class="text-subtle text-sm">of {{ scraper.attempts }} attempt{{ scraper.attempts|pluralize }} succeeded (24h)</p>
+                    {# ~half of all Tor exits are 403'd, so 50% is the healthy reading. #}
+                    <p class="text-sm mt-2">{{ scraper.ok }} clean run{{ scraper.ok|pluralize }} · ~50% is normal</p>
+                    <p class="text-sm text-subtle">last success {{ scraper.last_ok|timesince|default:"never" }} ago</p>
+                </div>
+            {% endcomponent %}
+
+            {% component "unfold/components/card.html" with title="Delivery backlog" title_icon="inbox" %}
+                <div class="flex flex-col gap-1">
+                    <p class="font-semibold text-2xl text-important">{{ pipeline.pending }} / {{ pipeline.approved }}</p>
+                    <p class="text-subtle text-sm">pending (filter) / approved (sender)</p>
+                    <p class="text-sm mt-2">{{ pipeline.sent }} sent all-time</p>
+                    <p class="text-sm {% if pipeline.failed %}text-red-600 dark:text-red-500{% else %}text-subtle{% endif %}">
+                        {{ pipeline.failed }} failed
+                    </p>
+                </div>
+            {% endcomponent %}
+
+            {% component "unfold/components/card.html" with title="Ads" title_icon="sell" %}
+                <div class="flex flex-col gap-1">
+                    <p class="font-semibold text-2xl text-important">{{ discovery.day }}</p>
+                    <p class="text-subtle text-sm">new in 24h · {{ discovery.week }} in 7d</p>
+                    <p class="text-sm mt-2">{{ discovery.watched }} watched · {{ discovery.removed_week }} delisted (7d)</p>
+                    <p class="text-sm {% if not discovery.outcomes %}text-red-600 dark:text-red-500{% else %}text-subtle{% endif %}">
+                        {{ discovery.outcomes }} recorded outcome{{ discovery.outcomes|pluralize }}
+                    </p>
+                </div>
+            {% endcomponent %}
+        </div>
+
+        {# Row 2 — the two trends worth seeing before they trip an alert. #}
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {% component "unfold/components/card.html" with title="New ads per day" description="The zero-rows canary, before it fires" title_icon="trending_up" %}
+                {% component "unfold/components/chart/bar.html" with data=ads_chart height="220" %}{% endcomponent %}
+            {% endcomponent %}
+
+            {% component "unfold/components/card.html" with title="Job runs per day" description="Successes and failures — the heartbeat is excluded, it would flatten everything else" title_icon="event_repeat" %}
+                {% component "unfold/components/chart/bar.html" with data=tasks_chart height="220" %}{% endcomponent %}
+            {% endcomponent %}
+        </div>
+
+        {# Row 3 — the timeout watch. The sweep's budget is 30 minutes. #}
+        {% if slowest_jobs %}
+            {% component "unfold/components/card.html" with title="Slowest jobs (7 days)" description="Average duration — the delisting sweep's timeout is 30 minutes" title_icon="timer" %}
+                <table class="w-full text-sm">
+                    <tbody>
+                        {% for job in slowest_jobs %}
+                            <tr class="border-b border-base-200 dark:border-base-800 last:border-0">
+                                <td class="py-2 pr-4">{{ job.label }}</td>
+                                <td class="py-2 pr-4 text-subtle">{{ job.runs }} run{{ job.runs|pluralize }}</td>
+                                <td class="py-2 text-right font-medium tabular-nums">{{ job.average }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endcomponent %}
+        {% endif %}
+    </div>
+
+    {% include "unfold/helpers/dashboard_default.html" %}
+{% endblock %}

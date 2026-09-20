@@ -87,7 +87,11 @@ ROOT_URLCONF = "scraper.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        # Project-level overrides. This has to be a DIRS entry rather than an app template
+        # directory: APP_DIRS searches INSTALLED_APPS in order, and `unfold` is deliberately
+        # listed above everything, so `bazos/templates/admin/index.html` would lose to
+        # unfold's own. DIRS is searched before any app.
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -163,6 +167,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # page is read on a phone far more often than on a desktop.
 UNFOLD = {
     "SITE_TITLE": "Marketplace scraper",
+    # The admin index is the only page that answers "is the whole thing still working"
+    # without knowing which changelist to open. See bazos/dashboard.py for why these
+    # particular numbers and not others.
+    "DASHBOARD_CALLBACK": "bazos.dashboard.dashboard_callback",
     "SITE_HEADER": "Marketplace scraper",
     "SITE_SUBHEADER": "Bazos · Sbazar · Vinted",
     "SITE_SYMBOL": "storefront",
@@ -200,6 +208,9 @@ UNFOLD = {
                     {"title": "Run a job", "icon": "play_arrow",
                      "link": reverse_lazy("admin:django_q_schedule_run_a_job")},
                     {"title": "Scheduled tasks", "icon": "schedule", "link": reverse_lazy("admin:django_q_schedule_changelist")},
+                    # Task history is all runs in one list; the two below are the same rows
+                    # split by outcome, kept because "just the failures" is worth one click.
+                    {"title": "Task history", "icon": "manage_history", "link": reverse_lazy("admin:django_q_task_changelist")},
                     {"title": "Successful tasks", "icon": "task_alt", "link": reverse_lazy("admin:django_q_success_changelist")},
                     {"title": "Failed tasks", "icon": "error", "link": reverse_lazy("admin:django_q_failure_changelist")},
                 ],
@@ -439,5 +450,12 @@ Q_CLUSTER = {
     # Keep enough successful runs to answer "did the sweep run, and what did it find" for a
     # couple of months at daily cadence. Failures are retained separately.
     "save_limit": 1000,
+    # ...but PER FUNCTION, which is what makes that sentence true. `save_limit` alone is a
+    # global cap pruned oldest-first, and the hourly heartbeat writes ~660 rows a month —
+    # two thirds of the budget — so within about six weeks it would start evicting the rows
+    # worth keeping: the monthly Vinted catalog sync first, then the weeklies. Per-func, the
+    # heartbeat can only ever evict its own history. (django_q/conf.py: "group", "name" or
+    # "func".)
+    "save_limit_per": "func",
     "orm": "default",
 }
