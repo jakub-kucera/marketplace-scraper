@@ -43,7 +43,7 @@ from unfold.widgets import (
 )
 
 from bazos.comparables import find_comparables
-from bazos.const import DELIST_MAX_AGE_DAYS, STORE_SELLER_REVIEWS
+from bazos.const import DELIST_MAX_AGE_DAYS, JOB_BLOCK_MAX_DEFERRALS, STORE_SELLER_REVIEWS
 from bazos.delisting import SWEEPABLE_MARKETPLACES
 from bazos.jobs import (
     DETECT_REPOSTS,
@@ -57,6 +57,18 @@ from bazos.jobs import (
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
 from bazos.models import AdOutcome, AdPriceScore, AdStatus, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun, SellerReview
+
+
+def _block_retry_note() -> str:
+    """Said at enqueue time, because a blocked exit turns ten seconds into up to an hour.
+
+    Bazos 403s about half of all Tor exits, and the eight rotations a job gets are spent in
+    fifteen seconds against a correlated sample. A job that hits that now defers itself rather
+    than dying - but "queued" followed by nothing visible for twenty minutes reads as broken
+    unless the possibility is said out loud.
+    """
+    return (f"If the exit is blocked it will retry itself up to {JOB_BLOCK_MAX_DEFERRALS} "
+            f"times over the next hour - watch Scheduled tasks.")
 
 
 def _ratings_privacy_note() -> str:
@@ -1052,7 +1064,7 @@ class AdAdmin(ModelAdmin):
         """
         return self._queue_for_ad(
             request, object_id, FETCH_FULL_DESCRIPTION,
-            "Queued a detail fetch. One paced request; it will overwrite any stored description.",
+            f"Queued a detail fetch. One paced request; it will overwrite any stored description. {_block_retry_note()}",
         )
 
     @unfold_action(description="Re-read listing", icon="refresh", url_path="refresh")
@@ -1069,7 +1081,7 @@ class AdAdmin(ModelAdmin):
             return HttpResponseRedirect(reverse("admin:bazos_ad_change", args=[object_id]))
         return self._queue_for_ad(
             request, object_id, REFRESH_AD,
-            "Queued a re-read. Price, view count and whether it is still listed.",
+            f"Queued a re-read. Price, view count and whether it is still listed. {_block_retry_note()}",
         )
 
     @admin.action(description="Fetch the full description")
@@ -1388,7 +1400,7 @@ class PublisherAdminBase(ModelAdmin):
     def fetch_ratings_detail(self, request, object_id):
         return self._queue_one(
             request, object_id, FETCH_SELLER_RATINGS,
-            f"Queued a ratings lookup. {_ratings_privacy_note()}",
+            f"Queued a ratings lookup. {_ratings_privacy_note()} {_block_retry_note()}",
         )
 
     @unfold_action(description="Fetch listings", icon="inventory_2", url_path="fetch-listings")
@@ -1396,7 +1408,7 @@ class PublisherAdminBase(ModelAdmin):
         return self._queue_one(
             request, object_id, FETCH_SELLER_LISTINGS,
             "Queued an inventory pull. New ads are stored with no delivery and "
-            "source='seller_sweep' — they are not notified.",
+            f"source='seller_sweep' — they are not notified. {_block_retry_note()}",
         )
 
     @unfold_action(description="Find relisted", icon="repeat", url_path="detect-reposts")
@@ -1522,7 +1534,7 @@ class PostalCodeAdmin(ModelAdmin):
     def regeocode_this_code(self, request, object_id):
         code = self.model.objects.filter(pk=object_id).values_list("code", flat=True).first()
         async_task(GEOCODE_POSTAL_CODE, code)
-        self.message_user(request, f"Queued a geocode lookup for {code}.", messages.INFO)
+        self.message_user(request, f"Queued a geocode lookup for {code}. {_block_retry_note()}", messages.INFO)
         return HttpResponseRedirect(reverse("admin:bazos_postalcode_change", args=[object_id]))
     ordering = ("code",)
 
