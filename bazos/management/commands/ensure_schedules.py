@@ -10,11 +10,29 @@ row exists.
 existing row. Editing the cadence in the admin is a feature; a deploy silently reverting that
 edit would make the admin control a lie.
 """
+from datetime import datetime, timedelta
+
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django_q.models import Schedule
 
 from bazos.jobs import SCHEDULES
+
+
+def first_run(spec, now=None):
+    """When a *newly created* row should first fire.
+
+    Without `spec.at` this is "now", which for a DAILY row means "24 h after whenever the
+    deploy happened" — fine for a prune, useless for something a person reads at a fixed
+    time. With it, the next occurrence of that local wall-clock time; django-q2 keeps the
+    wall clock across DST from there (see `ScheduleSpec.at`).
+    """
+    now = now or timezone.now()
+    if spec.at is None:
+        return now
+    local = timezone.localtime(now)
+    run = timezone.make_aware(datetime.combine(local.date(), spec.at))
+    return run if run > now else run + timedelta(days=1)
 
 
 class Command(BaseCommand):
@@ -31,7 +49,7 @@ class Command(BaseCommand):
                     "schedule_type": spec.schedule_type,
                     "minutes": spec.minutes,
                     "repeats": -1,
-                    "next_run": timezone.now(),
+                    "next_run": first_run(spec),
                     "kwargs": repr(spec.kwargs) if spec.kwargs else "",
                 },
             )
