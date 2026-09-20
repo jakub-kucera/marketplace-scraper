@@ -16,7 +16,11 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 
 import requests
+from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
+
+from bazos.const import STORE_SELLER_REVIEWS
 
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 
@@ -92,6 +96,45 @@ def summarise(entries: list[dict]) -> RatingCounts:
     )
 
 
+def store_reviews(publisher, entries: list[dict]) -> int:
+    """Persist the review text for one publisher, replacing whatever was there.
+
+    Delete-and-replace rather than upsert, because the endpoint returns the seller's whole
+    history unpaginated: the response is the truth, so a review edited or withdrawn upstream
+    should vanish here too. See `SellerReview` for why there is no natural key to upsert on.
+
+    Returns the number of rows written. Does nothing and returns 0 unless
+    `STORE_SELLER_REVIEWS` is on - the counts in `fetch_seller_ratings` are the always-on
+    answer, and this is the deliberate widening `SellerRatingFields` describes.
+    """
+    from bazos.models import SellerReview
+
+    if not getattr(settings, "STORE_SELLER_REVIEWS", STORE_SELLER_REVIEWS):
+        return 0
+
+    field = "email_publisher" if publisher.ratings_param == "email_id" else "phone_publisher"
+    rows = [
+        SellerReview(
+            **{field: publisher},
+            reviewer_external_id=str(entry.get("email_id") or "")[:32],
+            reviewer_name=str(entry.get("name") or "").strip()[:120],
+            reviewer_phone=str(entry.get("phone") or "").strip()[:30],
+            verdict=(str(entry.get("type", "")).strip().lower()
+                     if str(entry.get("type", "")).strip().lower() in (POSITIVE, NEGATIVE, NEUTRAL)
+                     else NEUTRAL),
+            message=str(entry.get("message") or ""),
+            rated_at=_parse_date(entry.get("from")),
+        )
+        for entry in entries
+    ]
+    with transaction.atomic():
+        # Both inside one transaction: a crash between them would leave the seller looking
+        # unreviewed, which reads as "nobody has reviewed" rather than "we lost it".
+        SellerReview.objects.filter(**{field: publisher}).delete()
+        SellerReview.objects.bulk_create(rows)
+    return len(rows)
+
+
 def fetch_seller_ratings(publisher, session: requests.Session) -> RatingCounts:
     """Read one publisher id's ratings and store the counts on its row.
 
@@ -121,4 +164,7 @@ def fetch_seller_ratings(publisher, session: requests.Session) -> RatingCounts:
         "ratings_positive", "ratings_negative", "ratings_neutral",
         "ratings_first_at", "ratings_last_at", "ratings_fetched_at",
     ])
+    stored = store_reviews(publisher, entries)
+    if stored:
+        logger.info("Stored %d review(s) for %s=%s", stored, publisher.ratings_param, publisher.bazos_id)
     return counts

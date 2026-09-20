@@ -1124,9 +1124,13 @@ class SellerRatingFields(models.Model):
       that the seller ids do not already have.
 
     ⚠️ What is given up is the text of negative reviews — "never shipped" is more actionable
-    than `negative: 3`. If that turns out to matter, the move is a setting defaulting to
-    off, mirroring `PRICE_MODEL_SHADOW_MODE` and `LLM_PROVIDER=NULL`. Do not quietly start
-    storing third-party free text because it was convenient.
+    than `negative: 3`. That turned out to matter, and the escape hatch this docstring
+    prescribed now exists: `STORE_SELLER_REVIEWS` (default **off**, mirroring
+    `PRICE_MODEL_SHADOW_MODE`) persists the full entries as `SellerReview` rows. The counts
+    here stay the always-on answer and are written either way, so nothing downstream has to
+    know whether the flag is set. Read `SellerReview` before turning it on: it widens
+    `./backups/` from seller PII to third-party PII, and it is the only place in the schema
+    that would know a reviewer exists at all.
 
     An abstract model rather than fields on `PublisherMixin`: that mixin is deliberately
     plain ("it adds no fields, so it needs no migration"), and declaring these six twice to
@@ -1184,3 +1188,72 @@ class EmailPublisher(PublisherMixin, SellerRatingFields, TimeStampedModel):
 
     def __str__(self):
         return f"{self.email} | {self.bazos_id}" if self.email else f"email id {self.bazos_id}"
+
+
+class SellerReview(TimeStampedModel):
+    """One review left for one seller, stored verbatim. Written only when
+    `STORE_SELLER_REVIEWS` is on.
+
+    `SellerRatingFields` deliberately reduces `ratings.php` to counts before anything is
+    persisted, and says that if the review *text* ever turns out to matter the move is a
+    setting defaulting to off rather than quietly widening what is collected. This is that
+    setting's table; the counts on the publisher row remain the always-on answer and are
+    written whether or not this is enabled.
+
+    **What a row here contains is third-party personal data.** The reviewer is a private
+    individual who bought from or sold to one of our sellers - not a seller themselves, and
+    not someone with any relationship to this project. `reviewer_phone` is a real, unmasked
+    number that `ratings.php` hands out unauthenticated. Two consequences that do not
+    follow automatically and have to be chosen: `./backups/` is already gitignored for
+    holding seller PII and now holds this too, and a GDPR erasure request about a *reviewer*
+    is answerable only by deleting rows here, because nothing else in the schema knows they
+    exist.
+
+    Keyed to whichever publisher id was queried, mirroring `Ad`'s two nullable FKs: a Bazos
+    seller is a pair of opaque ids and `ratings.php` takes one or the other, so a review
+    fetched by `email_id` cannot be assumed to belong to the paired phone id.
+
+    Refresh is **delete-and-replace per publisher**, not upsert. The endpoint returns the
+    seller's whole history in one unpaginated response, so the response *is* the truth: a
+    review edited or withdrawn upstream should disappear here, which an upsert keyed on a
+    natural key would silently preserve. It also avoids inventing an identity for a row that
+    has no stable id of its own - `from` is a timestamp that can repeat and can be
+    unparseable, and the reviewer id can be blank.
+    """
+    VERDICTS = (("positive", "positive"), ("negative", "negative"), ("neutral", "neutral"))
+
+    email_publisher = models.ForeignKey(
+        "EmailPublisher", on_delete=models.CASCADE, null=True, blank=True, related_name="reviews"
+    )
+    phone_publisher = models.ForeignKey(
+        "PhonePublisher", on_delete=models.CASCADE, null=True, blank=True, related_name="reviews"
+    )
+
+    #: The reviewer's own `email_id` from the payload. Blank often enough that it cannot be
+    #: an identity, kept because it is what links a reviewer to their own publisher row if
+    #: they also sell.
+    reviewer_external_id = models.CharField(max_length=32, blank=True, db_index=True)
+    reviewer_name = models.CharField(max_length=120, blank=True)
+    #: Unmasked, and often empty - roughly half the sampled entries carry one.
+    reviewer_phone = models.CharField(max_length=30, blank=True)
+    verdict = models.CharField(max_length=10, choices=VERDICTS, db_index=True)
+    message = models.TextField(blank=True)
+    #: Null when `from` was unparseable. The row is still worth keeping - the verdict and
+    #: the text are the point - so an unreadable date does not drop it.
+    rated_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        ordering = ("-rated_at", "-id")
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(email_publisher__isnull=False, phone_publisher__isnull=True)
+                    | models.Q(email_publisher__isnull=True, phone_publisher__isnull=False)
+                ),
+                name="seller_review_belongs_to_exactly_one_publisher",
+            ),
+        ]
+
+    def __str__(self):
+        when = f"{self.rated_at:%Y-%m-%d}" if self.rated_at else "undated"
+        return f"{self.verdict} {when}"

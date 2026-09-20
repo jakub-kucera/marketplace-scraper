@@ -56,7 +56,7 @@ from bazos.jobs import (
 )
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
-from bazos.models import AdOutcome, AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun
+from bazos.models import AdOutcome, AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun, SellerReview
 
 
 class CategoryInline(TabularInline):
@@ -793,6 +793,44 @@ class PriceChangeInline(TabularInline):
     can_delete = False
 
 
+class SellerReviewInlineBase(TabularInline):
+    """The reviews behind the counts, on the seller whose reputation they are.
+
+    Read-only and capped. A prolific dealer can carry hundreds of reviews and a change form
+    renders every inline row with no pagination - the same trade-off `QueryChangeInline`
+    makes, and for the same reason. The newest are the ones that answer "is this seller
+    still fine"; the rest are one click away on the `SellerReview` changelist.
+
+    Empty unless `STORE_SELLER_REVIEWS` is on. That is not a bug to work around: the counts
+    on the row above are the always-on answer, and these rows are third-party personal data
+    the project collects only deliberately (see `SellerReview`).
+    """
+    model = SellerReview
+    extra = 0
+    can_delete = False
+    fields = ("verdict", "rated_at", "reviewer_name", "reviewer_phone", "message")
+    readonly_fields = fields
+    #: A change form renders every inline row, so the history is capped here and the full
+    #: list lives on the SellerReview changelist.
+    MAX_ROWS = 20
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        newest = qs.order_by("-rated_at", "-id").values_list("pk", flat=True)[: self.MAX_ROWS]
+        return qs.filter(pk__in=list(newest))
+
+
+class EmailSellerReviewInline(SellerReviewInlineBase):
+    fk_name = "email_publisher"
+
+
+class PhoneSellerReviewInline(SellerReviewInlineBase):
+    fk_name = "phone_publisher"
+
+
 class AdOutcomeInline(TabularInline):
     """The one place a human records what actually happened about an ad.
 
@@ -1303,6 +1341,7 @@ class EmailPublisherAdmin(PublisherAdminBase):
 
     list_display = ("bazos_id", "email", "blocked", "ad_count", "partner_count", "ratings_summary")
     readonly_fields = ("ads_link", "partners", "ratings_summary")
+    inlines = (EmailSellerReviewInline,)
     # `=` because bazos_id is an IntegerField: the default icontains builds
     # `integer LIKE %...%`, which Postgres refuses outright.
     search_fields = ("=bazos_id", "email")
@@ -1317,6 +1356,7 @@ class PhonePublisherAdmin(PublisherAdminBase):
 
     list_display = ("bazos_id", "phone", "blocked", "ad_count", "partner_count", "ratings_summary")
     readonly_fields = ("ads_link", "partners", "ratings_summary")
+    inlines = (PhoneSellerReviewInline,)
     search_fields = ("=bazos_id", "phone")
     # FBUser is empty in production today, so this page is fast by accident - `manage.py
     # import_data` bulk-loads that dataset, and the day it runs this widget inherits the

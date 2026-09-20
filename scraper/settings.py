@@ -361,6 +361,9 @@ LOGGING = {
 PRICE_MODEL_VERSION: str = env("PRICE_MODEL_VERSION", default="latest")
 # Overrides bazos.const.PRICE_MODEL_SHADOW_MODE without a code change.
 PRICE_MODEL_SHADOW_MODE: bool = env.bool("PRICE_MODEL_SHADOW_MODE", default=True)
+# Overrides bazos.const.STORE_SELLER_REVIEWS without a code change. See that constant for
+# what turning it on starts collecting, and about whom.
+STORE_SELLER_REVIEWS: bool = env.bool("STORE_SELLER_REVIEWS", default=False)
 
 # --- LLM layer (llm/) -------------------------------------------------------
 # Defaults to NULL: a provider that declines every call and touches no network, so the
