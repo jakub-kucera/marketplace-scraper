@@ -1285,3 +1285,34 @@ def test_listing_state_column_agrees_with_the_filter(listing_state_corpus, rf):
     assert rendered[9003].startswith("last seen ")   # aged out of the sweep
     assert rendered[9004] == "—"
     assert rendered[9005].startswith("last seen ")   # Vinted: never sweepable
+
+
+@pytest.mark.django_db
+def test_requeue_action_revives_failed_deliveries(admin_client_logged_in, query, make_ad, make_delivery):
+    """A FAILED delivery should be a dead-letter queue, not a dead end.
+
+    Bulk, because the recovery case is a batch stranded by one cause — 65 of them had
+    accumulated when this was written — not one unlucky ad.
+    """
+    from bazos.models import AdDelivery, AdStatus
+
+    ad = make_ad(query, bazos_id=900)
+    ad.save()
+    failed = make_delivery(ad, query, status=AdStatus.FAILED)
+    AdDelivery.objects.filter(pk=failed.pk).update(send_attempts=5)
+    other = make_ad(query, bazos_id=901)
+    other.save()
+    sent = make_delivery(other, query, status=AdStatus.SENT)
+
+    response = admin_client_logged_in.post(
+        reverse("admin:bazos_addelivery_changelist"),
+        {"action": "requeue", "_selected_action": [failed.pk, sent.pk]},
+        follow=True,
+    )
+
+    failed.refresh_from_db()
+    sent.refresh_from_db()
+    assert response.status_code == 200
+    assert failed.status == AdStatus.APPROVED
+    assert failed.send_attempts == 0, "the budget counts attempts against the current cause"
+    assert sent.status == AdStatus.SENT, "only FAILED rows are requeued"

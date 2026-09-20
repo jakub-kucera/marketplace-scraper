@@ -53,7 +53,7 @@ Context comes from `bazos.dashboard.dashboard_callback` (UNFOLD["DASHBOARD_CALLB
                     <p class="text-subtle text-sm">pending (filter) / approved (sender)</p>
                     <p class="text-sm mt-2">{{ pipeline.sent }} sent all-time</p>
                     <p class="text-sm {% if pipeline.failed %}text-red-500 dark:text-red-400{% else %}text-subtle{% endif %}">
-                        {{ pipeline.failed }} failed
+                        {{ pipeline.failed }} failed in 7d{% if pipeline.failed_all_time %} · {{ pipeline.failed_all_time }} all time{% endif %}
                     </p>
                 </div>
             {% endcomponent %}

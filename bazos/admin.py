@@ -56,7 +56,7 @@ from bazos.jobs import (
 )
 from bazos.filters import RULE_REGISTRY
 from bazos.geo import normalize_postal_code
-from bazos.models import AdOutcome, AdPriceScore, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun, SellerReview
+from bazos.models import AdOutcome, AdPriceScore, AdStatus, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun, SellerReview
 
 
 class CategoryInline(TabularInline):
@@ -1166,6 +1166,28 @@ class AdDeliveryAdmin(ModelAdmin):
     search_fields = ("ad__name", "ad__external_id")
     ordering = ("-created",)
     readonly_fields = ("ad", "query", "status", "filter_reason", "sent_at", "send_attempts")
+    actions = ["requeue"]
+
+    @admin.action(description="Requeue for sending (FAILED → APPROVED)")
+    def requeue(self, request, queryset):
+        """Give up-for-dead notifications another go.
+
+        Without this a FAILED delivery is a dead end rather than a dead-letter queue: the
+        ad is in the database, the reason it never arrived has usually been fixed, and
+        there is no way back. A *bulk* action rather than a per-row one because the
+        recovery case is 65 deliveries stranded by one cause, not one unlucky ad.
+
+        `send_attempts` resets because the budget counts attempts against *the current
+        cause*, not against one that was fixed weeks ago.
+        """
+        updated = queryset.filter(status=AdStatus.FAILED).update(
+            status=AdStatus.APPROVED, send_attempts=0
+        )
+        skipped = queryset.count() - updated
+        message = f"{updated} delivery(ies) requeued; run_sender will pick them up within a poll."
+        if skipped:
+            message += f" {skipped} skipped — only FAILED deliveries can be requeued."
+        self.message_user(request, message, level=messages.WARNING if skipped else messages.SUCCESS)
 
 
 PARTNER_DISPLAY_LIMIT = 50

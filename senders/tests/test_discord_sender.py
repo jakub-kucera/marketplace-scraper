@@ -154,3 +154,51 @@ def test_format_product_message_notify_prefix_still_leads(sender):
     s.admin_url = "http://localhost:8000/admin/bazos/ad/1/change/"
 
     assert sender._format_product_message(s).startswith("@here \n")
+
+
+# ---------------------------------------------------------------------------
+# Retry-After — the number that turns a retry budget into a wait
+# ---------------------------------------------------------------------------
+
+def _http_429(headers=None, body=b""):
+    """An HTTPError shaped like the one urlopen raises: it *is* the response."""
+    import io
+
+    return HTTPError("https://discord.test/hook", 429, "Too Many Requests",
+                     headers or {}, io.BytesIO(body))
+
+
+def test_retry_after_is_read_from_the_header(sender):
+    sender.notifier.send.side_effect = _http_429({"Retry-After": "2.5"})
+    with patch("senders.services.discord_sender.sleep"), pytest.raises(RateLimitError) as exc:
+        sender._send("msg")
+
+    assert exc.value.retry_after == 2.5
+
+
+def test_retry_after_falls_back_to_the_json_body(sender):
+    """Discord puts it in both places; only the body is present on some responses."""
+    sender.notifier.send.side_effect = _http_429({}, b'{"retry_after": 1.25}')
+    with patch("senders.services.discord_sender.sleep"), pytest.raises(RateLimitError) as exc:
+        sender._send("msg")
+
+    assert exc.value.retry_after == 1.25
+
+
+def test_a_refusal_with_no_usable_wait_reports_none(sender):
+    """None means "we cannot tell how long", which is what spends the failure budget."""
+    sender.notifier.send.side_effect = _http_429({"Retry-After": "not-a-number"})
+    with patch("senders.services.discord_sender.sleep"), pytest.raises(RateLimitError) as exc:
+        sender._send("msg")
+
+    assert exc.value.retry_after is None
+
+
+def test_an_implausible_wait_is_refused(sender):
+    """A header asking us to stop for a day is not flow control; treat it as a failure
+    rather than pausing a channel until tomorrow."""
+    sender.notifier.send.side_effect = _http_429({"Retry-After": "86400"})
+    with patch("senders.services.discord_sender.sleep"), pytest.raises(RateLimitError) as exc:
+        sender._send("msg")
+
+    assert exc.value.retry_after is None

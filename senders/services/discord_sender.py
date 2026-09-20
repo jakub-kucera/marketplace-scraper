@@ -1,3 +1,4 @@
+import json
 import logging
 from time import sleep
 from typing import List
@@ -12,7 +13,40 @@ from senders.models import Discord
 from senders.services.sender import Sender
 
 MAX_CONNECTION_RETRIES = 5
+
+#: Longest wait we will believe from a `Retry-After`. Discord's webhook limits resolve in
+#: seconds; a far larger value means something unusual (a global limit, a proxy, a
+#: misconfigured header), and blocking the whole sender on it is worse than treating it as
+#: an ordinary failure and letting the retry budget handle it.
+MAX_RETRY_AFTER_SECONDS = 300
+
 logger = logging.getLogger(__name__)
+
+
+def _retry_after(error: HTTPError) -> float | None:
+    """Seconds Discord asked us to wait, from the header or the JSON body.
+
+    `discord_notify` calls `urlopen`, so the `HTTPError` *is* the response: it carries the
+    headers and the body. Both were being discarded, which is why a 429 — flow control
+    that says exactly how long to pause — was indistinguishable from a hard failure.
+
+    Returns None when the value is absent, unparseable or implausible; the caller treats
+    that as a real failure, which is the safe direction.
+    """
+    raw = error.headers.get("Retry-After") if error.headers else None
+    if raw is None:
+        try:
+            # Discord also puts it in the body, in seconds, as a float.
+            raw = json.loads(error.read() or b"{}").get("retry_after")
+        except (ValueError, OSError):
+            raw = None
+    try:
+        seconds = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0 or seconds > MAX_RETRY_AFTER_SECONDS:
+        return None
+    return seconds
 
 
 class DiscordSender(Sender):
@@ -49,7 +83,7 @@ class DiscordSender(Sender):
                 sleep(uniform(0.5, 2))
                 break
             except HTTPError as e:
-                raise RateLimitError() from e
+                raise RateLimitError(retry_after=_retry_after(e)) from e
             except URLError:
                 connection_errors += 1
                 logger.warning(

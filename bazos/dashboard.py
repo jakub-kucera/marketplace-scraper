@@ -240,6 +240,12 @@ def dashboard_callback(request, context):
         row["status"]: row["n"]
         for row in AdDelivery.objects.values("status").annotate(n=Count("id"))
     }
+    # Failures are counted over a week, not all time. An all-time total reads as a
+    # monument — 65 accumulated over six weeks and looked like history until someone
+    # checked the dates. A recent count means "this is happening now".
+    failed_week = AdDelivery.objects.filter(
+        status=AdStatus.FAILED, created__gte=week_ago
+    ).count()
 
     # 4. discovery -------------------------------------------------------------
     ads = Ad.objects.aggregate(
@@ -351,7 +357,8 @@ def dashboard_callback(request, context):
             "pipeline": {
                 "pending": by_status.get(AdStatus.PENDING, 0),
                 "approved": by_status.get(AdStatus.APPROVED, 0),
-                "failed": by_status.get(AdStatus.FAILED, 0),
+                "failed": failed_week,
+                "failed_all_time": by_status.get(AdStatus.FAILED, 0),
                 "sent": by_status.get(AdStatus.SENT, 0),
             },
             "discovery": {
