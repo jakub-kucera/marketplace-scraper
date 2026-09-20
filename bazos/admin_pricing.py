@@ -52,7 +52,7 @@ def _percent(part, whole):
 
 
 def price_model_view(request):
-    from bazos.models import Ad, AdPriceScore, Marketplace
+    from bazos.models import Ad, AdDelivery, AdPriceScore, AdStatus, Marketplace
     from bazos.pricing.registry import MODEL_REGISTRY
 
     if not request.user.is_staff:
@@ -78,6 +78,15 @@ def price_model_view(request):
     candidates = Ad.objects.filter(
         marketplace=Marketplace.BAZOS, name__icontains="macbook"
     ).count()
+
+    # The leg the funnel was missing. A flag that was notified anyway is one the existing
+    # rules already caught; a flag that was *not* is what enabling the rule would add, and
+    # that difference is the whole shadow-mode decision.
+    flagged_ids = set(scores.filter(z_score__lte=-2).values_list("ad_id", flat=True))
+    notified = set(
+        AdDelivery.objects.filter(ad_id__in=flagged_ids, status=AdStatus.SENT)
+        .values_list("ad_id", flat=True)
+    ) if flagged_ids else set()
 
     declines = list(
         scores.filter(predicted__isnull=True)
@@ -135,6 +144,8 @@ def price_model_view(request):
             "declined": totals["n_declined"],
             "declined_pct": _percent(totals["n_declined"], totals["n_total"]),
             "deals": totals["n_deals"],
+            "deals_notified": len(notified),
+            "deals_unnotified": len(flagged_ids - notified),
         },
         "declines": declines,
         "would_alert": would_alert,

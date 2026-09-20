@@ -867,7 +867,7 @@ class AdAdmin(ModelAdmin):
     list_filter_submit = True
     # Hosted here rather than on a model of its own: `AdPriceScore` has no changelist, and
     # the ads are what the model has opinions about, so this is the page you are already on.
-    actions_list = ["price_model_page"]
+    actions_list = ["price_model_page", "market_page"]
     search_fields = ("name", "external_id", "url")
 
     @unfold_action(description="Price model", icon="function", url_path="price-model")
@@ -875,6 +875,12 @@ class AdAdmin(ModelAdmin):
         from bazos.admin_pricing import price_model_view
 
         return price_model_view(request)
+
+    @unfold_action(description="Market", icon="insights", url_path="market")
+    def market_page(self, request):
+        from bazos.admin_market import market_view
+
+        return market_view(request)
     # Not cosmetic. A plain FK widget embeds one <option> per row of its target, and all
     # three of these point at tables that grow with the scrape: measured on production
     # 2026-09-19, reposted_from (30 057 ads), email_publisher (17 842) and phone_publisher

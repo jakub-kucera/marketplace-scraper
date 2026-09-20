@@ -193,6 +193,7 @@ UNFOLD = {
                     {"title": "Queries", "icon": "search", "link": reverse_lazy("admin:bazos_query_changelist")},
                     {"title": "Ads", "icon": "sell", "link": reverse_lazy("admin:bazos_ad_changelist")},
                     {"title": "Price model", "icon": "function", "link": reverse_lazy("admin:bazos_ad_price_model_page")},
+                    {"title": "Market", "icon": "insights", "link": reverse_lazy("admin:bazos_ad_market_page")},
                     {"title": "Deliveries", "icon": "send", "link": reverse_lazy("admin:bazos_addelivery_changelist")},
                 ],
             },

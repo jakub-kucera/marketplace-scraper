@@ -333,7 +333,13 @@ def test_a_query_that_eventually_got_through_is_not_stalled(query):
 # Two failure modes of the template itself, both invisible without rendering
 # ---------------------------------------------------------------------------
 
-DASHBOARD_TEMPLATE = Path(settings.BASE_DIR) / "templates" / "admin" / "index.html"
+#: Every admin template this project owns. Both checks below were written against
+#: `index.html` alone, and the very next template repeated one of the mistakes — a guard
+#: that only covers the file that taught you the lesson is not a guard.
+ADMIN_TEMPLATES = sorted(
+    list((Path(settings.BASE_DIR) / "templates" / "admin").glob("*.html"))
+    + list((Path(settings.BASE_DIR) / "bazos" / "templates" / "admin").glob("*.html"))
+)
 
 
 def test_every_colour_class_exists_in_unfolds_compiled_css():
@@ -347,17 +353,36 @@ def test_every_colour_class_exists_in_unfolds_compiled_css():
     import unfold
 
     css = (Path(unfold.__file__).parent / "static" / "unfold" / "css" / "styles.css").read_text()
-    used = set(re.findall(r"(?:dark:)?text-(?:red|orange|green|blue|yellow|amber)-\d00",
-                          DASHBOARD_TEMPLATE.read_text()))
-    missing = [c for c in used if c.replace(":", "\\:") not in css]
+    used = {
+        (template.name, cls)
+        for template in ADMIN_TEMPLATES
+        for cls in re.findall(r"(?:dark:)?text-(?:red|orange|green|blue|yellow|amber)-\d00",
+                              template.read_text())
+    }
+    missing = [f"{name}: {cls}" for name, cls in used if cls.replace(":", "\\:") not in css]
 
-    assert used, "no colour utilities found — did the template move?"
+    assert ADMIN_TEMPLATES, "no admin templates found — did they move?"
+    assert used, "no colour utilities found — did the templates move?"
     assert not missing, f"not in unfold's compiled CSS, so these do nothing: {sorted(missing)}"
 
 
+def test_no_template_comment_spans_lines():
+    """`{# ... #}` is single-line only; spanning lines makes Django emit it as page text.
+
+    Checked in the source rather than the rendered page, because a template only rendered
+    by a page no test visits would slip through — which is how the second one shipped.
+    """
+    offenders = []
+    for template in ADMIN_TEMPLATES:
+        for line in template.read_text().splitlines():
+            if line.count("{#") != line.count("#}"):
+                offenders.append(f"{template.name}: {line.strip()[:60]}")
+
+    assert not offenders, "multi-line {# #} renders as text; use {% comment %}:\n" + "\n".join(offenders)
+
+
 @pytest.mark.django_db
-def test_template_comments_do_not_reach_the_page(client):
-    """`{# ... #}` is single-line only; spanning lines makes Django emit it as text."""
+def test_template_comments_do_not_reach_the_rendered_index(client):
     user = get_user_model().objects.create_superuser(
         username="dash3", email="dash3@test.local", password="password"
     )
@@ -366,4 +391,3 @@ def test_template_comments_do_not_reach_the_page(client):
     content = client.get(reverse("admin:index")).content.decode()
 
     assert "{#" not in content and "#}" not in content
-    assert "Row 3" not in content, "a multi-line {# #} comment leaked into the page"

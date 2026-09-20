@@ -20,9 +20,11 @@ only `admin/index.html` collided, which is why that one sits in `templates/`.
                 <div><p class="text-subtle">Features</p><p class="font-medium">{{ artifact.features }}</p></div>
             </div>
         {% else %}
-            {# The failure this page exists to make visible: every uncertain path in
-               bazos/pricing returns neutral, so elsewhere a missing artifact looks exactly
-               like a model with no opinion. #}
+            {% comment %}
+            The failure this page exists to make visible: every uncertain path in
+            bazos/pricing returns neutral, so elsewhere a missing artifact looks exactly
+            like a model with no opinion.
+            {% endcomment %}
             <p class="font-semibold text-red-500 dark:text-red-400">
                 {% if artifact.registered %}No artifact loaded — the model is registered but has nothing to evaluate, so every ad silently gets "no opinion".
                 {% else %}No model registered under that name.{% endif %}
@@ -55,8 +57,10 @@ only `admin/index.html` collided, which is why that one sits in `templates/`.
                 <p class="font-semibold text-2xl text-important">{{ funnel.deals }}</p>
                 <p class="text-subtle text-sm">at z ≤ −2</p>
                 {% if shadow_mode %}
-                    <p class="text-orange-700 dark:text-orange-400 text-sm">shadow mode — none were sent</p>
+                    <p class="text-orange-700 dark:text-orange-400 text-sm">shadow mode — none were sent as deals</p>
                 {% endif %}
+                {# What enabling the rule would actually add: the flags no other rule caught. #}
+                <p class="text-subtle text-sm">{{ funnel.deals_notified }} notified anyway · {{ funnel.deals_unnotified }} never surfaced</p>
             </div>
         </div>
     {% endcomponent %}
@@ -118,8 +122,7 @@ only `admin/index.html` collided, which is why that one sits in `templates/`.
                             </td>
                             <td class="py-2 pr-4 text-right tabular-nums">{{ score.ad.price }}</td>
                             <td class="py-2 pr-4 text-right tabular-nums">{{ score.predicted }}</td>
-                            {# `|default` after `floatformat`: a null renders as "" and a bare
-                               "%" reads like a broken column rather than a missing number. #}
+                            {# A null renders as "" and a bare "%" reads like a broken column. #}
                             <td class="py-2 pr-4 text-right tabular-nums">{% if score.discount_pct is not None %}{{ score.discount_pct|floatformat:1 }}%{% else %}—{% endif %}</td>
                             <td class="py-2 text-right tabular-nums font-medium">{{ score.z_score|floatformat:2|default:"—" }}</td>
                         </tr>
