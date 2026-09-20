@@ -26,7 +26,7 @@ Heavier than the index deliberately — this is a page you open, not one that lo
 admin visit.
 """
 import statistics
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from django.contrib import admin
@@ -114,12 +114,20 @@ def _latency(now, today):
     return cards, per_day
 
 
+def _local_midnight(day):
+    """Start of `day` in the project timezone, as an aware datetime."""
+    return timezone.make_aware(datetime.combine(day, time.min))
+
+
 def _archive(today):
     """Per-marketplace holdings, and the days that are missing from them."""
     from bazos.models import Ad, Marketplace
 
+    # From local midnight, not "now minus 30 days": a timestamp cutoff makes the earliest
+    # day in the range a partial one, and a partial day looks exactly like a hole.
+    window_start = today - timedelta(days=ARCHIVE_DAYS - 1)
     rows = (
-        Ad.objects.filter(created__gte=timezone.now() - timedelta(days=ARCHIVE_DAYS))
+        Ad.objects.filter(created__gte=_local_midnight(window_start))
         .annotate(day=TruncDate("created")).values("marketplace", "day")
         .annotate(n=Count("id")).order_by("day")
     )
@@ -142,13 +150,18 @@ def _archive(today):
         # started 2026-08-23, and counting the months before that as data loss would bury
         # the real gaps in noise.
         first_local = timezone.localtime(row["first"]).date() if row["first"] else today
-        window_start = max(first_local, today - timedelta(days=ARCHIVE_DAYS - 1))
-        window = [window_start + timedelta(days=i) for i in range((today - window_start).days + 1)]
+        start = max(first_local, window_start)
+        window = [start + timedelta(days=i) for i in range((today - start).days + 1)]
         counts = [days.get(day, 0) for day in window]
         typical = statistics.median(counts) if counts else 0
+        # Two days can never be holes, and both were false positives on the first run
+        # against production: **today**, which is still in progress, and a marketplace's
+        # **first day**, which began whenever its first ad was scraped. A gap panel that
+        # cries wolf every single day is worse than no gap panel.
         gaps = [
             day for day, n in zip(window, counts)
             if typical > 0 and n < typical * GAP_FRACTION
+            and day != today and day != first_local
         ]
         out.append({
             "label": labels.get(market, market),

@@ -135,3 +135,29 @@ def test_days_before_a_marketplace_existed_are_not_gaps(staff_client):
 
     assert rows["Vinted"]["days_watched"] <= 2
     assert rows["Vinted"]["gap_count"] == 0
+
+
+@pytest.mark.django_db
+def test_today_is_never_a_gap(staff_client):
+    """It is still in progress. Flagging it means the panel cries wolf every single day."""
+    for days_ago in range(1, 8):
+        for n in range(6):
+            _ad(days_ago * 10 + n, days_ago=days_ago)
+    # nothing yet today
+
+    row = staff_client.get(reverse(URL_NAME)).context["archive"][0]
+
+    assert timezone.localdate() not in row["gaps"]
+
+
+@pytest.mark.django_db
+def test_the_first_day_of_a_marketplace_is_never_a_gap(staff_client):
+    """It began whenever its first ad was scraped, so it is partial by construction."""
+    _ad(1, days_ago=9)                       # a single ad on the first day
+    for days_ago in range(1, 9):
+        for n in range(6):
+            _ad(days_ago * 10 + n, days_ago=days_ago)
+
+    row = staff_client.get(reverse(URL_NAME)).context["archive"][0]
+
+    assert (timezone.localdate() - timedelta(days=9)) not in row["gaps"]
