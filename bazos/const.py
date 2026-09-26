@@ -94,6 +94,10 @@ SBAZAR_MAX_PAGES: Final[int] = 20
 SBAZAR_DEDUP_BREAK_STREAK: Final[int] = 40
 
 BAZOS_PAGE_WAIT_TIME: Final[tuple[int, int]] = (2, 5)
+# Diagnostic only - both Bazos scrapers paginate with no page cap (see CLAUDE.md), so a
+# walk that never sees an empty page runs until whatever bounds its caller (a task timeout,
+# for `compare_bazos_scrapers`). This is the only visibility into that before it happens.
+PAGINATION_PROGRESS_LOG_INTERVAL: Final[int] = 25
 # (connect, read) for every Bazos HTTP call. Same reasoning as IP_LOOKUP_TIMEOUT: these go
 # through Tor, where an unreachable host is a stalled socket rather than a refused
 # connection, and run_request carried no timeout at all — a single hung GET stalled the

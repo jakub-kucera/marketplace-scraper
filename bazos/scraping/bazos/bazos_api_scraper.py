@@ -26,6 +26,7 @@ from bazos.const import (
     BAZOS_PAGE_WAIT_TIME,
     BAZOS_REQUEST_TIMEOUT,
     MAX_ATTEMPTS,
+    PAGINATION_PROGRESS_LOG_INTERVAL,
 )
 from bazos.exceptions import MarketplaceBlockedError
 from bazos.filters import parse_price_and_type
@@ -380,15 +381,23 @@ class BazosApiScraper:
     def run_query(self, query: Query) -> Iterator[Ad]:
         params = self._build_query_params(query)
         offset = 0
+        page_num = 0
         while True:
+            page_num += 1
+            if page_num % PAGINATION_PROGRESS_LOG_INTERVAL == 0:
+                logger.info("Query %s: still paginating, page %d, offset=%d", query.pk, page_num, offset)
+
             items, total = self._fetch_page(params, offset)
             if not items:
+                logger.info("Query %s: pagination stopped after %d page(s) (empty page)", query.pk, page_num)
                 break
 
             yield from (self.extract_product(item) for item in items)
 
             offset += len(items)
             if total is not None and offset >= total:
+                logger.info("Query %s: pagination stopped after %d page(s) (offset %d >= total %d)",
+                             query.pk, page_num, offset, total)
                 break
 
             page_sleep_time = uniform(*BAZOS_PAGE_WAIT_TIME)

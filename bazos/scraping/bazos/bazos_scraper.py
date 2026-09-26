@@ -20,6 +20,7 @@ from bazos.const import (
     BAZOS_URL,
     MAX_ATTEMPTS,
     PAGE_SIZE,
+    PAGINATION_PROGRESS_LOG_INTERVAL,
 )
 from bazos.exceptions import MarketplaceBlockedError
 from bazos.filters import parse_price_and_type
@@ -284,8 +285,15 @@ class BazosScraper:
         else:
             url_iter = self.create_url_general(query)
 
+        page_num = 0
         for url in url_iter:
+            page_num += 1
             logger.debug("Fetching page url=%s", url)
+
+            # There is no page cap here (see CLAUDE.md's "no backstop" note) - this is the
+            # one signal that would show a runaway walk before it costs a task timeout.
+            if page_num % PAGINATION_PROGRESS_LOG_INTERVAL == 0:
+                logger.info("Query %s: still paginating, page %d, url=%s", query.pk, page_num, url)
 
             page_sleep_time = uniform(*BAZOS_PAGE_WAIT_TIME)
             logger.debug("Sleeping between pages for %.1f s", page_sleep_time)
@@ -302,4 +310,5 @@ class BazosScraper:
             yield from products
             # TODO take a look at this, it looks like that it is no working. (have to create a new query with few Ads to repl)
             if not products:
+                logger.info("Query %s: pagination stopped after %d page(s) (empty page)", query.pk, page_num)
                 break

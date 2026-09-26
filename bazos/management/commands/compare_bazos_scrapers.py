@@ -42,6 +42,11 @@ class Command(BaseCommand):
             queries = Query.objects.filter(enabled=True)[: options["limit"]]
 
         for query in queries:
+            # Logged, not just written to stdout: stdout is a StringIO the job wrapper only
+            # reads after this command returns, so a task that times out mid-query (see
+            # bazos_scraper.run_query's page cap notes) would otherwise leave no record of
+            # which query it died on.
+            logger.info("compare_bazos_scrapers: starting query %s: %s", query.pk, query)
             self.stdout.write(f"--- Query {query.pk}: {query} ---")
 
             # Rotation matters more here than anywhere else, because of what this output is
