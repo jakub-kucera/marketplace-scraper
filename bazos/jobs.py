@@ -9,17 +9,26 @@ Two rules this module keeps:
 - **A task returns a short string and lets exceptions escape.** django-q2 records the return
   value on `Success` and the traceback on `Failure`, so the admin becomes the run log for
   free. Swallowing an exception to "be safe" would turn a failure into a green row, which is
-  the one thing a run log must never do.
+  the one thing a run log must never do. **One carve-out, and it is written down rather than
+  discovered**: `@defers_when_blocked` turns `AllCircuitsBlocked` into a green row *plus a
+  pending `Schedule`*, because a blocked exit is backpressure and the retry is visible in
+  Scheduled tasks. It still ends in a red row if the deferrals run out.
 - **Nothing here holds the Tor session open across tasks.** Each task builds what it needs
   and drops it, so the single worker's serialisation (`Q_CLUSTER["workers"] = 1`) is the
   only concurrency control required — see JOB_QUEUE.md §2.
 """
 import logging
+from datetime import time, timedelta
 from dataclasses import dataclass
+from functools import wraps
+from random import randint
 
 from django.core.management import call_command
 from django.utils import timezone
 from django_q.models import Schedule
+
+from bazos.const import JOB_BLOCK_MAX_DEFERRALS, JOB_BLOCK_RETRY_DELAY
+from bazos.scraping.session import AllCircuitsBlocked
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +36,7 @@ logger = logging.getLogger(__name__)
 #: here so a rename breaks an import rather than silently orphaning a schedule.
 SWEEP_DELISTED = "bazos.jobs.sweep_delisted"
 HEARTBEAT = "bazos.jobs.heartbeat"
+DAILY_DIGEST = "bazos.jobs.daily_digest"
 PRUNE_STATUS_LOGS = "bazos.jobs.prune_status_logs"
 PRUNE_QUERY_RUNS = "bazos.jobs.prune_query_runs"
 SCORE_AD = "bazos.jobs.score_ad"
@@ -55,6 +65,21 @@ class ScheduleSpec:
     schedule_type: str
     minutes: int | None = None
     kwargs: dict | None = None
+    #: Local wall-clock time of the FIRST run, read only when the row is created.
+    #:
+    #: Everything else here fires "every N from whenever the deploy happened", which is
+    #: fine for a prune and useless for a digest someone reads with lunch. django-q2
+    #: re-applies a DST correction on every advance (`Schedule.calculate_next_run`
+    #: compares the local wall clock before and after and subtracts the difference), so a
+    #: row anchored to 13:00 Prague stays at 13:00 across the clock change.
+    #:
+    #: `Schedule.CRON` would be the more general answer and is deliberately not used:
+    #: croniter is an optional django-q2 extra that is not installed, and the scheduler
+    #: runs every row inside one transaction with one try/except — so a CRON row on an
+    #: image built without croniter raises ImportError and abandons the whole iteration,
+    #: stopping the delisting sweep and the heartbeat with it. A digest must not be able
+    #: to do that. Note DAILY also cannot express "weekdays only" or "twice a day".
+    at: time | None = None
 
 
 #: name -> spec. Cadence is editable in the admin afterwards; this only declares the row.
@@ -71,6 +96,9 @@ SCHEDULES: dict[str, ScheduleSpec] = {
         # backlog run as one task would make every other job wait for the whole backfill.
     ),
     "cluster-heartbeat": ScheduleSpec(HEARTBEAT, Schedule.MINUTES, minutes=60),
+    # 13:00 rather than "24h after the deploy": this one is read by a person, at a time
+    # they chose. Safe to anchor because 13:00 is never inside Prague's DST gap (02:00-03:00).
+    "daily-digest": ScheduleSpec(DAILY_DIGEST, Schedule.DAILY, at=time(13, 0)),
     # Weekly, not daily: both prunes are by age, so running more often deletes the same rows
     # a few days earlier at the cost of a long DELETE competing with the scraper for locks.
     "prune-status-logs": ScheduleSpec(PRUNE_STATUS_LOGS, Schedule.WEEKLY),
@@ -126,6 +154,8 @@ def _register_own_jobs() -> None:
         JobSpec(SWEEP_DELISTED, "Delisting sweep (chunked)",
                 help="Works a slice and re-queues itself while ads remain due."),
         JobSpec(HEARTBEAT, "Cluster heartbeat"),
+        JobSpec(DAILY_DIGEST, "Post the daily Discord digest",
+                help="The same message the 13:00 schedule sends. Safe to run repeatedly."),
         JobSpec(PRUNE_STATUS_LOGS, "Prune log rows"),
         JobSpec(PRUNE_QUERY_RUNS, "Prune query runs"),
         JobSpec(RESCORE_ADS, "Re-score every stored price score",
@@ -157,6 +187,71 @@ def register_schedule(name: str, spec: ScheduleSpec) -> None:
     cannot produce two rows for one job.
     """
     SCHEDULES.setdefault(name, spec)
+
+
+def defers_when_blocked(func_path: str):
+    """Turn a spent rotation budget into a retry later, rather than a dead task.
+
+    `with_rotation` spends `MAX_BLACKLIST_RETRIES` rotations in about fifteen seconds, and the
+    exits it draws in that window are **not independent** - the eight that failed a ratings
+    fetch on 2026-09-20 included four in 185.220.100.0/22 and two in 204.8.96.0/24, two of the
+    largest Tor exit operators, both blocked wholesale. So the answer to a spent budget is not
+    more rotations against the same poisoned sample; it is the same request in ten to twenty
+    minutes, when Tor's path selection has genuinely moved. That is why this waits at the
+    *job* level and `with_rotation` is left alone: a sleep inside it would slow the 91-batch
+    delisting sweep for every caller and still re-draw from an identical consensus.
+
+    A decorator rather than five copies of the same try/except, for the reason
+    `bazos/scraping/session.py` gives about its own extraction: a policy with a budget, an
+    index and an `ack_failure` flag in it should exist once. The cost is that `deferral` does
+    not appear in the five signatures - it is keyword-only, defaults to 0, and only the
+    scheduler ever passes it.
+
+    **The give-up raises rather than returning.** By then the run is one this module enqueued
+    with `ack_failure`, so the red row is final; a green row saying "gave up" would be the
+    exact lie the module docstring forbids.
+    """
+    def decorate(fn):
+        @wraps(fn)
+        def wrapper(*args, deferral: int = 0, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except AllCircuitsBlocked as exc:
+                return _defer_blocked(func_path, args, deferral, exc)
+
+        return wrapper
+
+    return decorate
+
+
+def _defer_blocked(func_path: str, args: tuple, deferral: int, exc: Exception) -> str:
+    """Re-enqueue `func_path` later, or give up if the budget is spent."""
+    from django_q.tasks import schedule
+
+    if deferral >= JOB_BLOCK_MAX_DEFERRALS:
+        raise exc
+
+    delay = randint(*JOB_BLOCK_RETRY_DELAY)
+    next_run = timezone.now() + timedelta(seconds=delay)
+    schedule(
+        func_path,
+        *args,
+        schedule_type=Schedule.ONCE,
+        next_run=next_run,
+        deferral=deferral + 1,
+        # `django_q/monitor.py:52` acknowledges a task only when it succeeded or carries
+        # this. Without it the cluster's own retry (`retry: 60*60`, `max_attempts: 3`) would
+        # re-run each give-up and start a fresh chain of deferrals underneath it - three
+        # attempts by three deferrals is twelve runs and ninety-six blocked requests.
+        q_options={"ack_failure": True},
+        # NOT `repeats`: `django_q/scheduler.py:130-137` deletes a fired ONCE schedule only
+        # when `repeats < 0`, and sets it to 0 and saves otherwise, leaving a dead row. The
+        # field default is -1, so the correct value is the one we do not pass.
+    )
+    logger.info("%s: deferred to %s (deferral %d of %d)",
+                exc, next_run.strftime("%H:%M"), deferral + 1, JOB_BLOCK_MAX_DEFERRALS)
+    return (f"{exc} - retrying at {next_run.strftime('%H:%M')} "
+            f"(deferral {deferral + 1} of {JOB_BLOCK_MAX_DEFERRALS})")
 
 
 def sweep_delisted(limit: int | None = None, rounds_left: int | None = None) -> str:
@@ -220,6 +315,39 @@ def sweep_delisted(limit: int | None = None, rounds_left: int | None = None) -> 
 
     async_task(SWEEP_DELISTED, rounds_left=rounds_left - 1)
     return f"{summary} | {due_after} still due, next chunk queued"
+
+
+def daily_digest() -> str:
+    """Post the daily digest to every `for_daily_digest` channel.
+
+    Split deliberately at one line: **collecting and rendering may raise**, because a bug
+    there is a real defect and a `Failure` row with a traceback is the right report — but
+    **the POST may not**. A rate limit from Discord must not turn a correct digest into a
+    red row, and must not burn `max_attempts` re-running the whole collection for a
+    message that was already built.
+    """
+    from bazos.digest.collect import collect
+    from bazos.digest.render import render
+    from senders.models import Discord
+    from senders.services.discord_webhook import post_embeds
+
+    channels = list(Discord.objects.filter(for_daily_digest=True))
+    if not channels:
+        # Not an error: a misconfiguration should be visible on the Success row rather
+        # than as a red Failure nobody can act on.
+        return "no for_daily_digest channel configured"
+
+    embeds = render(collect())
+
+    posted = failed = 0
+    for channel in channels:
+        try:
+            post_embeds(channel.url, embeds)
+            posted += 1
+        except Exception:
+            logger.exception("Could not post the daily digest to %s", channel.channel_name)
+            failed += 1
+    return f"posted to {posted} channel(s)" + (f", {failed} failed" if failed else "")
 
 
 def heartbeat() -> str:
@@ -361,6 +489,7 @@ def compare_bazos_scrapers(limit: int | None = None) -> str:
 # Jobs that need the Bazos session — these serialise behind the delisting sweep
 # ---------------------------------------------------------------------------
 
+@defers_when_blocked(GEOCODE_POSTAL_CODE)
 def geocode_postal_code(code: str) -> str:
     """Resolve one postal code into the `PostalCode` cache.
 
@@ -399,6 +528,7 @@ def geocode_postal_code(code: str) -> str:
     return f"{normalized}: {row.city} ({row.latitude:.4f}, {row.longitude:.4f})"
 
 
+@defers_when_blocked(FETCH_FULL_DESCRIPTION)
 def fetch_full_description(ad_pk: int) -> str:
     """Fetch one ad's full description on demand, whatever its marketplace.
 
@@ -425,6 +555,7 @@ def fetch_full_description(ad_pk: int) -> str:
     return f"ad {ad_pk}: {len(fetched.full_description)} chars, {seller}"
 
 
+@defers_when_blocked(REFRESH_AD)
 def refresh_ad(ad_pk: int) -> str:
     """Re-read one listing's row — still up, and has the price moved?
 
@@ -446,6 +577,7 @@ def refresh_ad(ad_pk: int) -> str:
     )
 
 
+@defers_when_blocked(FETCH_SELLER_RATINGS)
 def fetch_seller_ratings(publisher_kind: str, publisher_pk: int) -> str:
     """Read one seller's ratings and store the counts. See `bazos/ratings.py` for the
     reviewer-PII decision, which is the whole design of this one.
@@ -466,6 +598,7 @@ def fetch_seller_ratings(publisher_kind: str, publisher_pk: int) -> str:
     return f"{publisher_kind} id {publisher.bazos_id}: {counts}"
 
 
+@defers_when_blocked(FETCH_SELLER_LISTINGS)
 def fetch_seller_listings(publisher_kind: str, publisher_pk: int) -> str:
     """Pull one seller's whole current inventory in a single request.
 

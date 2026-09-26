@@ -8,6 +8,7 @@ things that are ours and that fail *silently*:
 - `ensure_schedules` clobbering a cadence someone edited in the admin, which would make the
   admin control a lie.
 """
+import ast
 from importlib import import_module
 from io import StringIO
 from types import SimpleNamespace
@@ -16,9 +17,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.core.management import call_command
+from django.utils import timezone
 from django_q.models import Schedule
 
-from bazos.const import DELIST_MAX_CHUNK_ROUNDS
+from bazos.scraping.session import AllCircuitsBlocked
+
+from bazos.const import DELIST_MAX_CHUNK_ROUNDS, JOB_BLOCK_MAX_DEFERRALS
 from bazos.jobs import (
     COMPARE_BAZOS_SCRAPERS,
     DETECT_REPOSTS,
@@ -629,3 +633,144 @@ def test_detect_reposts_resolves_the_publisher_and_counts_links(publishers):
 
     assert detect.call_args.args[0].pk == publishers[1].pk
     assert "3 relist(s)" in out
+
+
+# ---------------------------------------------------------------------------
+# A blocked exit is backpressure, not a failed job
+# ---------------------------------------------------------------------------
+
+def _blocked(*_args, **_kwargs):
+    raise AllCircuitsBlocked("Ratings for phone id 222: blocked on all 8 circuits")
+
+
+@pytest.mark.django_db
+def test_a_blocked_job_defers_itself_instead_of_dying(publishers, monkeypatch):
+    """The whole point. `with_rotation` spends its eight rotations in about fifteen seconds,
+    and the exits it draws are correlated by operator - the incident that prompted this had
+    six of eight in two netblocks. More rotations in the same fifteen seconds is the wrong
+    lever; the same request later, when Tor routes it differently, is the right one."""
+    from bazos import jobs
+    _, phone = publishers
+    monkeypatch.setattr("bazos.scraping.session.with_rotation", _blocked)
+
+    result = jobs.fetch_seller_ratings("phone", phone.pk)
+
+    assert "blocked" in result and "retry" in result.lower()
+    deferral = Schedule.objects.get()
+    assert deferral.func == FETCH_SELLER_RATINGS
+    assert deferral.schedule_type == Schedule.ONCE
+    assert deferral.next_run > timezone.now()
+
+
+@pytest.mark.django_db
+def test_the_deferred_run_carries_its_arguments_and_its_place_in_the_chain(publishers, monkeypatch):
+    """Args round-trip through a TextField and `ast.literal_eval`, which is the part most
+    likely to break silently - a deferral that loses its publisher would retry nothing."""
+    from bazos import jobs
+    _, phone = publishers
+    monkeypatch.setattr("bazos.scraping.session.with_rotation", _blocked)
+
+    jobs.fetch_seller_ratings("phone", phone.pk)
+
+    deferral = Schedule.objects.get()
+    assert ast.literal_eval(deferral.args) == ("phone", phone.pk)
+    assert ast.literal_eval(deferral.kwargs)["deferral"] == 1
+
+
+@pytest.mark.django_db
+def test_a_deferral_is_not_also_retried_by_the_cluster(publishers, monkeypatch):
+    """`django_q/monitor.py:52` only acknowledges a task when it succeeded *or* carries
+    `ack_failure`. Without this the cluster's own retry (`retry: 60*60`, `max_attempts: 3`)
+    would re-run each give-up and start a fresh chain: three attempts x three deferrals is
+    twelve runs and ninety-six blocked requests, and "gave up" would not be true."""
+    from bazos import jobs
+    _, phone = publishers
+    monkeypatch.setattr("bazos.scraping.session.with_rotation", _blocked)
+
+    jobs.fetch_seller_ratings("phone", phone.pk)
+
+    assert ast.literal_eval(Schedule.objects.get().kwargs)["q_options"]["ack_failure"] is True
+
+
+@pytest.mark.django_db
+def test_the_deferral_cleans_itself_up_when_it_fires(publishers, monkeypatch):
+    """`django_q/scheduler.py:130-137` deletes a fired ONCE schedule only when `repeats < 0`;
+    with any other value it sets `repeats = 0` and saves, leaving a dead row. The field
+    default is -1, so the fix is to not pass `repeats` at all - which looks like an omission
+    and is why this is pinned."""
+    from bazos import jobs
+    _, phone = publishers
+    monkeypatch.setattr("bazos.scraping.session.with_rotation", _blocked)
+
+    jobs.fetch_seller_ratings("phone", phone.pk)
+
+    assert Schedule.objects.get().repeats < 0
+
+
+@pytest.mark.django_db
+def test_the_last_deferral_gives_up_loudly_rather_than_starting_another(publishers, monkeypatch):
+    """A re-enqueueing task that cannot finish is a loop that looks like progress - the
+    failure mode `sweep_delisted`'s docstring warns about. It raises rather than returning a
+    string because by this point the run carries `ack_failure`, so the Failure row is final
+    and honest instead of being silently re-run."""
+    from bazos import jobs
+    _, phone = publishers
+    monkeypatch.setattr("bazos.scraping.session.with_rotation", _blocked)
+
+    with pytest.raises(AllCircuitsBlocked):
+        jobs.fetch_seller_ratings("phone", phone.pk, deferral=JOB_BLOCK_MAX_DEFERRALS)
+
+    assert Schedule.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_a_non_block_failure_is_still_a_failure(publishers, monkeypatch):
+    """This changes behaviour for `AllCircuitsBlocked` and nothing else. Burying a real
+    error behind a retry would be worse than the bug being fixed."""
+    from bazos import jobs
+    _, phone = publishers
+
+    def boom(*_a, **_kw):
+        raise RuntimeError("no usable ratings response")
+
+    monkeypatch.setattr("bazos.scraping.session.with_rotation", boom)
+
+    with pytest.raises(RuntimeError):
+        jobs.fetch_seller_ratings("phone", phone.pk)
+
+    assert Schedule.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_a_job_that_works_leaves_no_deferral_behind(publishers, monkeypatch):
+    from bazos import jobs
+    from bazos.ratings import RatingCounts
+
+    email, _ = publishers
+    monkeypatch.setattr("bazos.scraping.session.with_rotation", lambda *a, **kw: RatingCounts(positive=2))
+
+    result = jobs.fetch_seller_ratings("email", email.pk)
+
+    assert "2+" in result
+    assert Schedule.objects.count() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("func,args", [
+    ("fetch_seller_listings", ("phone",)),
+    ("fetch_full_description", ()),
+    ("refresh_ad", ()),
+    ("geocode_postal_code", ()),
+])
+def test_every_job_that_touches_the_network_defers(func, args, publishers, saved_ad, monkeypatch):
+    """Five jobs reach `with_rotation` and they share one failure mode; fixing the one that
+    happened to fail first would leave the other four to bite the same way."""
+    from bazos import jobs
+    _, phone = publishers
+    monkeypatch.setattr("bazos.scraping.session.with_rotation", _blocked)
+    call_args = args + ((phone.pk,) if args else (saved_ad().pk,) if func != "geocode_postal_code" else ("11000",))
+
+    result = getattr(jobs, func)(*call_args)
+
+    assert "blocked" in result
+    assert Schedule.objects.count() == 1

@@ -126,6 +126,20 @@ QUERY_WAIT_TIME: Final[tuple[float, float]] = (5.0, 15.0)
 # *falls* despite the higher ceiling, for the same reason.
 MAX_BLACKLIST_RETRIES: Final[int] = 8
 
+# How a *job* recovers once that budget is spent. `MAX_BLACKLIST_RETRIES` rotations happen in
+# about fifteen seconds, and the exits they draw are not independent: the eight that failed a
+# ratings fetch on 2026-09-20 22:53 included four in 185.220.100.0/22 and two in
+# 204.8.96.0/24, two of the largest Tor exit operators, both blocked wholesale. Eight
+# independent draws at that hour's measured 48.4% block rate would be a 0.3% event; clustered
+# draws from a poisoned pool are ordinary. So the answer to a spent budget is not more
+# rotations, it is the same request later, when Tor will route it differently.
+#
+# The delay carries the fix; the count only bounds it. Fifteen minutes is long enough for the
+# path selection to genuinely resample and short enough that an admin who clicked a button
+# still gets an answer while they care.
+JOB_BLOCK_MAX_DEFERRALS: Final[int] = 3
+JOB_BLOCK_RETRY_DELAY: Final[tuple[int, int]] = (10 * 60, 20 * 60)
+
 # ---------------------------------------------------------------------------
 # Pipeline process constants
 # ---------------------------------------------------------------------------

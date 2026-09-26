@@ -243,7 +243,7 @@ def _price_drops(now):
 
 
 def market_view(request):
-    from bazos.dashboard import CHART_DAYS, _chart, _series
+    from bazos.charts import CHART_DAYS, Series, chart_json, series
 
     if not request.user.is_staff:
         raise PermissionDenied
@@ -256,8 +256,7 @@ def market_view(request):
     archive = _archive(today)
 
     # One line per marketplace that has enough history to draw one.
-    palettes = ["var(--color-primary-500)", "var(--color-base-400)",
-                "var(--color-red-500)", "var(--color-blue-500)"]
+    tokens = ["primary", "muted", "danger", "info"]
     datasets = []
     labels = None
     for i, card in enumerate(latency_cards[:4]):
@@ -266,17 +265,14 @@ def market_view(request):
             for (market, day), values in latency_by_day.items()
             if market == card["key"]
         ]
-        labels, values = _series(rows, "day", CHART_DAYS, today)
-        datasets.append({
-            "label": card["label"], "data": values,
-            "backgroundColor": palettes[i % len(palettes)], "borderRadius": 4,
-        })
+        labels, values = series(rows, "day", CHART_DAYS, today)
+        datasets.append(Series(tokens[i % len(tokens)], card["label"], values))
 
-    drop_labels, drop_values = _series(
+    drop_labels, drop_values = series(
         [{"day": day, "n": counts[0]} for day, counts in drops_by_day.items()],
         "day", CHART_DAYS, today,
     )
-    _, rise_values = _series(
+    _, rise_values = series(
         [{"day": day, "n": counts[1]} for day, counts in drops_by_day.items()],
         "day", CHART_DAYS, today,
     )
@@ -285,12 +281,10 @@ def market_view(request):
         **admin.site.each_context(request),
         "title": "Market",
         "latency": latency_cards,
-        "latency_chart": _chart(labels or [], datasets),
-        "drops_chart": _chart(drop_labels, [
-            {"label": "Drops", "data": drop_values,
-             "backgroundColor": "var(--color-primary-500)", "borderRadius": 4, "stack": "p"},
-            {"label": "Rises", "data": rise_values,
-             "backgroundColor": "var(--color-base-400)", "borderRadius": 4, "stack": "p"},
+        "latency_chart": chart_json(labels or [], datasets),
+        "drops_chart": chart_json(drop_labels, [
+            Series("primary", "Drops", drop_values, stack="p"),
+            Series("muted", "Rises", rise_values, stack="p"),
         ]),
         "biggest_drops": biggest_drops,
         "archive": archive,

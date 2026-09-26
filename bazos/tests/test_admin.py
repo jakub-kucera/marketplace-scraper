@@ -1484,3 +1484,34 @@ def test_postal_code_page_can_ask_zip_php_again(admin_client):
 
     queued.assert_called_once()
     assert queued.call_args.args[1] == "11000"
+
+
+@pytest.mark.django_db
+def test_a_job_that_can_defer_says_so_when_queued(admin_client):
+    """Bazos blocks about half our exits, so a queued job can take an hour rather than ten
+    seconds. "Queued" followed by twenty minutes of nothing reads as broken unless the
+    possibility is said out loud."""
+    from bazos.models import PhonePublisher
+
+    pub = PhonePublisher.objects.create(bazos_id=771)
+    with patch("bazos.admin.async_task"):
+        response = admin_client.get(
+            reverse("admin:bazos_phonepublisher_fetch_ratings_detail", args=[pub.pk]), follow=True
+        )
+
+    assert "retry itself" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_a_job_that_cannot_be_blocked_does_not_promise_a_retry(admin_client):
+    """`detect_reposts` reads our own archive and makes no requests, so it can never defer.
+    Telling the user it might would be noise that trains them to ignore the real one."""
+    from bazos.models import PhonePublisher
+
+    pub = PhonePublisher.objects.create(bazos_id=772)
+    with patch("bazos.admin.async_task"):
+        response = admin_client.get(
+            reverse("admin:bazos_phonepublisher_detect_reposts_detail", args=[pub.pk]), follow=True
+        )
+
+    assert "retry itself" not in response.content.decode()

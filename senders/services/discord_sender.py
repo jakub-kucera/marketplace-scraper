@@ -9,16 +9,11 @@ import discord_notify as dn
 
 from bazos.protocols import Sendable
 from senders.exceptions import RateLimitError
+from senders.services.discord_webhook import retry_after_seconds
 from senders.models import Discord
 from senders.services.sender import Sender
 
 MAX_CONNECTION_RETRIES = 5
-
-#: Longest wait we will believe from a `Retry-After`. Discord's webhook limits resolve in
-#: seconds; a far larger value means something unusual (a global limit, a proxy, a
-#: misconfigured header), and blocking the whole sender on it is worse than treating it as
-#: an ordinary failure and letting the retry budget handle it.
-MAX_RETRY_AFTER_SECONDS = 300
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +35,8 @@ def _retry_after(error: HTTPError) -> float | None:
             raw = json.loads(error.read() or b"{}").get("retry_after")
         except (ValueError, OSError):
             raw = None
-    try:
-        seconds = float(raw)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    if seconds <= 0 or seconds > MAX_RETRY_AFTER_SECONDS:
-        return None
-    return seconds
+    # Shared with the embeds transport: one definition of "a wait we believe".
+    return retry_after_seconds(raw)
 
 
 class DiscordSender(Sender):
