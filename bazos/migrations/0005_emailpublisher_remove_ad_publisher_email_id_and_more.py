@@ -8,7 +8,6 @@ import django_extensions.db.fields
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("facebook", "0001_initial"),
         ("bazos", "0004_ad"),
     ]
 
@@ -70,14 +69,6 @@ class Migration(migrations.Migration):
                 ),
                 ("bazos_id", models.IntegerField(db_index=True, unique=True)),
                 ("phone", models.CharField(max_length=30, unique=True)),
-                (
-                    "fb_user",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.PROTECT,
-                        related_name="phone_publishers",
-                        to="facebook.fbuser",
-                    ),
-                ),
             ],
             options={"get_latest_by": "modified", "abstract": False,},
         ),

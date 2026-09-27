@@ -1,7 +1,7 @@
 # Copilot Instructions for `marketplace-scrapper`
 
 ## Big picture architecture
-- This is a Django project (`scraper/settings.py`) with app boundaries: `bazos` (scraping + domain), `ip_changer` (network identity rotation), `senders` (delivery), and `facebook` (publisher linking).
+- This is a Django project (`scraper/settings.py`) with app boundaries: `bazos` (scraping + domain), `ip_changer` (network identity rotation), and `senders` (delivery).
 - Primary runtime path is `python manage.py run_scraper` -> `bazos/management/commands/run_scraper.py` -> `bazos/scraping/runner.py` -> `QueryRunner` -> `BazosScraper`.
 - Scraping is query-driven from DB models (`bazos/models.py`): `Query` defines what to search, `Ad` stores discoveries, `QueryRun` stores run metrics.
 - `Query.new_query` controls first-run behavior; first pass uses capped backfill (`NEW_PRODUCT_LOAD_MAX`) and may suppress sends via `ignore_first_run`.

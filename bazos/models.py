@@ -1165,9 +1165,7 @@ class PhonePublisher(PublisherMixin, SellerRatingFields, TimeStampedModel):
     ratings_param = "phone_id"
 
     bazos_id = models.IntegerField(db_index=True, unique=True)
-    # Todo use phone number field. Have some conversion with prefix, so it matches FB DB. Has to be valid ob Bazos?
     phone = models.CharField(max_length=30, null=True, blank=True)
-    fb_user = models.ForeignKey('facebook.FBUser', on_delete=models.PROTECT, related_name='phone_publishers', null=True, blank=True)
     blocked = models.BooleanField(default=False)
 
     def __str__(self):

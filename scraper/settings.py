@@ -65,7 +65,6 @@ INSTALLED_APPS = [
     "django_q",
     # my apps
     "bazos",
-    "facebook",
     "ip_changer",
     "senders",
     "llm",
@@ -233,7 +232,6 @@ UNFOLD = {
                 "items": [
                     {"title": "Email publishers", "icon": "alternate_email", "link": reverse_lazy("admin:bazos_emailpublisher_changelist")},
                     {"title": "Phone publishers", "icon": "call", "link": reverse_lazy("admin:bazos_phonepublisher_changelist")},
-                    {"title": "Facebook users", "icon": "badge", "link": reverse_lazy("admin:facebook_fbuser_changelist")},
                 ],
             },
             {

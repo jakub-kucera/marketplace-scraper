@@ -1511,10 +1511,6 @@ class PhonePublisherAdmin(PublisherAdminBase):
     readonly_fields = ("ads_link", "partners", "ratings_summary")
     inlines = (PhoneSellerReviewInline,)
     search_fields = ("=bazos_id", "phone")
-    # FBUser is empty in production today, so this page is fast by accident - `manage.py
-    # import_data` bulk-loads that dataset, and the day it runs this widget inherits the
-    # same defect at a much larger N.
-    autocomplete_fields = ("fb_user",)
 
 
 @admin.register(PostalCode)
