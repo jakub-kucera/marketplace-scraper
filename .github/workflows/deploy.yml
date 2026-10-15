@@ -18,7 +18,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/jakub-kucera/marketplace-scrapper.git
-          git fetch --tags origin
+          # --force on the tags, because the remote is authoritative for them and this clone
+          # predates a history rewrite: its tags point at pre-rewrite commits, so a plain
+          # `git fetch --tags` reports "would clobber existing tag" for each one and exits 1.
+          # That failed the v1.11.0 deploy at this step - harmlessly, since it runs before
+          # `down`, but it blocks every deploy until the tags are reconciled. Without --force
+          # the only fix is deleting them by hand on the Pi, which is not a thing a deploy
+          # should need.
+          git fetch --tags --force origin
           git checkout ${{ github.ref_name }}
 
       # --profile backup is required: plain `docker compose build` silently skips
