@@ -1,7 +1,7 @@
 ---
 title: Price-model defects found while surveying five new categories
 status: active
-updated: 2026-09-18
+updated: 2026-10-15
 verified: 2026-09-18
 ---
 
@@ -874,29 +874,37 @@ Two consequences worth carrying:
 
 ## 13. The work list
 
-**Before the second model is registered — and that model has now been built and measured.** These
-four were written as prerequisites for a hypothetical N=2.
-[`IPHONE_PRICE_MODEL.md`](../research/IPHONE_PRICE_MODEL.md) §8 is a fitted iPhone artifact whose
-own recommendation is *register it, do not enable it*, and its gates probe names all four of these
-by number as the condition for registering. `MODEL_REGISTRY` still holds one model and
-`bazos/pricing/estimators/` still holds one module, so **nothing here is late — it is next, and
-it is blocking rather than anticipatory.** Each converts a silent failure into a loud one, and
-none is more than a morning:
+**Before the second model is registered — ✅ all four landed 2026-10-15, with that model.**
+`MODEL_REGISTRY` now holds `macbook` and `iphone`. What each one became, since the shape differs
+from the sketch in two places:
 
-1. **§8 — `marketplaces` on the protocol + a registry test.** ~20 lines. Ordering already decides
-   83 ads; make it a decision rather than a dict literal. **§8.1 sharpens this into mutual
-   exclusivity**: order cannot express "neither of us should claim this", the measured overlap is
-   7 double-claimed ads, and the zero that looks reassuring today is an artifact of §10's
-   254-character cut.
-2. **§7 — per-model artifact version.** A one-model rollback must not disable the others,
-   especially in the direction that APPROVEs everything. Concretely at N=2: pinning `macbook`
-   silently disables `iphone`.
-3. **§9 — key both read paths by `model_name`.** Do this before a rename is ever possible; it is
-   the one that shows a wrong number to a human.
-4. **§11 — a test that loads the real shipped artifact**, one per registered model, plus registry
-   semantics with two models. Fixtures now exist rather than needing invention (§8.1).
+1. ✅ **§8 — `marketplaces` on the protocol, checked *before* `applies_to`.** It went further than
+   the sketch, because §8.1 is right that order cannot express the answer: **`get_price_model` now
+   declines an ad that two models claim** rather than returning the first. Declining costs one
+   unscored listing; guessing costs a confident number from the wrong model's coefficients. The
+   cross-family fixture §8.1 supplies is a test case, and it genuinely double-claimed before this.
+2. ✅ **§7 — per-model artifact version**, `PRICE_MODEL_VERSIONS` (a dict in the env, JSON), with
+   `PRICE_MODEL_VERSION` kept as the fallback so the existing rollback lever still works.
+   `artifacts.resolve_version` is the single place that decides.
+3. ✅ **§9 — both read paths keyed by `model_name`.** `Ad.current_price_score()` resolves the
+   *claiming* model, which it can, since `applies_to` is regex with no DB — and as a side effect it
+   now costs **zero** queries for an ad no model claims, which is most of `run_sender`'s batch.
+   `AdAdmin.get_queryset` cannot do that (SQL cannot run `applies_to`), so it filters to registered
+   names and ranks by **registry order** — deterministic and documented, rather than `-created`,
+   which surfaced whichever model wrote second.
+4. ✅ **§11 — the shipped artifact is loaded from disk**, one test per registered model, plus a test
+   that every feature name an artifact carries is producible by that model's `extract()` — the
+   "retrained with a renamed feature" skew. Registry semantics with two models are pinned in
+   `bazos/tests/test_pricing_registry.py`.
 
-**Before the rule is *enabled* on that second query — three more, and the distinction matters.**
+⚠️ **One defect in this document was left unfixed on purpose**, and a test now pins it: §8's missing
+*product* gate. `MacbookPriceModel` claims an iPad Magic Keyboard whose description mentions a
+MacBook, because `features.product_kind` reads the whole blob and the model has no gate for "this ad
+is not a laptop". That is not a mutual-exclusivity failure — exactly one model claims it — so it did
+not block N=2, and fixing it changes which production ads get scored. See
+`test_exactly_one_model_claims_an_unambiguous_ad`.
+
+**Before the rule is *enabled* on that second query — three more, all still open, and the distinction matters.**
 Registering is safe on its own: query 19's `filter_rule_names` is empty, which `build_rule_engine`
 resolves to `DEFAULT_RULE_NAMES`, which excludes `price_model`, so a registered artifact scores
 nothing until someone edits that field by hand. What follows blocks the edit, not the

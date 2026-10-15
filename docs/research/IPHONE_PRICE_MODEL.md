@@ -1,12 +1,30 @@
 ---
 title: iPhone price prediction — the model works and the alert does not
 status: reference
-updated: 2026-09-18
+updated: 2026-10-15
 verified: 2026-09-13
 ---
 
 # iPhone price prediction — the model works and the alert does not
 
+> **Shipped 2026-10-15, as §8 recommends: registered, not enabled.** `bazos/pricing/estimators/iphone.py`
+> carries the three model-side decisions below — generation as a live age in months (§5.1), σ on spec
+> completeness (§6), and a decline on an unknown generation — and `MODEL_REGISTRY` now holds two models.
+> Re-fitted on a **5.5-week** corpus rather than this document's 3.3-day window: **6 300 ads,
+> R² 0.930 seller-grouped, MedAPE 9.40%, σ 0.222 (battery stated) / 0.263 (not stated)**, against
+> 0.9373 / 9.95% / 0.1998 on the 602 rows here. The newer figure is on a superset that keeps damaged
+> phones as a trained feature rather than gating them, which is where most of the difference sits;
+> §2's warning against comparing R² across corpora applies to these two numbers as well.
+> **§7's conclusion is unchanged and nothing here enabled the rule.** The safe state is *not* shadow
+> mode — production runs `PRICE_MODEL_SHADOW_MODE=false` — it is that query 19's `filter_rule_names`
+> is `[]`, which resolves to `DEFAULT_RULE_NAMES`, which excludes `price_model`.
+>
+> Two things this document asked for that the shipped code does **not** inherit. The `_NEG` defect
+> §7 describes is **fixed here but deliberately left in the experiment**: the disambiguator is the
+> intervening copula, so `zadne skrabance` reads as a denial and `zadni sklo je prasklé` does not.
+> And the resold-pre-order class, which post-dates this window, turned out to be the largest single
+> defect on the larger corpus — 4.2% of the category, and it had to become a gate.
+>
 > Written 2026-09-13 from a read-only pull of the production database on `raspberrypi5.local`:
 > **655 Bazos ads from query 19 (`iphone`, 1 000–70 000 CZK), created 2026-09-09 15:14 →
 > 2026-09-12 22:25 UTC — a window of 3.30 days**. 639 of them classify as a whole iPhone for
