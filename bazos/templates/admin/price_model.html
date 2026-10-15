@@ -11,6 +11,21 @@ only `admin/index.html` collided, which is why that one sits in `templates/`.
 {% block content %}
 <div class="flex flex-col gap-6">
 
+    {% if models|length > 1 %}
+        {# One page per registered model. Links rather than a form: no submit button to style, #}
+        {# and the URL stays bookmarkable per model. #}
+        <div class="flex flex-wrap gap-2 items-center">
+            <span class="text-subtle text-sm">Model:</span>
+            {% for m in models %}
+                <a href="?model={{ m.name }}"
+                   class="border border-base-200 dark:border-base-800 px-3 py-1 rounded-default text-sm
+                          {% if m.selected %}bg-primary-600 text-white border-primary-600 font-medium{% else %}text-primary-600 dark:text-primary-500{% endif %}">
+                    {{ m.label }}
+                </a>
+            {% endfor %}
+        </div>
+    {% endif %}
+
     {% component "unfold/components/card.html" with title="Artifact" title_icon="function" %}
         {% if artifact.loaded %}
             <div class="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
@@ -36,7 +51,7 @@ only `admin/index.html` collided, which is why that one sits in `templates/`.
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <div>
                 <p class="font-semibold text-2xl text-important">{{ funnel.candidates }}</p>
-                <p class="text-subtle text-sm">MacBook ads in the archive</p>
+                <p class="text-subtle text-sm">{{ model_label }} ads in the archive</p>
             </div>
             <div>
                 <p class="font-semibold text-2xl text-important">{{ funnel.scored }}</p>

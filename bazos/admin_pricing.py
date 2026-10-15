@@ -46,6 +46,11 @@ TABLE_ROWS = 15
 #: scores a day is noise wearing a trend's clothes.
 DRIFT_WEEKS = 12
 
+#: Which model the page opens on when `?model=` is absent. The first registered one, so a
+#: bookmark keeps working and the page never renders empty just because a second model landed.
+def _default_model_name(registry) -> str:
+    return next(iter(registry), "")
+
 
 def _percent(part, whole):
     return round(100 * part / whole) if whole else None
@@ -58,10 +63,18 @@ def price_model_view(request):
     if not request.user.is_staff:
         raise PermissionDenied
 
-    model = MODEL_REGISTRY.get("macbook")
+    # One page per model rather than one page: a model you cannot inspect is one you cannot
+    # calibrate, and with the rule in shadow mode this page is the only place a score
+    # surfaces at all. An unknown `?model=` falls back rather than 404ing, because the name
+    # comes from a bookmark as often as from the selector.
+    model_name = request.GET.get("model") or _default_model_name(MODEL_REGISTRY)
+    if model_name not in MODEL_REGISTRY:
+        model_name = _default_model_name(MODEL_REGISTRY)
+
+    model = MODEL_REGISTRY.get(model_name)
     manifest = getattr(model, "manifest", None) if model else None
 
-    scores = AdPriceScore.objects.filter(model_name="macbook")
+    scores = AdPriceScore.objects.filter(model_name=model_name)
     # The aliases must not be named after the columns their own filters reference: an
     # alias shadows the field inside the same aggregate() call, and `predicted=Count(...,
     # filter=Q(predicted__isnull=False))` fails with "predicted is an aggregate".
@@ -74,9 +87,13 @@ def price_model_view(request):
     # The denominator is intentionally a name match rather than `applies_to`: the real
     # predicate needs the ad object, and running it over the archive is a page load nobody
     # would forgive. It overcounts slightly (a "macbook" in a bundle listing), which is the
-    # right direction for a coverage number — it must not flatter itself.
+    # right direction for a coverage number — it must not flatter itself. Each model declares
+    # its own term, because a denominator is a claim about what the model is *for* and only
+    # the model knows that.
+    term = getattr(model, "coverage_name_contains", model_name) if model else model_name
     candidates = Ad.objects.filter(
-        marketplace=Marketplace.BAZOS, name__icontains="macbook"
+        marketplace__in=sorted(model.marketplaces) if model else [Marketplace.BAZOS],
+        name__icontains=term,
     ).count()
 
     # The leg the funnel was missing. A flag that was notified anyway is one the existing
@@ -122,7 +139,12 @@ def price_model_view(request):
     return render(request, "admin/price_model.html", {
         **admin.site.each_context(request),
         "title": "Price model",
-        "model_name": "macbook",
+        "model_name": model_name,
+        "model_label": getattr(model, "label", model_name) if model else model_name,
+        "models": [
+            {"name": key, "label": getattr(m, "label", key), "selected": key == model_name}
+            for key, m in MODEL_REGISTRY.items()
+        ],
         "artifact": {
             "loaded": manifest is not None,
             "version": getattr(model, "version", "unavailable") if model else "not registered",

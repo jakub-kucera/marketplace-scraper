@@ -136,3 +136,71 @@ def test_a_null_discount_does_not_render_a_bare_percent_sign(staff_client):
     content = staff_client.get(reverse(URL_NAME)).content.decode()
 
     assert ">%<" not in content and "> %<" not in content
+
+
+# --------------------------------------------------------------- per-model selector
+@pytest.mark.django_db
+def test_the_page_opens_on_the_first_registered_model(staff_client):
+    from bazos.pricing.registry import MODEL_REGISTRY
+
+    context = staff_client.get(reverse(URL_NAME)).context
+
+    assert context["model_name"] == next(iter(MODEL_REGISTRY))
+
+
+@pytest.mark.django_db
+def test_each_registered_model_gets_its_own_page(staff_client):
+    """A model you cannot inspect is one you cannot calibrate, and in shadow mode this page
+    is the only place a score surfaces at all."""
+    from bazos.pricing.registry import MODEL_REGISTRY
+
+    for name, model in MODEL_REGISTRY.items():
+        response = staff_client.get(reverse(URL_NAME), {"model": name})
+
+        assert response.status_code == 200
+        assert response.context["model_name"] == name
+        assert response.context["artifact"]["version"] == model.version
+
+
+@pytest.mark.django_db
+def test_the_funnel_counts_only_the_selected_models_scores(staff_client):
+    """The defect this replaces: every count on the page was hardcoded to one model name."""
+    mac = _ad(1, name="MacBook Pro 14 2023 M3 Max 36GB 1TB")
+    phone = _ad(2, name="Apple iPhone 15 Pro 256GB")
+    _score(mac, predicted=60_000, z=-2.5)
+    AdPriceScore.objects.create(ad=phone, model_name="iphone", model_version="t",
+                                predicted=18_000, residual_log=-0.2, z_score=-2.9)
+
+    assert staff_client.get(reverse(URL_NAME), {"model": "macbook"}).context["funnel"]["scored"] == 1
+    assert staff_client.get(reverse(URL_NAME), {"model": "iphone"}).context["funnel"]["scored"] == 1
+
+
+@pytest.mark.django_db
+def test_the_coverage_denominator_follows_the_selected_model(staff_client):
+    """Each model declares its own `name__icontains` term; one shared term counts the wrong ads."""
+    for i in range(3):
+        _ad(i, name=f"Apple iPhone 15 Pro 256GB #{i}")
+    _ad(90, name="MacBook Air M2 8GB 256GB")
+
+    assert staff_client.get(reverse(URL_NAME), {"model": "iphone"}).context["funnel"]["candidates"] == 3
+    assert staff_client.get(reverse(URL_NAME), {"model": "macbook"}).context["funnel"]["candidates"] == 1
+
+
+@pytest.mark.django_db
+def test_an_unknown_model_falls_back_instead_of_404ing(staff_client):
+    """The name arrives from a bookmark as often as from the selector."""
+    response = staff_client.get(reverse(URL_NAME), {"model": "nope"})
+
+    assert response.status_code == 200
+    assert response.context["model_name"] in {m["name"] for m in response.context["models"]}
+
+
+@pytest.mark.django_db
+def test_the_selector_lists_every_registered_model(staff_client):
+    from bazos.pricing.registry import MODEL_REGISTRY
+
+    content = staff_client.get(reverse(URL_NAME)).content.decode()
+
+    for name, model in MODEL_REGISTRY.items():
+        assert f"?model={name}" in content
+        assert model.label in content
