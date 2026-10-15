@@ -5,7 +5,7 @@ unusual is the asking price? It says nothing about whether to notify anyone — 
 per-`(ad, query)` decision and belongs to the filter layer (`PriceModelRule`).
 """
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from bazos.models import Ad
 
@@ -54,13 +54,40 @@ class PriceModel(Protocol):
     """
     name: str
 
+    #: Which marketplaces this model is fitted on. `get_price_model` checks it **before**
+    #: calling `applies_to`, which makes "not my site" a cheap decision instead of every
+    #: model's private responsibility. It is a protocol member rather than a convention
+    #: because registry order used to decide claims silently: reordering the dict literal
+    #: re-labelled ads with no log line, no migration and no error
+    #: (docs/backlog/PRICE_MODEL_DEFECTS.md §8).
+    marketplaces: frozenset[str]
+
     @property
     def version(self) -> str:
         """Artifact version, recorded on every score this model produces."""
         ...
 
     def applies_to(self, ad: Ad) -> bool:
-        """Does this model claim this ad? Cheap, no DB, no network."""
+        """Does this model claim this ad? Cheap, no DB, no network.
+
+        Implementations should be **mutually exclusive**, and `get_price_model` enforces the
+        consequence rather than trusting it: an ad two models claim is claimed by neither,
+        because registry order cannot express "neither of us should claim this". A model that
+        is unsure is therefore better off declining here than claiming and declining in
+        `predict` — the second costs an `AdPriceScore` row saying a model looked, which is a
+        different and wrong fact.
+        """
+        ...
+
+    def extract(self, ad: Ad) -> dict[str, Any]:
+        """What this model read out of the listing. Cheap, no DB, no network.
+
+        A protocol member because three callers depend on it and each one breaks silently
+        without it: `score_ad` persists it as `AdPriceScore.features`, which is the only
+        answer to "why did it think this was cheap"; the trainer builds its design matrix
+        from it; and a test asserts every feature an artifact names is producible by it,
+        which is what catches a retrain that renamed one.
+        """
         ...
 
     def predict(self, ad: Ad) -> PricePrediction | None:

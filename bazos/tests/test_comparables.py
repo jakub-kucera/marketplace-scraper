@@ -203,14 +203,30 @@ def test_unscored_ad_message_is_unchanged(query, make_ad):
 
 @pytest.mark.django_db
 def test_unscored_message_costs_no_comparables_query(query, make_ad, django_assert_num_queries):
-    """The score lookup short-circuits before the comparables query, so an ad nothing
-    scored pays exactly what it paid before this feature.
+    """An ad no model claims pays **nothing** for the score line, not even the lookup.
+
+    `current_price_score` resolves the claiming model first, which is regex over two strings
+    with no DB, so an ad that is neither a MacBook nor an iPhone skips the query entirely.
+    That is most of `run_sender`'s batch, and it is a consequence of keying the read on
+    `model_name` (docs/backlog/PRICE_MODEL_DEFECTS.md §9) rather than a separate
+    optimisation. A *claimed* ad still pays exactly one, pinned below.
 
     These fixtures attach no publisher, so `seller_ad_counts` short-circuits to zero
     queries — which is the point: it isolates the cost this feature adds. The full
     identity-walk cost is pinned separately in test_seller_ad_counts.py.
     """
     ad = make_ad(query, 1)
+    ad.save()
+
+    with django_assert_num_queries(0):
+        ad.message
+
+
+@pytest.mark.django_db
+def test_a_claimed_but_unscored_ad_still_pays_one_lookup(query, make_ad, django_assert_num_queries):
+    """The other half of the above: skipping the query must depend on the claim, not on luck."""
+    ad = make_ad(query, 2)
+    ad.name = "MacBook Pro 14 2023 M3 Max 36GB 1TB"
     ad.save()
 
     with django_assert_num_queries(1):   # the score lookup, which finds nothing

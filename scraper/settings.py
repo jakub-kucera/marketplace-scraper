@@ -357,6 +357,11 @@ LOGGING = {
 # present under bazos/pricing/artifacts/<name>/. Pinning an older version here is the
 # fast rollback lever -- no rebuild, just a restart (ML_PRICE_SCORING.md §4.5).
 PRICE_MODEL_VERSION: str = env("PRICE_MODEL_VERSION", default="latest")
+# Per-model override, and the one to reach for with more than one model registered. A single
+# global string made rolling back one model resolve every *other* model against a version
+# directory that does not exist, which declines, which on a deals-only query APPROVEs
+# everything (PRICE_MODEL_DEFECTS.md §7). JSON in the env: {"macbook": "2026-08-26"}.
+PRICE_MODEL_VERSIONS: dict[str, str] = env.json("PRICE_MODEL_VERSIONS", default={})
 # Overrides bazos.const.PRICE_MODEL_SHADOW_MODE without a code change.
 PRICE_MODEL_SHADOW_MODE: bool = env.bool("PRICE_MODEL_SHADOW_MODE", default=True)
 # Overrides bazos.const.STORE_SELLER_REVIEWS without a code change. See that constant for

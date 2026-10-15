@@ -16,57 +16,82 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from bazos.models import Ad, Marketplace, PriceType
+from bazos.models import Ad, PriceType
 from bazos.pricing.artifacts import ARTIFACT_ROOT
-from bazos.pricing.estimators.macbook import MacbookPriceModel
+from bazos.pricing.base import PriceModel
 
 logger = logging.getLogger(__name__)
 
-#: Numeric features, with the fill used when a listing does not state them. The paired
-#: `missing` indicator is what actually carries "this was not stated" -- filling alone would
-#: tell the model a median-aged machine, which is why both are emitted.
-NUMERIC = ("ram_log", "storage_log", "screen")
-BOOLEAN = ("warranty", "new", "defect", "vat_dph", "top_word", "scratches", "box", "retina", "touchbar")
-CATEGORICAL = ("chip_key", "family", "year_cat")
+
+def _groups(model: PriceModel) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """The model's own feature groups.
+
+    Each estimator declares `TRAINING_NUMERIC` / `TRAINING_BOOLEAN` / `TRAINING_CATEGORICAL`.
+    They are optional attributes read with `getattr`, the same call as `comparable_keys` and
+    `dedup_break_streak`: a model that cannot be trained by this trainer is still a model --
+    an artifact fitted elsewhere and committed by hand serves exactly the same way.
+    """
+    return (
+        tuple(getattr(model, "TRAINING_NUMERIC", ())),
+        tuple(getattr(model, "TRAINING_BOOLEAN", ())),
+        tuple(getattr(model, "TRAINING_CATEGORICAL", ())),
+    )
 
 
-def training_rows(marketplace: str = Marketplace.BAZOS) -> list[dict[str, Any]]:
-    """Feature dicts + target for every ad a model claims, straight from the DB.
+def training_rows(model: PriceModel, marketplace: str | None = None) -> list[dict[str, Any]]:
+    """Feature dicts + target for every ad this model claims, straight from the DB.
 
     Ads with incomplete specs are KEPT. Their missingness is a feature, and dropping them
     biases the training set toward well-written listings -- which are not the ones the model
     struggles with.
+
+    **An ad whose price is a different quantity is NOT kept**, and the distinction is the one
+    that matters: a want-to-buy price is a bid, a resold pre-order's price is a deposit, a
+    two-phone lot's price is for two phones. Those are not noisier observations of an asking
+    price, they are observations of something else, and a model declaring `trainable()` says
+    so. Measured on iPhone: including them costs R2 0.795 against 0.946, because 4.2% of that
+    category was ~1 000 CZK deposits against ~35 000 CZK phones, which dragged the newest
+    generation's level down until genuine flagships read as 2x overpriced.
+
+    The marketplace filter defaults to the model's own `marketplaces`, so a model fitted on
+    one site cannot silently train on another's price semantics -- Vinted's are converted
+    from PLN, and the Bazos API carries no `short_description` for the extractor to read.
     """
-    model = MacbookPriceModel()
+    marketplaces = [marketplace] if marketplace else sorted(model.marketplaces)
+    trainable = getattr(model, "trainable", None)
     rows = []
-    qs = Ad.objects.filter(marketplace=marketplace, price_type=PriceType.EXACT, price__gt=0)
+    qs = Ad.objects.filter(marketplace__in=marketplaces, price_type=PriceType.EXACT, price__gt=0)
     for ad in qs.iterator(chunk_size=500):
         if not model.applies_to(ad):
             continue
         feats = model.extract(ad)
+        if trainable is not None and not trainable(feats, ad.price):
+            continue
         feats["_price"] = ad.price
         feats["_seller"] = ad.email_publisher_id or f"anon-{ad.pk}"
         rows.append(feats)
     return rows
 
 
-def _design(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[list[float]]]:
+def _design(rows: Iterable[dict[str, Any]],
+            model: PriceModel) -> tuple[list[dict[str, Any]], list[list[float]]]:
     """Build the manifest feature spec and the matching design matrix, in one pass.
 
     The spec and the matrix are produced together so they cannot drift: column *i* of the
     matrix is feature *i* of the spec, which is the invariant `artifacts.evaluate` relies on.
     """
     rows = list(rows)
+    numeric, boolean, categorical = _groups(model)
     spec: list[dict[str, Any]] = []
     fills: dict[str, float] = {}
-    for name in NUMERIC:
+    for name in numeric:
         vals = sorted(float(r[name]) for r in rows if r.get(name) is not None)
         fills[name] = vals[len(vals) // 2] if vals else 0.0
         spec.append({"kind": "num", "name": name, "fill": fills[name]})
         spec.append({"kind": "missing", "name": name})
-    for name in BOOLEAN:
+    for name in boolean:
         spec.append({"kind": "bool", "name": name})
-    for name in CATEGORICAL:
+    for name in categorical:
         seen = sorted({str(r[name]) for r in rows if r.get(name) is not None})
         for value in seen:
             spec.append({"kind": "cat", "name": name, "value": value})
@@ -89,7 +114,7 @@ def _design(rows: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[
     return spec, matrix
 
 
-def fit(rows: list[dict[str, Any]], *, alpha: float = 1.0) -> dict[str, Any]:
+def fit(rows: list[dict[str, Any]], model: PriceModel, *, alpha: float = 1.0) -> dict[str, Any]:
     """Fit a ridge regression on log price and return a manifest dict."""
     import math
 
@@ -98,7 +123,7 @@ def fit(rows: list[dict[str, Any]], *, alpha: float = 1.0) -> dict[str, Any]:
     from sklearn.metrics import r2_score
     from sklearn.model_selection import GroupKFold
 
-    spec, matrix = _design(rows)
+    spec, matrix = _design(rows, model)
     X = np.asarray(matrix, dtype=float)
     y = np.asarray([math.log(r["_price"]) for r in rows], dtype=float)
     groups = np.asarray([str(r["_seller"]) for r in rows])
@@ -138,8 +163,27 @@ def fit(rows: list[dict[str, Any]], *, alpha: float = 1.0) -> dict[str, Any]:
             sigma_prior[str(lower)] = round(float(np.std(y[idx] - oof[idx])), 4)
             prior_counts[str(lower)] = len(idx)
 
+    # And by whatever else the model says its sigma depends on. A model declaring
+    # `completeness()` gets its own table, because the seller-maturity ladder above is a
+    # property of the MacBook corpus and does not replicate everywhere: on iPhone the 1-2
+    # bucket is wider than the never-seen bucket, so borrowing a monotone ladder would move
+    # alert volume 32% in a direction nobody chose
+    # (docs/research/IPHONE_PRICE_MODEL.md §6).
+    completeness = getattr(model, "completeness", None)
+    sigma_completeness: dict[str, float] = {}
+    completeness_counts: dict[str, int] = {}
+    if completeness is not None:
+        buckets: dict[str, list[int]] = {}
+        for i, row in enumerate(rows):
+            if ok[i]:
+                buckets.setdefault(completeness(row), []).append(i)
+        for bucket, idx in sorted(buckets.items()):
+            if len(idx) >= 15:
+                sigma_completeness[bucket] = round(float(np.std(y[idx] - oof[idx])), 4)
+                completeness_counts[bucket] = len(idx)
+
     return {
-        "name": "macbook",
+        "name": model.name,
         "kind": "linear",
         "target": "log_price",
         "intercept": round(float(final.intercept_), 6),
@@ -147,6 +191,8 @@ def fit(rows: list[dict[str, Any]], *, alpha: float = 1.0) -> dict[str, Any]:
         "residual_sigma": round(float(np.std(resid)), 4) if ok.sum() > 2 else 0.2,
         "seller_sigma_prior": sigma_prior,
         "seller_sigma_prior_n": prior_counts,
+        "sigma_by_completeness": sigma_completeness,
+        "sigma_by_completeness_n": completeness_counts,
         "metrics": metrics,
         "estimator": f"Ridge(alpha={alpha})",
         "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

@@ -13,8 +13,6 @@ import logging
 import math
 from typing import Any
 
-from django.conf import settings
-
 from bazos.models import Ad, Marketplace, PriceType
 from bazos.pricing import artifacts, features
 from bazos.pricing.artifacts import Manifest
@@ -37,6 +35,16 @@ class MacbookPriceModel:
 
     name = "macbook"
 
+    #: Fitted on Bazos HTML listings only. `applies_to` keeps its own check as well: it is
+    #: called directly by training and by tests, where no registry gate runs ahead of it.
+    marketplaces: frozenset[str] = frozenset({Marketplace.BAZOS})
+
+    #: How the admin's Price model page names this model, and the `name__icontains` term it
+    #: counts its coverage denominator with. The term belongs to the model because a
+    #: denominator is a claim about what the model is *for*.
+    label = "MacBook"
+    coverage_name_contains = "macbook"
+
     #: The features that make two listings "the same machine", for `bazos/comparables.py`.
     #: An optional attribute, not a `PriceModel` protocol member — the same call as
     #: `dedup_break_streak` on the scraper protocol. Chip, memory, storage and screen size
@@ -44,6 +52,16 @@ class MacbookPriceModel:
     #: by the chip and is the field listings most often omit (it is the gate that declines
     #: most M4 ads, measured 2026-09-15).
     comparable_keys = ("chip_key", "ram_gb", "ssd_gb", "screen")
+
+    #: The feature groups `bazos/pricing/training.py` builds the design matrix from. Moved
+    #: here from module constants in the trainer when the second model landed, so adding a
+    #: model does not mean editing this one's list. The paired `missing` indicator on each
+    #: numeric is what carries "this was not stated" -- filling alone would tell the model a
+    #: median-aged machine.
+    TRAINING_NUMERIC = ("ram_log", "storage_log", "screen")
+    TRAINING_BOOLEAN = ("warranty", "new", "defect", "vat_dph", "top_word", "scratches",
+                        "box", "retina", "touchbar")
+    TRAINING_CATEGORICAL = ("chip_key", "family", "year_cat")
 
     @staticmethod
     def describe_features(bucket: dict) -> str:
@@ -66,7 +84,7 @@ class MacbookPriceModel:
         return out
 
     def __init__(self, version: str | None = None) -> None:
-        self._requested: str = version or str(getattr(settings, "PRICE_MODEL_VERSION", "latest"))
+        self._requested: str = version or artifacts.resolve_version(self.name)
         self._manifest: Manifest | None = None
         self._loaded = False
 

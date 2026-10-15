@@ -1,0 +1,206 @@
+{
+  "name": "iphone",
+  "kind": "linear",
+  "target": "log_price",
+  "intercept": 8.619494,
+  "features": [
+    {
+      "kind": "num",
+      "name": "gen_age_m",
+      "fill": 37.0,
+      "coef": -0.021808
+    },
+    {
+      "kind": "missing",
+      "name": "gen_age_m",
+      "coef": 0.0
+    },
+    {
+      "kind": "num",
+      "name": "storage_log2",
+      "fill": 8.0,
+      "coef": 0.106531
+    },
+    {
+      "kind": "missing",
+      "name": "storage_log2",
+      "coef": 0.0
+    },
+    {
+      "kind": "num",
+      "name": "battery_pct",
+      "fill": 93.0,
+      "coef": 0.005854
+    },
+    {
+      "kind": "missing",
+      "name": "battery_pct",
+      "coef": -0.033224
+    },
+    {
+      "kind": "bool",
+      "name": "damage",
+      "coef": -0.213023
+    },
+    {
+      "kind": "bool",
+      "name": "scratches",
+      "coef": -0.036626
+    },
+    {
+      "kind": "bool",
+      "name": "mint_words",
+      "coef": 0.084531
+    },
+    {
+      "kind": "bool",
+      "name": "sealed_new",
+      "coef": 0.154417
+    },
+    {
+      "kind": "bool",
+      "name": "new_word",
+      "coef": 0.083086
+    },
+    {
+      "kind": "bool",
+      "name": "warranty",
+      "coef": 0.068062
+    },
+    {
+      "kind": "bool",
+      "name": "invoice",
+      "coef": 0.025487
+    },
+    {
+      "kind": "bool",
+      "name": "vat_dph",
+      "coef": 0.028027
+    },
+    {
+      "kind": "bool",
+      "name": "box",
+      "coef": 0.017525
+    },
+    {
+      "kind": "bool",
+      "name": "icloud_clear",
+      "coef": 0.022004
+    },
+    {
+      "kind": "bool",
+      "name": "locked",
+      "coef": -0.162437
+    },
+    {
+      "kind": "bool",
+      "name": "cz_region",
+      "coef": 0.022429
+    },
+    {
+      "kind": "bool",
+      "name": "battery_replaced",
+      "coef": 0.018699
+    },
+    {
+      "kind": "bool",
+      "name": "dealer_pickup",
+      "coef": 0.020135
+    },
+    {
+      "kind": "bool",
+      "name": "multi_unit",
+      "coef": 0.065432
+    },
+    {
+      "kind": "bool",
+      "name": "bundle_other",
+      "coef": 0.201611
+    },
+    {
+      "kind": "cat",
+      "name": "tier",
+      "value": "air",
+      "coef": -0.115037
+    },
+    {
+      "kind": "cat",
+      "name": "tier",
+      "value": "base",
+      "coef": 0.021284
+    },
+    {
+      "kind": "cat",
+      "name": "tier",
+      "value": "e",
+      "coef": -0.19323
+    },
+    {
+      "kind": "cat",
+      "name": "tier",
+      "value": "max",
+      "coef": 0.050687
+    },
+    {
+      "kind": "cat",
+      "name": "tier",
+      "value": "mini",
+      "coef": -0.079257
+    },
+    {
+      "kind": "cat",
+      "name": "tier",
+      "value": "plus",
+      "coef": 0.066932
+    },
+    {
+      "kind": "cat",
+      "name": "tier",
+      "value": "pro",
+      "coef": 0.267181
+    },
+    {
+      "kind": "cat",
+      "name": "tier",
+      "value": "pro max",
+      "coef": 0.369002
+    },
+    {
+      "kind": "cat",
+      "name": "tier",
+      "value": "se",
+      "coef": -0.387561
+    }
+  ],
+  "residual_sigma": 0.2427,
+  "seller_sigma_prior": {
+    "0": 0.2651,
+    "1": 0.267,
+    "3": 0.2299,
+    "10": 0.1697,
+    "50": 0.1823
+  },
+  "seller_sigma_prior_n": {
+    "0": 3261,
+    "1": 761,
+    "3": 660,
+    "10": 892,
+    "50": 726
+  },
+  "sigma_by_completeness": {
+    "full": 0.2217,
+    "no_battery": 0.2632
+  },
+  "sigma_by_completeness_n": {
+    "full": 3246,
+    "no_battery": 3054
+  },
+  "metrics": {
+    "n_train": 6300,
+    "r2_seller_grouped": 0.9297332119248277,
+    "medape_pct": 9.401248666372823
+  },
+  "estimator": "Ridge(alpha=1.0)",
+  "trained_at": "2026-10-15T14:10:24+00:00",
+  "version": "2026-10-15"
+}

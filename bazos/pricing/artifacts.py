@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from django.conf import settings
+
 logger = logging.getLogger(__name__)
 
 ARTIFACT_ROOT = Path(__file__).resolve().parent / "artifacts"
@@ -56,6 +58,24 @@ class Manifest:
             if prior_ads >= lower:
                 best = self.seller_sigma_prior[lower]
         return best
+
+
+def resolve_version(name: str) -> str:
+    """Which artifact version this model should serve, per model and never globally.
+
+    `PRICE_MODEL_VERSIONS` is a dict keyed by model name; `PRICE_MODEL_VERSION` is the older
+    single string and is still honoured as the fallback. The dict exists because one global
+    string made a rollback of one model disable every other one, and the direction of that
+    failure is the dangerous one: a mis-pinned version loads no manifest, so the model
+    declines, so `PriceModelRule` PASSes — and on a deals-only query where `price_model` is
+    the only rule, all-PASS means APPROVE. Quieting one model turned the alert channel into a
+    firehose (docs/backlog/PRICE_MODEL_DEFECTS.md §7).
+    """
+    per_model = getattr(settings, "PRICE_MODEL_VERSIONS", None) or {}
+    pinned = per_model.get(name)
+    if pinned:
+        return str(pinned)
+    return str(getattr(settings, "PRICE_MODEL_VERSION", "latest") or "latest")
 
 
 def available_versions(name: str) -> list[str]:

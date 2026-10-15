@@ -800,15 +800,27 @@ class Ad(TimeStampedModel):
         return SellerAdCounts.for_ad(self)
 
     def current_price_score(self):
-        """The newest non-declined `AdPriceScore`, or None. Cached per instance.
+        """The claiming model's newest non-declined `AdPriceScore`, or None. Cached per instance.
 
         Both notification lines below need it, and `Ad.message` runs once per ad in
         `run_sender`'s batch — so this is read once and reused rather than fetched twice.
         The cache lives on the instance, which is the lifetime of one send.
+
+        **Keyed on the model that claims the ad, not on `-created`.** Nothing ever deletes an
+        `AdPriceScore`, so a renamed or retired model leaves its rows in place forever, and
+        `update_or_create` never refreshes `created` — so ordering by it alone surfaced
+        whichever model scored the ad *later*, which need not be the one that governed the
+        filter decision (docs/backlog/PRICE_MODEL_DEFECTS.md §9). No claiming model therefore
+        means no score to report, which is the same answer `score_ad` would give today.
         """
         if not hasattr(self, "_price_score_cache"):
-            self._price_score_cache = (
+            # Imported here, not at module scope: bazos.pricing imports this module.
+            from bazos.pricing.registry import get_price_model
+
+            model = get_price_model(self)
+            self._price_score_cache = None if model is None else (
                 self.price_scores
+                .filter(model_name=model.name)
                 .exclude(predicted__isnull=True)
                 .order_by("-created")
                 .first()

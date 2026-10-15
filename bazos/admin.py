@@ -983,10 +983,25 @@ class AdAdmin(ModelAdmin):
         # aggregate: adding Max('price_scores__...') alongside the Count above would join
         # deliveries x price_scores and materialise the product per row, which is exactly
         # what QueryAdmin.get_queryset was rewritten to avoid.
+        # Restricted to registered models and ranked by registry order, never by `-created`
+        # alone: nothing deletes an AdPriceScore, so a retired model's rows live on with
+        # stale numbers, and `update_or_create` never refreshes `created`
+        # (docs/backlog/PRICE_MODEL_DEFECTS.md §9). SQL cannot run `applies_to`, so this is
+        # a deterministic documented tiebreak rather than "the claiming model" — which is
+        # what `Ad.current_price_score()` gives the notification, where it can be computed.
+        from bazos.pricing.registry import MODEL_REGISTRY
+
+        registered = list(MODEL_REGISTRY)
+        rank = models.Case(
+            *[models.When(model_name=name, then=models.Value(i)) for i, name in enumerate(registered)],
+            default=models.Value(len(registered)),
+            output_field=models.IntegerField(),
+        )
         scores = (
             AdPriceScore.objects
-            .filter(ad=OuterRef("pk"), predicted__isnull=False)
-            .order_by("-created")
+            .filter(ad=OuterRef("pk"), predicted__isnull=False, model_name__in=registered)
+            .annotate(_registry_rank=rank)
+            .order_by("_registry_rank", "-created")
         )
         return super().get_queryset(request).annotate(
             query_count=Count('deliveries', distinct=True),
