@@ -80,8 +80,11 @@ services:
       - postgres
       - tor_proxy
 
+  # restart: always is what brings the database back after a reboot. Without it the app
+  # containers return on their own and fail to resolve `postgres` (2026-10-16).
   postgres:
     image: postgres:15.2
+    restart: always
     ports:
       - "${POSTGRES_PORT}:5432"
     env_file: .env
