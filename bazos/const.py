@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Final
 
 APPLE_PHONES_TABLETS_BAZOS = "https://mobil.bazos.cz/apple/"
@@ -259,3 +260,15 @@ DELIST_CHUNK_SIZE: Final[int] = DELIST_BATCH_SIZE * 10
 # also stops early whenever a chunk clears nothing at all; this is the backstop for the case
 # where it clears *some* ads every round but never finishes.
 DELIST_MAX_CHUNK_ROUNDS: Final[int] = 20
+
+
+# ---------------------------------------------------------------------------
+# Pipeline watchdog (bazos/watchdog.py), run hourly by the job cluster
+# ---------------------------------------------------------------------------
+
+# A pass sleeps INTERVAL_UPPER (45 min), doubled at night, plus however long the pass takes.
+# Three hours is past the worst healthy gap; the 2026-10-16 outage ran 22 h with nothing saying so.
+WATCHDOG_SCRAPER_SILENCE: Final[timedelta] = timedelta(hours=3)
+# Both pollers drain within seconds when alive, so an hour is already far past normal.
+WATCHDOG_FILTER_SILENCE: Final[timedelta] = timedelta(hours=1)
+WATCHDOG_SENDER_SILENCE: Final[timedelta] = timedelta(hours=2)

@@ -169,7 +169,7 @@ def _marketplace_health(now, today, day_ago, week_ago, chart_start):
 def dashboard_callback(request, context):
     from django_q.models import Task
 
-    from bazos.jobs import HEARTBEAT, JOB_CATALOG
+    from bazos.jobs import HEARTBEAT, JOB_CATALOG, PIPELINE_WATCHDOG
     from bazos.models import Ad, AdDelivery, AdOutcome, AdStatus
 
     now = timezone.now()
@@ -212,11 +212,12 @@ def dashboard_callback(request, context):
     # 5. outcomes --------------------------------------------------------------
     outcomes = AdOutcome.objects.count()
 
-    # Job runs per day, split by outcome — one query, two datasets. The heartbeat is
-    # excluded: at hourly it is ~24 bars a day of nothing happening, which flattens the
-    # real work and hides a failure next to it. Liveness is the Queue card's job.
+    # Job runs per day, split by outcome — one query, two datasets. The heartbeat and the
+    # watchdog are excluded: at hourly they are ~48 bars a day of nothing happening, which
+    # flattens the real work and hides a failure next to it. Liveness is the Queue card's job.
+    hourly = (HEARTBEAT, PIPELINE_WATCHDOG)
     task_rows = list(
-        Task.objects.filter(started__gte=chart_start).exclude(func=HEARTBEAT)
+        Task.objects.filter(started__gte=chart_start).exclude(func__in=hourly)
         .annotate(day=TruncDate("started")).values("day", "success")
         .annotate(n=Count("id")).order_by("day")
     )
@@ -252,7 +253,7 @@ def dashboard_callback(request, context):
 
     slowest = (
         Task.objects.filter(started__gte=week_ago, stopped__isnull=False)
-        .exclude(func=HEARTBEAT)
+        .exclude(func__in=hourly)
         .annotate(seconds=F("stopped") - F("started"))
         .values("func").annotate(avg=Avg("seconds"), n=Count("id"))
         .order_by("-avg")[:5]

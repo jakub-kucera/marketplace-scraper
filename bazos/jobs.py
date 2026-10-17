@@ -29,6 +29,8 @@ from django_q.models import Schedule
 
 from bazos.const import JOB_BLOCK_MAX_DEFERRALS, JOB_BLOCK_RETRY_DELAY
 from bazos.scraping.session import AllCircuitsBlocked
+from senders.models import Discord
+from senders.services.discord_sender import DiscordSender
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,7 @@ logger = logging.getLogger(__name__)
 #: here so a rename breaks an import rather than silently orphaning a schedule.
 SWEEP_DELISTED = "bazos.jobs.sweep_delisted"
 HEARTBEAT = "bazos.jobs.heartbeat"
+PIPELINE_WATCHDOG = "bazos.jobs.pipeline_watchdog"
 DAILY_DIGEST = "bazos.jobs.daily_digest"
 PRUNE_STATUS_LOGS = "bazos.jobs.prune_status_logs"
 PRUNE_QUERY_RUNS = "bazos.jobs.prune_query_runs"
@@ -96,6 +99,9 @@ SCHEDULES: dict[str, ScheduleSpec] = {
         # backlog run as one task would make every other job wait for the whole backfill.
     ),
     "cluster-heartbeat": ScheduleSpec(HEARTBEAT, Schedule.MINUTES, minutes=60),
+    # The heartbeat proves the cluster is alive; this proves the pipeline is. They are
+    # different questions: on 2026-10-16 the first was green for all 22 hours of the outage.
+    "pipeline-watchdog": ScheduleSpec(PIPELINE_WATCHDOG, Schedule.MINUTES, minutes=60),
     # 13:00 rather than "24h after the deploy": this one is read by a person, at a time
     # they chose. Safe to anchor because 13:00 is never inside Prague's DST gap (02:00-03:00).
     "daily-digest": ScheduleSpec(DAILY_DIGEST, Schedule.DAILY, at=time(13, 0)),
@@ -154,6 +160,8 @@ def _register_own_jobs() -> None:
         JobSpec(SWEEP_DELISTED, "Delisting sweep (chunked)",
                 help="Works a slice and re-queues itself while ads remain due."),
         JobSpec(HEARTBEAT, "Cluster heartbeat"),
+        JobSpec(PIPELINE_WATCHDOG, "Check every pipeline stage is moving",
+                help="Posts to the for_logging channels only when a stage has stalled."),
         JobSpec(DAILY_DIGEST, "Post the daily Discord digest",
                 help="The same message the 13:00 schedule sends. Safe to run repeatedly."),
         JobSpec(PRUNE_STATUS_LOGS, "Prune log rows"),
@@ -364,6 +372,30 @@ def heartbeat() -> str:
     now = timezone.now()
     logger.info("Job cluster heartbeat at %s", now.isoformat(timespec="seconds"))
     return f"alive at {now:%Y-%m-%d %H:%M:%S}"
+
+
+def pipeline_watchdog() -> str:
+    """Say out loud when a pipeline stage has stopped moving.
+
+    A stall is not raised: the watchdog itself worked, and a red row would read as the
+    watchdog being broken. It is logged at ERROR (Sentry) and posted to the `for_logging`
+    channels every hour until it clears, and a refusing webhook must not hide it.
+    """
+    from bazos.watchdog import find_stalls
+
+    stalls = find_stalls()
+    if not stalls:
+        return "healthy"
+
+    message = "🚨 Pipeline stalled:\n" + "\n".join(f"• {s}" for s in stalls)
+    for stall in stalls:
+        logger.error("Pipeline stalled - %s", stall)
+    for channel in Discord.objects.filter(for_logging=True):
+        try:
+            DiscordSender.from_model(channel).send_plain(message)
+        except Exception:
+            logger.exception("Could not post the watchdog alert to %s", channel.channel_name)
+    return f"{len(stalls)} stall(s): " + "; ".join(stalls)
 
 
 # ---------------------------------------------------------------------------

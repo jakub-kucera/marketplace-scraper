@@ -133,6 +133,19 @@ def test_index_page_renders_the_dashboard(client, query, make_ad, make_delivery)
 
 
 @pytest.mark.django_db
+def test_hourly_housekeeping_stays_out_of_the_job_chart():
+    """24 bars a day of nothing happening would flatten the jobs that did something."""
+    import json
+    _task("bazos.jobs.heartbeat", minutes_ago=5)
+    _task("bazos.jobs.pipeline_watchdog", minutes_ago=6)
+    _task("bazos.jobs.sweep_delisted", minutes_ago=7)
+
+    chart = json.loads(dashboard_callback(None, {})["tasks_chart"])
+
+    assert chart["datasets"][0]["data"][-1] == 1
+
+
+@pytest.mark.django_db
 def test_dashboard_cost_does_not_grow_with_the_table(django_assert_max_num_queries, query, make_ad, make_delivery):
     """Aggregates, not a query per row — this runs on every /admin/ load, on a Pi."""
     for i in range(25):
