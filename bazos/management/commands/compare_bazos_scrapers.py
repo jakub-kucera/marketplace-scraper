@@ -7,15 +7,17 @@ of the production pipeline: run_scraper only ever dispatches by
 query.marketplace, and no Query currently has marketplace="bazos_api".
 
 Usage:
-    python manage.py compare_bazos_scrapers                 # first 5 enabled queries
+    python manage.py compare_bazos_scrapers                 # first 5 enabled Bazos queries
     python manage.py compare_bazos_scrapers --query-id 12
     python manage.py compare_bazos_scrapers --limit 20
 """
 import logging
+from itertools import islice
 
 from django.core.management.base import BaseCommand
 
-from bazos.models import Query
+from bazos.const import COMPARE_MAX_ADS
+from bazos.models import Marketplace, Query
 from bazos.scraping.bazos.bazos_api_scraper import BazosApiScraper
 from bazos.scraping.bazos.bazos_scraper import BazosScraper
 from bazos.scraping.session import AllCircuitsBlocked, build_ip_changer, with_rotation
@@ -39,7 +41,11 @@ class Command(BaseCommand):
         if options["query_id"]:
             queries = Query.objects.filter(pk=options["query_id"])
         else:
-            queries = Query.objects.filter(enabled=True)[: options["limit"]]
+            # Ordered, because an unordered slice is whichever rows Postgres returns first,
+            # and filtered, because a Vinted or Sbazar query fed to these scrapers compares nothing.
+            queries = Query.objects.filter(
+                enabled=True, marketplace__in=(Marketplace.BAZOS, Marketplace.BAZOS_API)
+            ).order_by("pk")[: options["limit"]]
 
         for query in queries:
             # Logged, not just written to stdout: stdout is a StringIO the job wrapper only
@@ -54,12 +60,18 @@ class Command(BaseCommand):
             # scrapers is indistinguishable from the parser drift this command exists to
             # detect — a canary that cannot tell "blocked" from "broken" is worse than none.
             try:
-                html_ids = self._ids(html_scraper, changer, query, "html")
-                api_ids = self._ids(api_scraper, changer, query, "api")
+                html_ids, html_floor = self._ids(html_scraper, changer, query, "html")
+                api_ids, api_floor = self._ids(api_scraper, changer, query, "api")
             except AllCircuitsBlocked as e:
                 self.stdout.write(self.style.WARNING(f"  blocked, no comparison made: {e}"))
                 continue
 
+            # Both walks stop after the same number of ads, so whichever transport skipped
+            # something reaches deeper. Ids below the shallower walk's last ad are the edge
+            # of the window, not drift, and are dropped from both sides.
+            floor = max(html_floor, api_floor)
+            html_ids = {i for i in html_ids if i >= floor}
+            api_ids = {i for i in api_ids if i >= floor}
             common = html_ids & api_ids
             only_html = html_ids - api_ids
             only_api = api_ids - html_ids
@@ -75,18 +87,20 @@ class Command(BaseCommand):
                 self.stdout.write(f"  only in api (sample): {sorted(only_api)[:10]}")
 
     @staticmethod
-    def _ids(scraper, changer, query, what: str) -> set[int]:
-        """Every external_id one scraper finds for this query, on a circuit that works.
+    def _ids(scraper, changer, query, what: str) -> tuple[set[int], int]:
+        """The newest `COMPARE_MAX_ADS` external_ids one scraper finds, and the last of them.
 
         `BazosScraper.extract_product` leaves `external_id` as the raw string parsed from
         the URL path while `BazosApiScraper`'s is already an int, so both are normalised
-        before they are compared.
+        before they are compared. The last id walked is the window's floor; it is the last
+        rather than the smallest because a topped ad on page one can be far older.
 
-        The set comprehension is inside the callable on purpose: `run_query` is a generator,
-        so a block is raised while it is being *iterated*, not when it is called.
+        The walk is inside the callable on purpose: `run_query` is a generator, so a block
+        is raised while it is being *iterated*, not when it is called.
         """
         def fetch(session):
             scraper.session = session
-            return {int(ad.external_id) for ad in scraper.run_query(query)}
+            ids = [int(ad.external_id) for ad in islice(scraper.run_query(query), COMPARE_MAX_ADS)]
+            return set(ids), (ids[-1] if ids else 0)
 
         return with_rotation(changer, fetch, what=f"{what} scrape of query {query.pk}")

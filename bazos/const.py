@@ -99,6 +99,10 @@ BAZOS_PAGE_WAIT_TIME: Final[tuple[int, int]] = (2, 5)
 # walk that never sees an empty page runs until whatever bounds its caller (a task timeout,
 # for `compare_bazos_scrapers`). This is the only visibility into that before it happens.
 PAGINATION_PROGRESS_LOG_INTERVAL: Final[int] = 25
+# How deep `compare_bazos_scrapers` walks each transport. Parity is a question about the
+# newest listings, and a full-depth walk on both took 82 min on 2026-09-18, 147 min a week
+# later, then timed out every week. 200 is 10 HTML pages and one API page.
+COMPARE_MAX_ADS: Final[int] = 200
 # (connect, read) for every Bazos HTTP call. Same reasoning as IP_LOOKUP_TIMEOUT: these go
 # through Tor, where an unreachable host is a stalled socket rather than a refused
 # connection, and run_request carried no timeout at all — a single hung GET stalled the
