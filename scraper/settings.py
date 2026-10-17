@@ -16,6 +16,9 @@ from typing import Final
 import environ
 from django.urls import reverse_lazy
 
+from scraper.sentry import before_send as sentry_before_send
+from scraper.sentry import should_report as should_report_to_sentry
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -412,7 +415,7 @@ SENTRY_ENVIRONMENT: str = env("SENTRY_ENVIRONMENT", default="development")
 #: from `git describe` would attribute a developer's uncommitted state to a real version.
 SENTRY_RELEASE: str = env("SENTRY_RELEASE", default="")
 
-if SENTRY_DSN and not RUNNING_TESTS:
+if should_report_to_sentry(SENTRY_DSN, sys.argv, RUNNING_TESTS):
     import sentry_sdk
     sentry_sdk.init(
         dsn=SENTRY_DSN,
@@ -421,6 +424,7 @@ if SENTRY_DSN and not RUNNING_TESTS:
         # None rather than "": the SDK treats an empty string as a release named "", which
         # then shows up in the UI as a real release that nothing belongs to.
         release=SENTRY_RELEASE or None,
+        before_send=sentry_before_send,
     )
 
 

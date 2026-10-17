@@ -6,9 +6,11 @@ Covers:
 - A raising query does not abort the rest of the pass — later queries still run.
 - A succeeding query records success=True with no error.
 """
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from bazos.exceptions import MarketplaceBlockedError
 from bazos.models import Query, QueryRun
@@ -32,6 +34,7 @@ def make_runner():
     runner.ip_changer.session = MagicMock()
     runner.zero_rows_passes = 0
     runner.zero_new_ads_passes = 0
+    runner.query_failure_streaks = {}
     return runner
 
 
@@ -71,6 +74,33 @@ def test_failing_query_still_produces_queryrun_row_with_error(query, exc):
         if str(exc):
             assert str(exc) in run.error
         assert run.run_end is not None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "exc, level",
+    [
+        (requests.HTTPError("403 Client Error: Forbidden for url: https://www.vinted.cz/"), logging.WARNING),
+        (requests.ConnectTimeout("www.sbazar.cz timed out"), logging.WARNING),
+        (RuntimeError("boom"), logging.ERROR),
+    ],
+    ids=["http-error", "tor-timeout", "anything-else"],
+)
+def test_a_transport_failure_is_a_warning_and_anything_else_an_error(query, exc, level):
+    """ERROR is what reaches Sentry. A refused or timed-out request is the marketplace or
+    Tor, which the per-query failure streak already escalates after three passes; logged
+    at ERROR it was 304 events from one Vinted outage. A defect in our code is still ERROR."""
+    runner = make_runner()
+
+    with patch("bazos.scraping.runner.logger") as log, patch.object(QueryRunner, "run", side_effect=exc):
+        run_one_pass(runner)
+
+    calls = {"warning": log.warning.call_args_list, "exception": log.exception.call_args_list}
+    failures = [(name, c) for name, cs in calls.items() for c in cs if c.args[:2] == ("Query %s failed", query)]
+
+    assert [name for name, _ in failures] == ["warning" if level == logging.WARNING else "exception"]
+    if level == logging.WARNING:
+        assert failures[0][1].kwargs.get("exc_info"), "the traceback must still reach the local log"
 
 
 @pytest.mark.django_db

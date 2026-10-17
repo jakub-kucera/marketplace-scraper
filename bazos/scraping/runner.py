@@ -4,6 +4,8 @@ from pathlib import Path
 from random import uniform
 from time import sleep
 
+import requests
+
 from bazos.const import MAX_BLACKLIST_RETRIES, QUERY_WAIT_TIME
 from bazos.exceptions import MarketplaceBlockedError
 from bazos.geo import ensure_postal_code, normalize_postal_code
@@ -184,7 +186,14 @@ class ScrapeRunner:
             except Exception as e:
                 query_run.success = False
                 query_run.error = f"{type(e).__name__}: {e}"
-                logger.exception("Query %s failed", query)
+                # ERROR is what reaches Sentry. A refused or timed-out request is the
+                # marketplace or Tor, not our code, and `_check_query_failure_streaks`
+                # escalates it at ERROR if it persists; per attempt it was 304 events
+                # from one Vinted outage.
+                if isinstance(e, requests.RequestException):
+                    logger.warning("Query %s failed", query, exc_info=True)
+                else:
+                    logger.exception("Query %s failed", query)
                 return QueryResult.failure(
                     query, f"{type(e).__name__}: {e}", query_run.exit_ip
                 )

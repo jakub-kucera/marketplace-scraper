@@ -15,6 +15,8 @@ import pytest
 import yaml
 from django.conf import settings
 
+from scraper.sentry import before_send, should_report
+
 REPO = Path(__file__).resolve().parents[2]
 DEPLOY_WORKFLOW = REPO / ".github" / "workflows" / "deploy.yml"
 ENV_SAMPLE = REPO / ".env.sample"
@@ -84,3 +86,61 @@ def test_stamp_happens_before_the_services_start(deploy_steps):
     start_index, _ = _step_named(deploy_steps, "Start all services")
 
     assert stamp_index < start_index
+
+
+# ---------------------------------------------------------------------------
+# scraper/sentry.py — what is reported, and how it groups
+# ---------------------------------------------------------------------------
+
+def _django_q_event(message: str) -> dict:
+    return {"logger": "django-q", "logentry": {"message": message, "params": []}}
+
+
+@pytest.mark.parametrize("first, second", [
+    ("Q Cluster south-avocado-maine-dakota failed to start. Sentinel exited with exit code 1.",
+     "Q Cluster idaho-bravo-ten-arizona failed to start. Sentinel exited with exit code 1."),
+    ("Failed 'bazos.jobs.compare_bazos_scrapers' (eight-happy-whiskey-yankee) - Task exceeded "
+     "maximum timeout value (1800 seconds) : Traceback (most recent call last):\n  File x",
+     "Failed 'bazos.jobs.compare_bazos_scrapers' (hamper-solar-kilo-carbon) - Task exceeded "
+     "maximum timeout value (1800 seconds) : Traceback (most recent call last):\n  File y"),
+    ("reincarnated worker Process-a286513a4fb34580b2639398c7a3dbd2 after timeout",
+     "reincarnated worker Process-846a82802e9b4181bd88b164f226814e after timeout"),
+], ids=["cluster-name", "task-name", "process-id"])
+def test_django_q_names_do_not_split_one_failure_into_many_issues(first, second):
+    """django-q formats a random name into each message, so Sentry opened 12 issues for
+    one failed cluster start and 5 for one weekly timeout."""
+    a = before_send(_django_q_event(first), {})["fingerprint"]
+    b = before_send(_django_q_event(second), {})["fingerprint"]
+
+    assert a == b
+
+
+def test_different_jobs_still_group_apart():
+    template = "Failed '{}' (eight-happy-whiskey-yankee) - boom"
+    a = before_send(_django_q_event(template.format("bazos.jobs.heartbeat")), {})["fingerprint"]
+    b = before_send(_django_q_event(template.format("bazos.jobs.score_ad")), {})["fingerprint"]
+
+    assert a != b
+
+
+def test_other_events_keep_sentrys_own_grouping():
+    event = {"logger": "bazos.scraping.runner", "logentry": {"message": "Query %s failed"}}
+
+    assert "fingerprint" not in before_send(event, {})
+
+
+@pytest.mark.parametrize("argv, expected", [
+    (["manage.py", "run_scraper"], True),
+    (["manage.py", "qcluster"], True),
+    (["manage.py", "shell"], False),
+    (["manage.py", "dbshell"], False),
+    (["manage.py"], True),
+], ids=["daemon", "cluster", "shell", "dbshell", "bare"])
+def test_interactive_shells_do_not_report(argv, expected):
+    """A typo in `manage.py shell` inside a Pi container was reported as a production error."""
+    assert should_report("https://key@sentry.test/1", argv, running_tests=False) is expected
+
+
+def test_nothing_reports_without_a_dsn_or_under_pytest():
+    assert should_report("", ["manage.py", "run_scraper"], running_tests=False) is False
+    assert should_report("https://key@sentry.test/1", ["manage.py", "run_scraper"], running_tests=True) is False
