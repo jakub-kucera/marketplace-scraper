@@ -513,7 +513,15 @@ def flags(t: str, title_t: str) -> dict[str, Any]:
     #: separated from. `(?:za)?blokovan` rather than `blokovan` because the prefixed form
     #: `neni ZAblokovany` puts the negating word two characters further left than the bare
     #: stem's match position.
-    f["locked"] = _neg_aware(t, r"(?:za)?blokovan\w*|(?:za)?zamcen\w*|zamek aktivace|icloud lock|operator lock")
+    #:
+    #: `(?<!od)` because `odblokovany` means *un*locked, and `_neg_aware` knows only the `ne-`
+    #: channel. The lookbehind sits on this one stem rather than becoming a second prefix in
+    #: `_neg_aware`, because `od` is not a negator in general - `_SCRATCH_BODY`'s own
+    #: `oder\w*`/`odrenin\w*` begin with it, and exempting them would silently drop every
+    #: scratch. Measured 2026-10-22: 10 of 32 `locked` flags over 8,761 production iPhone ads
+    #: were ads saying `odblokovany`, each docked 15% - the direction that hides a deal.
+    f["locked"] = _neg_aware(
+        t, r"(?<!od)(?:za)?blokovan\w*|(?:za)?zamcen\w*|zamek aktivace|icloud lock|operator lock")
     f["cz_region"] = bool(re.search(r"\bcz\s*distribuc\w*|ceska distribuc\w*|ceske distribuce|cz verze", t))
     f["usa_region"] = bool(re.search(r"\busa\b|\bus verz\w*|americk\w* verz\w*", t))
     f["swap"] = bool(re.search(r"vymen\w*\s*za|prodam nebo vymen\w*|mozna vymena|protiucet", t))

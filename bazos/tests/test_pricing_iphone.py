@@ -220,6 +220,20 @@ def test_an_unlocked_phone_is_not_flagged_as_locked():
     assert fx.extract("iPhone 13", "Blokovany na operatora.", today=TODAY)["locked"] is True
 
 
+def test_the_od_prefix_negates_too_because_odblokovany_means_unlocked():
+    """`odblokovany` is the seller stating the opposite of `blokovany`, and `ne-` is not the
+    only prefix that flips the stem.
+
+    Measured on production 2026-10-22: 10 of the 32 `locked` flags over 8,761 iPhone ads were
+    ads whose own text says *un*locked - every ad containing the word. It fails in the quiet
+    direction, docking the prediction 15% and so hiding a real deal rather than inventing one,
+    which is why a green suite over it was possible for a month.
+    """
+    assert fx.extract("iPhone 13", "Telefon je odblokovany.", today=TODAY)["locked"] is False
+    assert fx.extract("iPhone 13", "Odblokovan z operatora.", today=TODAY)["locked"] is False
+    assert fx.extract("iPhone 13", "Zablokovany na operatora.", today=TODAY)["locked"] is True
+
+
 # ------------------------------------------------------------------ battery and warranty
 def test_battery_health_from_several_phrasings():
     for desc in ("Baterie 89 %.", "Kapacita baterie: 89%", "89 % kondice baterie", "zdravi 89 %"):
