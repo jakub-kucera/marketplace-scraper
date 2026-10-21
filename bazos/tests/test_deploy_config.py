@@ -16,25 +16,11 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = REPO / "docker-compose.yml"
-DEPLOY_WORKFLOW = REPO / ".github" / "workflows" / "deploy.yml"
 
 
 @pytest.fixture(scope="module")
 def services() -> dict[str, dict]:
     return yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))["services"]
-
-
-@pytest.fixture(scope="module")
-def deploy_steps() -> list[dict]:
-    workflow = yaml.safe_load(DEPLOY_WORKFLOW.read_text(encoding="utf-8"))
-    return list(workflow["jobs"].values())[0]["steps"]
-
-
-def _step_index(steps: list[dict], fragment: str) -> int:
-    for index, step in enumerate(steps):
-        if fragment.lower() in str(step.get("name", "")).lower():
-            return index
-    raise AssertionError(f"no deploy step whose name contains {fragment!r}")
 
 
 def test_every_long_running_service_restarts_on_boot(services):
@@ -46,23 +32,6 @@ def test_every_long_running_service_restarts_on_boot(services):
     ]
 
     assert missing == []
-
-
-def test_deploy_retires_the_legacy_compose_unit_before_starting(deploy_steps):
-    retire = _step_index(deploy_steps, "legacy compose")
-    start = _step_index(deploy_steps, "Start all services")
-    script = deploy_steps[retire]["run"]
-
-    assert retire < start
-    assert "systemctl disable" in script and "marketplace-docker.service" in script
-
-
-def test_deploy_removes_the_images_only_legacy_compose_would_pick(deploy_steps):
-    """v1 names images `<project>_<service>`, v2 `<project>-<service>`. Left in place, the
-    underscore ones are what any v1 invocation silently starts, however stale."""
-    script = deploy_steps[_step_index(deploy_steps, "legacy compose")]["run"]
-
-    assert "marketplace-scrapper_" in script and "docker image rm" in script
 
 
 def test_no_repo_script_reaches_compose_v1():

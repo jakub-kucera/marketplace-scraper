@@ -62,22 +62,6 @@ jobs:
       - name: Stop services
         run: docker compose down
 
-      # The Pi still had an enabled `marketplace-docker.service` running apt's docker-compose
-      # 1.29.2 on boot. v1 names images `<project>_<service>`, not v2's `<project>-<service>`,
-      # so after the 2026-10-16 reboot it started scraper, filter and sender on July's
-      # Python 3.11 images under today's bind-mounted code: 22 hours of crashloop on
-      # `No module named 'unfold'`. restart: always already restarts the stack on boot.
-      # After `down`, because an image a container still uses cannot be removed.
-      - name: Retire the legacy compose unit
-        run: |
-          if systemctl is-enabled --quiet marketplace-docker.service 2>/dev/null; then
-            sudo -n systemctl disable marketplace-docker.service
-          fi
-          containers="$(docker ps -aq --filter 'name=^marketplace-scrapper_')"
-          if [ -n "$containers" ]; then docker rm -f $containers; fi
-          images="$(docker image ls --format '{{.Repository}}' | grep '^marketplace-scrapper_' || true)"
-          if [ -n "$images" ]; then docker image rm $images; fi
-
       - name: Start postgres and tor
         run: docker compose up -d postgres tor_proxy
 
