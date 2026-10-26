@@ -9,11 +9,12 @@ from typing import Any
 from urllib.parse import urlencode
 
 import requests
+from curl_cffi import requests as curl_requests
 
 from bazos.const import (
     VINTED_BASE_URL,
+    VINTED_IMPERSONATE,
     VINTED_REQUEST_TIMEOUT,
-    VINTED_USER_AGENT,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 class VintedClient:
     """Fetches Vinted pages as RSC flight payloads.
 
-    ⚠️ **Builds its own `requests.Session` and never accepts the runner's.** Every scraper
+    ⚠️ **Builds its own session and never accepts the runner's.** Every scraper
     is handed `ip_changer.session`, which is bound to the Tor SOCKS proxy; Vinted bans
     proxy and VPN egress, so routing through it is the one change here that could get the
     host banned. `VintedScraper` keeps the runner's session for factory symmetry and hands
@@ -31,8 +32,26 @@ class VintedClient:
 
     def __init__(self, base_url: str = VINTED_BASE_URL) -> None:
         self.base_url = base_url.rstrip("/")
-        self.session = requests.Session()
+        self.session: curl_requests.Session[curl_requests.Response] = curl_requests.Session(
+            impersonate=VINTED_IMPERSONATE
+        )
         self._bootstrapped = False
+
+    def _get(self, url: str, headers: dict[str, str]) -> curl_requests.Response:
+        """GET, failing exactly as `requests` would. curl_cffi's exceptions sit outside
+        requests' hierarchy, and the runner keys on `requests.RequestException` to log a
+        transport failure as a warning rather than a Sentry error; its own HTTPError also
+        drops the URL from the message QueryRun groups failures by."""
+        try:
+            response = self.session.get(url, headers=headers, timeout=VINTED_REQUEST_TIMEOUT)
+        except curl_requests.exceptions.RequestException as exc:
+            raise requests.ConnectionError(f"{type(exc).__name__}: {exc}") from exc
+        if response.status_code >= 400:
+            kind = "Client" if response.status_code < 500 else "Server"
+            raise requests.HTTPError(
+                f"{response.status_code} {kind} Error: {response.reason} for url: {response.url}"
+            )
+        return response
 
     # ---------- session ----------
     def bootstrap(self) -> None:
@@ -48,16 +67,13 @@ class VintedClient:
         """
         if self._bootstrapped:
             return
-        response = self.session.get(
+        self._get(
             f"{self.base_url}/",
             headers={
-                "User-Agent": VINTED_USER_AGENT,
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
             },
-            timeout=VINTED_REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
         self._bootstrapped = True
         logger.debug("Vinted session bootstrapped against %s", self.base_url)
 
@@ -76,17 +92,14 @@ class VintedClient:
         url = f"{self.base_url}{path}"
         if params:
             url = f"{url}?{urlencode(list(params))}"
-        response = self.session.get(
+        response = self._get(
             url,
             headers={
-                "User-Agent": VINTED_USER_AGENT,
                 "Accept": "text/x-component",
                 "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
                 "RSC": "1",
             },
-            timeout=VINTED_REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
         # ⚠️ MUST be set before reading .text. Vinted serves the payload as
         # `text/x-component` with **no charset**, and requests then falls back to
         # ISO-8859-1 for any text/* type (RFC 2616) while the bytes are UTF-8. Left to

@@ -284,9 +284,10 @@ def test_get_flight_repeats_bracket_params():
     assert "3580" in url and "3581" in url
 
 
-def test_get_flight_sends_the_rsc_header_and_a_browser_user_agent():
-    """Without a browser UA the request is served a DataDome interstitial; RSC:1 is what
-    returns the payload without the HTML shell."""
+def test_get_flight_sends_the_rsc_header_and_leaves_the_user_agent_to_the_impersonation():
+    """RSC:1 is what returns the payload without the HTML shell. The User-Agent must come
+    from the impersonated browser: a hand-set one that names a different Chrome than the
+    TLS handshake is itself the mismatch a bot check looks for."""
     from bazos.scraping.vinted.client import VintedClient
 
     client = VintedClient()
@@ -296,7 +297,53 @@ def test_get_flight_sends_the_rsc_header_and_a_browser_user_agent():
 
     headers = get.call_args[1]["headers"]
     assert headers["RSC"] == "1"
-    assert "Mozilla/5.0" in headers["User-Agent"]
+    assert "User-Agent" not in headers
+
+
+def test_the_session_presents_a_browser_tls_fingerprint():
+    """Regression: from 2026-10-08 Cloudflare 403'd the Pi's bootstrap GET, ramping to 2
+    successes in 26 by 10-16. python-requests' handshake is what it scores; a browser's
+    is what it lets through."""
+    from curl_cffi import requests as curl_requests
+
+    from bazos.scraping.vinted.client import VintedClient
+
+    session = VintedClient().session
+    assert isinstance(session, curl_requests.Session)
+    assert session.impersonate
+
+
+def test_a_blocked_request_still_raises_the_requests_error_it_always_did():
+    """curl_cffi's own `raise_for_status` raises an exception outside requests' hierarchy
+    with a message missing the URL. The runner logs `requests.RequestException` as a
+    WARNING and everything else as a Sentry ERROR, and QueryRun groups failures by message,
+    so both the type and the text are kept."""
+    from curl_cffi.requests import Response as CurlResponse
+
+    from bazos.scraping.vinted.client import VintedClient
+
+    blocked = CurlResponse()
+    blocked.status_code, blocked.reason, blocked.url = 403, "Forbidden", "https://www.vinted.cz/"
+    client = VintedClient()
+    with patch.object(client.session, "get", return_value=blocked):
+        with pytest.raises(requests.HTTPError) as raised:
+            client.bootstrap()
+
+    assert str(raised.value) == "403 Client Error: Forbidden for url: https://www.vinted.cz/"
+    assert not client._bootstrapped
+
+
+@pytest.mark.parametrize("error", ["ConnectionError", "ReadTimeout", "DNSError"])
+def test_a_transport_failure_surfaces_as_a_requests_exception(error):
+    from curl_cffi.requests import exceptions as curl_exceptions
+
+    from bazos.scraping.vinted.client import VintedClient
+
+    client = VintedClient()
+    client._bootstrapped = True
+    with patch.object(client.session, "get", side_effect=getattr(curl_exceptions, error)("boom")):
+        with pytest.raises(requests.RequestException):
+            client.get_flight("/catalog")
 
 
 def test_get_flight_omits_the_query_string_when_there_are_no_params():

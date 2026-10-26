@@ -53,15 +53,14 @@ VINTED_PAGE_SIZE: Final[int] = 96
 # broad search, while a narrow one reports its true count (measured: 151 over 2 pages).
 # So this is the server's own ceiling, not an arbitrary safety bound.
 VINTED_MAX_PAGES: Final[int] = 10
-# A browser User-Agent is mandatory, not cosmetic: without one the request is served a
-# DataDome interstitial instead of the page. With one, 10 back-to-back catalog fetches
-# measured clean (VINTED.md §10). Deliberately a fixed string rather than
-# requests-random-user-agent — Vinted fingerprints, and a UA that changes per request
-# while the session cookie does not is a worse signal than a boring constant one.
-VINTED_USER_AGENT: Final[str] = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
-)
+# The browser curl_cffi impersonates - TLS handshake, HTTP/2 settings, header order and
+# the User-Agent that goes with them. From 2026-10-08 Cloudflare 403'd the Pi's
+# python-requests bootstrap ever more often, down to 2 successes in 26 on 10-16, while the
+# same requests got through from a laptop: a bot score, not a ban. A browser UA was already
+# mandatory (without one Vinted served an interstitial, VINTED.md §10); now the handshake
+# has to match it, which a hand-set UA string on requests cannot do. "chrome" tracks the
+# newest Chrome the pinned curl_cffi ships, so the UA and the handshake always agree.
+VINTED_IMPERSONATE: Final[str] = "chrome"
 # (connect, read). Generous on read because a catalog page is ~800 KB gzipped that
 # decompresses to ~7 MB; connect stays short because, unlike Bazos, this never goes
 # through Tor and so never pays for circuit construction.

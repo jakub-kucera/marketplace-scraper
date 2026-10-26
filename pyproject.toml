@@ -26,6 +26,7 @@ sentry-sdk = {extras = ["django"], version = "*"}
 psycopg2-binary = "^2.9.10"
 django-unfold = "^0.106"
 django-q2 = "^1.11"
+curl-cffi = "^0.17"
 
 
 [tool.poetry.group.dev.dependencies]
