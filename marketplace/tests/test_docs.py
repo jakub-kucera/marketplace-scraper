@@ -30,12 +30,17 @@ CODE_DOC_REF = re.compile(r"docs/[A-Za-z0-9_/.-]+\.md")
 URL_REF = re.compile(r"\b\w+://\S+")
 
 SOURCE_GLOBS = ("*.py", "*.toml", "*.yml", "*.yaml")
-SOURCE_SKIP = {".git", ".venv", "node_modules", "__pycache__",
+#: `.claude` mirrors pytest.ini's norecursedirs — it holds agent-created worktrees, full
+#: checkouts of other branches whose stale doc references are not this branch's problem.
+SOURCE_SKIP = {".git", ".venv", "node_modules", "__pycache__", ".claude",
                "bazos_app_decomplied", "old_tests", "experiments"}
+#: a separate git repo (own history, own remote) checked out here and gitignored — not part
+#: of this repo's tree, so it carries none of this file's conventions and is never "missing".
+EXTERNAL_DOCS_DIR = "docs/internal/"
 
 
 def all_docs():
-    return sorted(p for p in DOCS.rglob("*.md"))
+    return sorted(p for p in DOCS.rglob("*.md") if "internal" not in p.relative_to(DOCS).parts)
 
 
 def front_matter(path: Path) -> dict[str, str]:
@@ -177,6 +182,8 @@ def test_doc_paths_named_from_source_exist():
             continue
         text = URL_REF.sub(" ", text)
         for ref in CODE_DOC_REF.findall(text):
+            if ref.startswith(EXTERNAL_DOCS_DIR):
+                continue
             if not (REPO / ref).exists():
                 missing.append(f"{rel(src)} -> {ref}")
     assert not missing, "source files name docs that do not exist:\n  " + "\n  ".join(missing)

@@ -229,7 +229,7 @@ decide silently.
   processed (Discord sends are free; LLM calls are not).
 
 **Partial answer to the cost spike, researched 2026-07-30** (prompted by the job-ad idea in
-[`MONETIZATION.md`](../MONETIZATION.md) §4.7, which independently arrived at this doc's §2
+`MONETIZATION.md` §4.7, which independently arrived at this doc's §2
 conclusion — a second vote for "own stage, not a `FilterRule`"; the concrete figure is that
 `FILTER_BATCH_SIZE = 50`, so a rule-based judge would hold `select_for_update` locks for
 50 serial LLM round-trips):

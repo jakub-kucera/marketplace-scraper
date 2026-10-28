@@ -13,7 +13,7 @@ verified: 2026-09-18
 > why, is §5.
 >
 > Bazos search-operator measurements live in
-> [`HIDDEN_API.md`](research/bazos-api/HIDDEN_API.md) §4.1a–4.1b — that is the outside-world
+> `HIDDEN_API.md` §4.1a–4.1b — that is the outside-world
 > reference. This doc is about composing our own rows against it.
 
 ## 1. The two filtering stages
@@ -33,7 +33,7 @@ They compose as an AND: an ad must survive Bazos's search *and* every filter rul
 
 ## 2. Stage 1 — what Bazos's own search does
 
-Measured live; see [`HIDDEN_API.md`](research/bazos-api/HIDDEN_API.md) §4.1a–4.1b.
+Measured live; see `HIDDEN_API.md` §4.1a–4.1b.
 
 - **Multiple words = implicit AND.** `macbook pro` → 1 101, narrower than `macbook` → 1 615.
 - **`OR` is a real union operator.** `iphone OR traktor` returns the sum of both. Case-insensitive, works with 3+ terms.

@@ -12,8 +12,8 @@ to do in nine numbered steps; this says what is actually true when you start, wh
 from what the prompt assumed, and it names three ways the cutover degrades filtering **silently**
 if you do it as written.
 
-Read [`HIDDEN_API.md`](../research/bazos-api/HIDDEN_API.md) §4–§5 and
-[`PROXY_ROTATION.md`](../research/proxies/PROXY_ROTATION.md) §4–§5 first for the payload shapes
+Read `HIDDEN_API.md` §4–§5 and
+`PROXY_ROTATION.md` §4–§5 first for the payload shapes
 and the volume model. This doc does not restate them; it corrects one of them and builds on both.
 
 ---
@@ -39,7 +39,7 @@ Two consequences, both load-bearing for this work:
 **The transport's dominant failure mode is still the only one that matters, but it is no longer
 the *only* one.** 3,427 of 3,498 failures are Bazos 403-ing the exit IP - 98.0 %, against 99.9 %
 in the first window. The ~48 % coin flip that
-[`PROXY_ROTATION.md`](../research/proxies/PROXY_ROTATION.md) inferred from two spot probes is
+`PROXY_ROTATION.md` inferred from two spot probes is
 confirmed and has if anything worsened: **54.1 % over 6,462 attempts and 537 distinct exits**.
 The new 2 % tail is **not** a Bazos transport fact and joining `bazos_queryrun` to
 `bazos_query.marketplace` says so outright: all 67 `RuntimeError` rows are Vinted's withdrawn
@@ -110,7 +110,7 @@ parity" without saying parity *of what*; §7 below makes that testable.
 ## 3. Part 1 — tunable page size
 
 `_fetch_page` (`bazos/scraping/bazos/bazos_api_scraper.py:166-167`) hardcodes `limit=API_PAGE_SIZE`
-(210). Measured wire sizes ([`PROXY_ROTATION.md`](../research/proxies/PROXY_ROTATION.md) §4):
+(210). Measured wire sizes (`PROXY_ROTATION.md` §4):
 
 ```
 HTML search.php (20 ads)   11.2 KB   1.20 s     ← today, ~3 per query per pass
@@ -189,7 +189,7 @@ honestly to `"Seller: unknown"` (`models.py:623`) rather than claiming a false z
 
 **Recommendation: accept the loss for now, and record it.** Fixing it means a detail call per ad,
 which is P13's territory (filter-before-detail-fetch) and is the one thing
-[`PROXY_ROTATION.md`](../research/proxies/PROXY_ROTATION.md) §5.1 names as the real ban vector.
+`PROXY_ROTATION.md` §5.1 names as the real ban vector.
 Do not enable `load_full_description` on cut-over queries just to recover seller identity.
 
 ---
@@ -222,7 +222,7 @@ Do not enable `load_full_description` on cut-over queries just to recover seller
   note — the query attempt is the probe, and the old one was actively misleading under
   `IsolateDestAddr`.
 - **Do not enable `load_full_description` broadly to recover the missing fields.** §5.1 of
-  [`PROXY_ROTATION.md`](../research/proxies/PROXY_ROTATION.md) is explicit that detail-endpoint
+  `PROXY_ROTATION.md` is explicit that detail-endpoint
   volume, not query count, is what re-creates the ban. That is P13's problem to solve first.
 - **Do not lower the interval below ~10 min in this work.** Below that, request volume exceeds
   today's and the "free" argument stops holding. That is P21b.
@@ -317,7 +317,7 @@ Every step is independently reversible, which is the point of the ordering in §
 
 - **The 49.8 % block rate** — P21b. This work is deliberately transport-neutral.
 - **`ExitNodes {cz},{sk},{de}`** — the free Tor stopgap in
-  [`PROXY_ROTATION.md`](../research/proxies/PROXY_ROTATION.md) §6 Option D. Worth trying, costs
+  `PROXY_ROTATION.md` §6 Option D. Worth trying, costs
   nothing, unrelated to this.
 - **P13 (filter-before-detail-fetch)**, **P16 (thumbnails)**, **P25 (publisher name from the
   detail payload)** — all become cheaper after this lands; none is a prerequisite.

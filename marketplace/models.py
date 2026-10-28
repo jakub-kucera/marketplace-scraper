@@ -558,7 +558,7 @@ class SellerAdCounts:
     **These count ads in *this* database, i.e. ones our own queries happened to scrape —
     not the seller's true Bazos total.** A dealer with 500 live listings can show 2 here.
     The real figure is `user_ads_count` on the API's detail endpoint (see
-    docs/research/bazos-api/HIDDEN_API.md §5.2), which is why the wording below says
+    docs/internal/bazos-api/HIDDEN_API.md §5.2), which is why the wording below says
     "seen" rather than "has".
     """
 

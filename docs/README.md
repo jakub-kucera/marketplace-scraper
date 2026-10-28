@@ -50,7 +50,6 @@ doc appears in the table below exactly once and that no relative link is broken.
 | Doc | Status | Verified | What it is |
 |---|---|---|---|
 | [`SHIPPED.md`](SHIPPED.md) | 🟢 active | 2026-08-23 | **What is actually implemented**, newest first, with the migration and commit that landed each item. Start here before believing any other doc's status. |
-| [`MONETIZATION.md`](MONETIZATION.md) | 🟢 active | 2026-08-23 | Can this be turned into money — data sales, flipping, subscriptions, selling the capability. **§6 is the legal section that constrains everything else** (Bazos ToS API-consent clause, sui generis database right / *Innoweb v Wegener*, GDPR Art 14, Act 480/2004). **§7.1 argues detection latency, not features, is the binding constraint** on the whole project. |
 | [`QUERY_COMPOSITION.md`](QUERY_COMPOSITION.md) | 🟢 active | 2026-08-26 | **How a `Query` becomes results, and what it can't express.** Bazos has no phrase search and one implicit-AND word bag; our side gives exactly **one positive OR-group** (`filter_required`) plus unlimited exclusions. §5 works "M3 Pro or better, ≥32GB, ≥1TB" — not exactly expressible — into the approximation that is, and §3.2 has the two traps (substring collisions like `8gb` ⊂ `48gb`, and Czech negation defeating a blocklist). |
 | [`BACKUPS.md`](BACKUPS.md) | ✅ shipped | 2026-08-23 | Dump options, destinations, cost, and the retention/GDPR interaction (a PII purge that doesn't reach the backups isn't a purge). **§9 is the restore runbook** — the live part of this doc. |
 
@@ -127,23 +126,13 @@ question. `pass1/` holds the triage that preceded the two full workups.
 | [`pass1/VERTICALS.md`](research/marketplaces/pass1/VERTICALS.md) | 📐 reference | 2026-08-22 | TipCars, Sauto, Sreality, Bezrealitky, Remix. Remix serves schema.org `Product` JSON-LD with real typed attributes — the strongest capability signal in the batch, on apparel. |
 | [`pass1/FACEBOOK_MARKETPLACE.md`](research/marketplaces/pass1/FACEBOOK_MARKETPLACE.md) | 📐 reference | 2026-08-22 | REJECT. Blanket `Disallow: /` plus a prose notice requiring express written permission — categorically stricter than any other candidate. |
 
-#### `research/bazos-api/` — Bazos's undocumented mobile JSON API
+#### `research/bazos-api/` and `research/proxies/` — kept outside this repo
 
-Reverse-engineered from the decompiled Android app. Independent of the pipeline stages — it's
-about *how* Bazos is scraped. `BazosApiScraper` exists and is registered, but **no production
-`Query` selects it**; making that switch is `backlog/PROMPTS.md` P21a.
-
-| Doc | Status | Verified | What it is |
-|---|---|---|---|
-| [`HIDDEN_API.md`](research/bazos-api/HIDDEN_API.md) | 📐 reference | 2026-07-26 | Endpoint inventory, request/response shapes, live-validated findings. **§4.1a–4.1b is the load-bearing bit**: `OR` is a real boolean union, `AND` is fake, and the search is plain SQL substring `LIKE`, not FULLTEXT boolean mode. §5 shows listing and detail are *not* the same payload. |
-| [`USER_AGENT.md`](research/bazos-api/USER_AGENT.md) | ✅ shipped | 2026-09-17 | Two User-Agents, two problems. §1–§8: how the app builds its `User-Agent` at runtime and how to reproduce it (`bazos/scraping/bazos/user_agent.py`). **§9: Bazos serves a different DOM to mobile agents** — measured 20/20 rows missing `inzeratycena`, which raises on the first row, lands outside the per-ad guard and writes off the whole pass. ~3% of sessions until `drop_mobile_user_agents()`. Read it before teaching the parser the mobile layout — that template has no `inzeratyakce`, so it would trade a loud failure for silent loss of seller identity. |
-| [`DISCOVERY_PIPELINE.md`](research/bazos-api/DISCOVERY_PIPELINE.md) | 💡 proposal | 2026-08-10 | A broader category-scoped discovery pipeline plus the enrichment workflows the API makes cheap — seller reputation, dealer/scam detection, repost detection. Nothing built. |
-
-#### `research/proxies/` — replacing Tor for Bazos requests
-
-| Doc | Status | Verified | What it is |
-|---|---|---|---|
-| [`PROXY_ROTATION.md`](research/proxies/PROXY_ROTATION.md) | 📐 reference | 2026-07-26 | Why Tor (IP reputation) and a single long-lived VPN (per-IP rate) both failed, and what to use instead. **§4–§5 are live-measured** request/bandwidth volumes including the "run more often" cadence math and the 77+ GB/mo download-all-images scenario. §8 sketches `HttpProxyIPChanger`. **The one thing still unmeasured (§10) is sustained block rate through a real candidate proxy** — that's the gate on `backlog/PROMPTS.md` P21b. |
+The undocumented-API research (reverse-engineered from the decompiled Android app) and the
+proxy-rotation research live in `docs/internal/` instead: a separate git repo, gitignored here,
+checked out alongside this one on dev machines but never part of this repo's history. See
+`docs/internal/README.md` in that checkout for what's there. `MONETIZATION.md`, formerly listed
+in the root table above, moved there too.
 
 ### `archive/shipped/` — built; kept for the rationale
 
@@ -169,4 +158,4 @@ mappings and trap lists are what a change to the corresponding scraper should be
 | [`REFACTOR_PLAN.md`](archive/superseded/REFACTOR_PLAN.md) | 🗄 superseded | — | Consolidated Phase 1/2/3 framing. Its progress markers went stale; `archive/shipped/PIPELINE_REFACTOR.md`'s are the ones that were kept in sync. |
 | [`PIPELINE_REFACTOR_B.md`](archive/superseded/PIPELINE_REFACTOR_B.md) | 🗄 superseded | — | Fully merged into `archive/shipped/PIPELINE_REFACTOR.md`. No unique content remains. |
 
-The throwaway benchmark `research/proxies/PROXY_ROTATION.md` references lives at [`experiments/bench_proxy.py`](../experiments/bench_proxy.py).
+The throwaway benchmark `docs/internal/proxies/PROXY_ROTATION.md` references lives at [`experiments/bench_proxy.py`](../experiments/bench_proxy.py).

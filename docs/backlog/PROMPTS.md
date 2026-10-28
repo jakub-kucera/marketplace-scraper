@@ -104,12 +104,12 @@ the threshold and not before.
 ## ⚡ Latency & data-quality prerequisites
 
 > Added 2026-07-29. **P21 is the highest-value item in this file.** The rationale is commercial
-> and lives in [`MONETIZATION.md`](../MONETIZATION.md) **§7.1**: the current 15–45 min interval
+> and lives in `MONETIZATION.md` **§7.1**: the current 15–45 min interval
 > gives a **~15 minute median detection latency** while competing services poll every 60 s and
 > good listings are gone in minutes — so the deal-capture premise of the whole project fails on
 > this one number. The technical groundwork is already done in
-> [`PROXY_ROTATION.md`](../research/proxies/PROXY_ROTATION.md) §8 and
-> [`HIDDEN_API.md`](../research/bazos-api/HIDDEN_API.md) §8;
+> `PROXY_ROTATION.md` §8 and
+> `HIDDEN_API.md` §8;
 > this prompt is the missing executable version. It also unblocks
 > [`BACKLOG_IDEAS.md`](BACKLOG_IDEAS.md) #6, which needs the API's second-resolution timestamps.
 >
@@ -261,7 +261,7 @@ Part 4b — lower the interval the rest of the way:
 
 ### P23 — `PriceAnomalyRule` — the broad-coverage half of price scoring
 > ⚠️ Requires P22 (needs a numeric price). Design rationale already written:
-> [`DISCOVERY_PIPELINE.md`](../research/bazos-api/DISCOVERY_PIPELINE.md)
+> `DISCOVERY_PIPELINE.md`
 > §1 stage 2 ("Cheap filter pass — zero extra API calls"). This prompt is the promotion of
 > that design, not a new idea. Distinct from BACKLOG_IDEAS.md #4, which compares against
 > *external* retail prices; this one compares against *your own accumulated Bazos history*.
@@ -850,7 +850,7 @@ substance (see `docs/archive/shipped/AD_DELIVERY_SPLIT.md` §7's note on why `00
 ## Order recommendation
 
 > **Revised 2026-09-17.** The priority is unchanged — **latency, then failure visibility, then
-> data usability**, features after that (see [`MONETIZATION.md`](../MONETIZATION.md) §7.1) — but
+> data usability**, features after that (see `MONETIZATION.md` §7.1) — but
 > two of the previous revision's five items have since shipped.
 >
 > **What changed in this revision, all verified against the tree rather than against the

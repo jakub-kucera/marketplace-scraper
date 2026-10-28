@@ -9,7 +9,7 @@ shipped_in: 1cb0178 (backup/, systemd timer, pre-migration dump in deploy.yml)
 # Database Backups — Options & Recommendation
 
 > **Question:** the Postgres archive is the only asset in this project that can't be
-> rebuilt ([`MONETIZATION.md`](MONETIZATION.md) §7.3). What are the options for dumping it,
+> rebuilt (`MONETIZATION.md` §7.3). What are the options for dumping it,
 > where should the dumps go, and what does it cost?
 >
 > **Provenance of claims:** repo facts (compose config, deploy path, `.gitignore`, absence of any
@@ -546,7 +546,7 @@ proof the data is in it. `restic ls <id>` to be sure.
 
 ---
 
-**Related docs:** [`MONETIZATION.md`](MONETIZATION.md) §7.3 (the archive as the only
+**Related docs:** `MONETIZATION.md` §7.3 (the archive as the only
 compounding asset), §6.1/§6.5 (retention and GDPR constraints on what may sit in a dump);
 [`JOB_QUEUE.md`](proposals/JOB_QUEUE.md) (why backups deliberately stay
 outside it, §5); [`PROMPTS.md`](backlog/PROMPTS.md) P19 (the silent-failure pattern

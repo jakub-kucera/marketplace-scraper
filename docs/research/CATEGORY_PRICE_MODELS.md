@@ -194,7 +194,7 @@ rather than a coefficient.
 brand resolves on **99.4%** and (brand, model) on **88.0%** of the 324. What actually binds is
 everything the `ads.php` thin payload omits — `short_description`, `full_description`,
 `publisher_name` and both publisher ids are empty on **343 of 343 rows**
-([`HIDDEN_API.md`](bazos-api/HIDDEN_API.md) §5; the same three silent degradations that
+(`HIDDEN_API.md` §5; the same three silent degradations that
 [`API_CUTOVER.md`](../backlog/API_CUTOVER.md) §2 warns about for filtering).
 
 ### 3.1 A GROUP BY is the model, and the shrinkage is the only part that earns its keep

@@ -31,7 +31,7 @@ RECOMMENDATION.md   ranked, with a clear "build this one first" and why
 ```
 
 Match the house style of the existing research docs — read
-[`HIDDEN_API.md`](../bazos-api/HIDDEN_API.md) first.
+`HIDDEN_API.md` first.
 It is the standard to hit: every claim either **live-measured with the command that produced it**,
 or explicitly flagged as unverified. That doc's §7 (raw probe log) is the model.
 
@@ -194,7 +194,7 @@ serve rather than treating it as a general baseline.
 
 ## 3. Phase 2 — the legal gate
 
-Read [`MONETIZATION.md`](../../MONETIZATION.md) §6 in full before this phase. It is the
+Read `MONETIZATION.md` §6 in full before this phase. It is the
 constraint that shapes everything, and the analysis there transfers directly.
 
 For each surviving candidate, record **verbatim quotes**, not summaries:
@@ -267,9 +267,9 @@ bonus, not the plan. Everything above works without it.
 
 ### 4c. A hidden/mobile JSON API — the Bazos playbook, and its real cost
 
-This is how [`HIDDEN_API.md`](../bazos-api/HIDDEN_API.md)
+This is how `HIDDEN_API.md`
 came to exist: decompile the official Android app, grep for base URLs, endpoints, and the
-`User-Agent` construction (see [`USER_AGENT.md`](../bazos-api/USER_AGENT.md)),
+`User-Agent` construction (see `USER_AGENT.md`),
 then probe live with `curl`.
 
 ⚠️ **Time-box this to a third of the site's Pass-2 budget, and abandon it if the APK does not
@@ -325,7 +325,7 @@ class rename would silently zero the deal flow.
 - **Ordering**: is newest-first available, and is it a parameter or the default? **This is
   load-bearing** — see §5b.
 - **Payload size** per request, in KB. Latency and ban-risk math in
-  [`PROXY_ROTATION.md`](../proxies/PROXY_ROTATION.md) §4–§5 is
+  `PROXY_ROTATION.md` §4–§5 is
   driven by this.
 
 ---
@@ -573,9 +573,9 @@ In this order:
 2. `bazos/models.py` — the actual schema, especially `Ad`, `AdDelivery`, `Query`, the publisher
    models and `SellerAdCounts`
 3. `bazos/scraping/marketplace.py` — the `MarketplaceScraper` protocol (four members)
-4. [`MONETIZATION.md`](../../MONETIZATION.md) §3, §6, §7.1–§7.4 — the legal frame and what the
+4. `MONETIZATION.md` §3, §6, §7.1–§7.4 — the legal frame and what the
    project is actually for
-5. [`HIDDEN_API.md`](../bazos-api/HIDDEN_API.md) — the
+5. `HIDDEN_API.md` — the
    methodology and quality bar to match
 6. [`VINTED_SCRAPER.md`](../../archive/shipped/VINTED_SCRAPER.md) §2 and §4.5–§4.6 —
    the concrete traps a second marketplace actually hit, and what they cost

@@ -21,7 +21,7 @@ BAZOS_URL: Final[str] = "https://bazos.cz/search.php"
 BAZOS_BLACKLIST_CHECK_URL: Final[str] = "https://www.bazos.cz/search.php?hledat=iphone&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=Hledat&kitx=ano"
 BAZOS_API_BASE_URL: Final[str] = "https://www.bazos.cz/api/v1"
 # Server-enforced hard cap on `ads.php`'s `limit` param, confirmed live —
-# see docs/research/bazos-api/HIDDEN_API.md §4.0. Requesting more is
+# see docs/internal/bazos-api/HIDDEN_API.md §4.0. Requesting more is
 # silently clamped back down to this value.
 API_PAGE_SIZE: Final[int] = 210
 
@@ -187,7 +187,7 @@ PRICE_MODEL_MIN_DISCOUNT_PCT: Final[float] = 10.0
 # Postal-code geocoding (bazos/geo.py)
 # ---------------------------------------------------------------------------
 
-# Bazos's own geocoder, confirmed live both directions (docs/research/bazos-api/HIDDEN_API.md
+# Bazos's own geocoder, confirmed live both directions (docs/internal/bazos-api/HIDDEN_API.md
 # §3.1/§6.4d). Used only to fill the PostalCode cache — a code is looked up once, ever.
 BAZOS_ZIP_API_URL: Final[str] = f"{BAZOS_API_BASE_URL}/zip.php"
 # Pacing between geocode lookups, for the backfill command that walks hundreds of them in a

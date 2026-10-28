@@ -27,7 +27,7 @@ shipped_in: 0016-0030 — Stages 1-4 and 6-10. Stage 5 is the only open one and 
 > checkmarks are kept in sync with the code. Superseded alternate drafts live in
 > [`archive/superseded/`](../superseded/). See [`README.md`](../../README.md) for the full doc index.
 >
-> Orthogonal to these stages: [`HIDDEN_API.md`](../../research/bazos-api/HIDDEN_API.md)
+> Orthogonal to these stages: `HIDDEN_API.md`
 > proposes replacing `BazosScraper`'s HTML scraping with Bazos's hidden JSON API —
 > a change to *how* Bazos is scraped, not to this pipeline's stage sequence. Worth
 > reading before starting new Bazos-scraper work.

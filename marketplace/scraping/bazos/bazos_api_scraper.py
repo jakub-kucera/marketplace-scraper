@@ -1,7 +1,7 @@
 """BazosApiScraper — search via Bazos's hidden mobile JSON API.
 
 Alternate implementation of the `MarketplaceScraper` protocol, sitting next to
-`BazosScraper` for validation (see docs/research/bazos-api/HIDDEN_API.md).
+`BazosScraper` for validation (see docs/internal/bazos-api/HIDDEN_API.md).
 Registered in `QueryRunner._build_scrapers()` under the `bazos_api` key —
 no existing `Query` row uses that marketplace value, so this is inert for the
 production `run_scraper` loop until a `Query` is deliberately switched over.

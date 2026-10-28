@@ -38,7 +38,7 @@ under the radar), not by order of appearance below.
 > not the cycle, a pass costs ~12 min of wall clock, and the measured cycle is **42 min** over
 > two independent 7-day windows ([`API_CUTOVER.md`](API_CUTOVER.md) §1, re-measured 2026-09-18).
 > Competing services poll every 60 s and good listings are gone in minutes. See
-> [`MONETIZATION.md`](../MONETIZATION.md)
+> `MONETIZATION.md`
 > **§7.1** for the argument and the numbers; the executable fix is [`PROMPTS.md`](PROMPTS.md)
 > **P21a**, whose free half (the guard collapse) landed but whose latency half has not.
 > Everything in this table is downstream of that — a better filter delivered ~21 minutes late is
@@ -399,7 +399,7 @@ already on hand, small and self-contained.
 > operator** — it is matched as an ordinary literal word on top of the implicit AND of
 > space-separated terms, which is why `macbook AND pro` returns 15× fewer results than
 > `macbook pro`. Full probe evidence in
-> [`HIDDEN_API.md`](../research/bazos-api/HIDDEN_API.md)
+> `HIDDEN_API.md`
 > §4.1a–4.1b; the mechanism (plain SQL substring `LIKE`, not FULLTEXT boolean mode) is §4.1b.
 >
 > **The remaining follow-up is not a code change.** Consolidating existing narrow `Query` rows
@@ -525,7 +525,7 @@ Build it as a narrowly-scoped opt-in, not a general-purpose toggle:
 > few km of post-office imprecision is far below the noise in any margin estimate.
 
 
-> **Source**: internal analysis 2026-07-29, prompted by [`MONETIZATION.md`](../MONETIZATION.md)
+> **Source**: internal analysis 2026-07-29, prompted by `MONETIZATION.md`
 > §4.2's per-flip P&L, where travel is a real line item against a ~1,200 CZK margin.
 
 ### What exists today, and why it isn't enough
@@ -591,7 +591,7 @@ version until Stage D columns land anyway.
 >
 > Details in [`SHIPPED.md`](../SHIPPED.md) and CLAUDE.md's *Seller identity* section. This is
 > the local, zero-API precursor to
-> [`DISCOVERY_PIPELINE.md`](../research/bazos-api/DISCOVERY_PIPELINE.md)
+> `DISCOVERY_PIPELINE.md`
 > §3.1 (reseller/dealer detection).
 >
 > ⚠️ **One caveat worth keeping**: `Ad.message` embeds `seller_ad_counts().summary`, so rendering

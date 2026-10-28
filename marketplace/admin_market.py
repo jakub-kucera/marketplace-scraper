@@ -2,7 +2,7 @@
 
 The index answers *is it running*. This answers *is it worth running*, which is a different
 question with a different cadence of looking at it. Three sections, each tied to a claim in
-[`docs/MONETIZATION.md`](../docs/MONETIZATION.md):
+[`docs/internal/MONETIZATION.md`](../docs/internal/MONETIZATION.md):
 
 1. **Latency.** §1 calls cutting it "still the highest-return change in the repository" and
    measures a 42-minute cycle. Nothing instrumented it, so nobody could tell whether the

@@ -469,7 +469,7 @@ current-model laptops** — are the two smallest of the four on Sbazar (phones 4
 day; notebooks 4,384 / ~100 per day), and they are also the categories where an *internal* rolling
 price median is easiest to build, because volume is adequate and titles are relatively canonical.
 That internal baseline is already designed
-([`DISCOVERY_PIPELINE.md`](../bazos-api/DISCOVERY_PIPELINE.md) §2 Stage 2),
+(`DISCOVERY_PIPELINE.md` §2 Stage 2),
 needs no external dependency, no LLM step, no robots-disallowed request, and answers a *closely
 related* question. **It should be built first regardless of what happens to this idea**, and if it
 works the marginal value of the external baseline shrinks further.
@@ -607,7 +607,7 @@ would require grepping the JS bundles.
 ### 7c. Verdict against MONETIZATION.md §3's posture
 
 The current posture is **private use** — data stays with the operator, nothing is republished
-([`MONETIZATION.md`](../../MONETIZATION.md) §3, and *Innoweb v Wegener* C-202/12 on the sui generis
+(`MONETIZATION.md` §3, and *Innoweb v Wegener* C-202/12 on the sui generis
 right). Two things distinguish this from the Bazos situation:
 
 - **Volume is inherently low.** A baseline lookup is per-*product*, not per-listing, and results
@@ -624,7 +624,7 @@ right). Two things distinguish this from the Bazos situation:
   expose shop names (`Elektroshock.cz`), numeric shop ids and aggregate ratings — companies, not
   natural persons. No seller names, no phone numbers, no addresses. Compared to the Art. 14 exposure
   the Bazos scraper partly dodges by only ever seeing opaque ids
-  ([`MONETIZATION.md`](../../MONETIZATION.md) §6.5), a price-comparison source is close to a
+  (`MONETIZATION.md` §6.5), a price-comparison source is close to a
   best case. **This is the one dimension on which Track B beats every Track A candidate** — it just
   isn't enough to carry the rest.
 

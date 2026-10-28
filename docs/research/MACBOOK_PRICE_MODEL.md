@@ -13,7 +13,7 @@ verified: 2026-08-26
 > MacBook ads are included only where stated; both queries started 2026-08-23, so they are one
 > day of data.
 >
-> This doc exists because [`MONETIZATION.md`](../MONETIZATION.md) §4.2 rests on an **assumed**
+> This doc exists because `MONETIZATION.md` §4.2 rests on an **assumed**
 > 2% "meaningfully underpriced" rate and on anomaly scoring being the project's edge (§7.7).
 > Both are now measured for one category. **Everything here is one product category on one
 > marketplace** — notebooks are unusually dealer-heavy, and none of the concentration numbers
@@ -462,7 +462,7 @@ Consequence, unchanged: **every precision figure in §4 is a composition audit, 
 measurement.** "49% of the top 100 are clean" says they are not visibly broken; it does not say
 they are bargains. The distinction still cannot be closed from inside this dataset.
 
-This is [`MONETIZATION.md`](../MONETIZATION.md) §7.2(c) confirmed from the data side. It was
+This is `MONETIZATION.md` §7.2(c) confirmed from the data side. It was
 written as the reason `backlog/PROMPTS.md` **P24 must land before P23** can be calibrated
 rather than merely shipped; both have since shipped, and the calibration is still outstanding
 for the reason the blockquote gives.

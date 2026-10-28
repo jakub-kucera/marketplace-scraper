@@ -1,7 +1,7 @@
 """Tests for BazosApiScraper — the hidden-API-based MarketplaceScraper impl.
 
 Fixture JSON under fixtures/bazos_api/ is captured verbatim from live probes
-documented in docs/research/bazos-api/HIDDEN_API.md (§5.1 listing, §5.2
+documented in docs/internal/bazos-api/HIDDEN_API.md (§5.1 listing, §5.2
 detail).
 """
 import copy

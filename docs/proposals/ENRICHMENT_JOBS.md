@@ -116,7 +116,7 @@ a bot sprint around "fetching".
 
 `GET ratings.php?email_id=<id>` (or `phone_id=`) is **public, unauthenticated, and
 unpaginated**: one request returns a seller's whole rating history
-([`HIDDEN_API.md`](../research/bazos-api/HIDDEN_API.md) §6.4b, re-verified live with a worked
+(`HIDDEN_API.md` §6.4b, re-verified live with a worked
 example). Every id it needs is already stored — `EmailPublisher.bazos_id` /
 `PhonePublisher.bazos_id` hold exactly these values — so **the entire back catalogue can be
 enriched with no discovery step**. Each entry carries `name`, `phone`, `message`, `type`

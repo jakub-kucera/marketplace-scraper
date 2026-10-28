@@ -70,7 +70,7 @@ This database is not a set of listings. It is listings **joined to seller identi
   dataset**.
 
 Scraping public listings for private research is one posture, argued in
-[`MONETIZATION.md`](../MONETIZATION.md) §6. Serving a cross-referenced identity database
+`MONETIZATION.md` §6. Serving a cross-referenced identity database
 of Czech sellers on a public IP is a different one, and the repo already treats this data
 accordingly — `./backups/` is gitignored precisely because dumps hold seller PII
 ([`BACKUPS.md`](../BACKUPS.md)).
