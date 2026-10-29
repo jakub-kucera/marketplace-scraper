@@ -13,8 +13,8 @@ it can only act on matches a human or an earlier deliberate lookup produced.
 """
 import logging
 
-from bazos.filters import FilterResult
-from bazos.models import AdDelivery
+from marketplace.filters import FilterResult
+from marketplace.models import AdDelivery
 
 logger = logging.getLogger(__name__)
 

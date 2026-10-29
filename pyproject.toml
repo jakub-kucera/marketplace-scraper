@@ -88,8 +88,8 @@ exclude = [
     "data_export_23_3_2024",
     "*/migrations/*",
     # Dead/broken code, not wired into any runtime path (see CLAUDE.md).
-    "bazos/scraping/bazos/bazos_scraper_click.py",
-    "bazos/scraping/notifier.py",
+    "marketplace/scraping/bazos/bazos_scraper_click.py",
+    "marketplace/scraping/notifier.py",
     "senders/services/slack_sender.py",
     "senders/services/email_sender.py",
     "senders/services/calendar_api/calendar_condition_sender.py",
@@ -105,14 +105,14 @@ plugins = ["mypy_django_plugin.main"]
 exclude = '''(?x)(
     ^(old_tests|experiments|bazos_app_decomplied|data_export_23_3_2024)/
     | /migrations/
-    | ^bazos/scraping/bazos/bazos_scraper_click\.py$
-    | ^bazos/scraping/notifier\.py$
+    | ^marketplace/scraping/bazos/bazos_scraper_click\.py$
+    | ^marketplace/scraping/notifier\.py$
     | ^senders/services/slack_sender\.py$
     | ^senders/services/email_sender\.py$
     | ^senders/services/calendar_api/calendar_condition_sender\.py$
     | ^ip_changer/openvpn\.py$
     | ^verify_ip_changer\.py$
-    | ^bazos/scraping/selenium_driver\.py$
+    | ^marketplace/scraping/selenium_driver\.py$
 )'''
 ignore_missing_imports = true
 check_untyped_defs = true

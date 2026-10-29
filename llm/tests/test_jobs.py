@@ -16,12 +16,12 @@ def test_the_task_path_resolves():
 
 @pytest.mark.django_db
 def test_the_schedule_is_registered_from_this_app():
-    from bazos.jobs import SCHEDULES
+    from marketplace.jobs import SCHEDULES
 
     assert SCHEDULES["llm-check"].func == LLM_CHECK
 
 
-def test_bazos_jobs_does_not_import_llm():
+def test_marketplace_jobs_does_not_import_llm():
     """The dependency points inward, which is what `register_schedule` is for."""
     from refprice.tests.import_direction import modules_imported_by
 
@@ -73,7 +73,7 @@ def test_the_extraction_task_path_resolves():
 def test_extraction_reports_the_three_outcomes_separately():
     """"declined", "looked and the ad states nothing" and "here are the specs" are three
     different facts, and a bare "done" would collapse them."""
-    from bazos.models import Ad, Marketplace
+    from marketplace.models import Ad, Marketplace
     from llm.jobs import extract_ad_specs
 
     ad = Ad.objects.create(

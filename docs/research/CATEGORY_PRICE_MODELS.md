@@ -545,7 +545,7 @@ a corpus's −25% flags depending on the corpus, and it is **free**: `Query.pric
 loaded by the filter, no model change, no new feature.
 
 **The shipped code already knows this and does not do it.** `MacbookPriceModel._gates_pass`
-([`bazos/pricing/estimators/macbook.py`](../../bazos/pricing/estimators/macbook.py)) carries a
+([`marketplace/pricing/estimators/macbook.py`](../../marketplace/pricing/estimators/macbook.py)) carries a
 docstring citing "ads sitting exactly on a query's price floor are 9.2x enriched" as one of its
 three reasons — and its body implements only the other two, the completeness gate and the
 damage-word gate. Add the floor check as a universal `declined_reason` in `bazos/pricing`, not

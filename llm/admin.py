@@ -78,8 +78,8 @@ from django.contrib import messages  # noqa: E402
 from django_q.tasks import async_task  # noqa: E402
 from unfold.admin import TabularInline  # noqa: E402
 
-from bazos.admin import AdAdmin  # noqa: E402
-from bazos.models import Ad, AdSpecExtraction  # noqa: E402
+from marketplace.admin import AdAdmin  # noqa: E402
+from marketplace.models import Ad, AdSpecExtraction  # noqa: E402
 
 from llm.jobs import EXTRACT_AD_SPECS  # noqa: E402
 

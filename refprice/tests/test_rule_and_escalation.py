@@ -9,8 +9,8 @@ import datetime as dt
 
 import pytest
 
-from bazos.filters import DEFAULT_RULE_NAMES, RULE_REGISTRY, FilterResult, build_rule_engine
-from bazos.models import Ad, AdDelivery, AdStatus, Marketplace, Query
+from marketplace.filters import DEFAULT_RULE_NAMES, RULE_REGISTRY, FilterResult, build_rule_engine
+from marketplace.models import Ad, AdDelivery, AdStatus, Marketplace, Query
 from refprice.models import LookupStatus, RefProduct, RefProductLink
 from refprice.providers.base import Candidate, PricePoint, RefProductFacts
 from refprice.results import ReferenceRequest
@@ -70,7 +70,7 @@ def test_a_query_can_name_it_explicitly():
     assert any(r.name == "reference_price" for r in engine.rules)
 
 
-def test_bazos_filters_does_not_import_refprice():
+def test_marketplace_filters_does_not_import_refprice():
     """Registration happens in refprice's AppConfig.ready, so the dependency points
     inward and deleting this app leaves the pipeline intact."""
     from refprice.tests.import_direction import modules_imported_by

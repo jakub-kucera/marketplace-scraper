@@ -31,7 +31,7 @@ def lookup_reference_price(ad_pk: int) -> str:
     would be a *snapshot* taken when the task was queued and written back over whatever
     changed in between.
     """
-    from bazos.models import Ad
+    from marketplace.models import Ad
     from refprice.results import ReferenceRequest
     from refprice.services import lookup_reference_price as resolve
 

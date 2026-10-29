@@ -15,7 +15,7 @@ class LLMConfig(AppConfig):
         """
         from django_q.models import Schedule
 
-        from bazos.jobs import ScheduleSpec, register_schedule
+        from marketplace.jobs import ScheduleSpec, register_schedule
         from llm.jobs import LLM_CHECK
 
         # Weekly, and a no-op while LLM_PROVIDER is NULL (the shipped default), so this
@@ -25,7 +25,7 @@ class LLMConfig(AppConfig):
 
     def _register_jobs(self) -> None:
         """Offer both tasks on the admin's Run-a-job page."""
-        from bazos.jobs import AD_PK, JobSpec, register_job
+        from marketplace.jobs import AD_PK, JobSpec, register_job
         from llm.jobs import EXTRACT_AD_SPECS, LLM_CHECK
 
         register_job(JobSpec(LLM_CHECK, "Check the LLM backend",

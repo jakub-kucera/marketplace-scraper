@@ -10,7 +10,7 @@ import pytest
 from django.contrib import admin as dj_admin
 from django.contrib.messages import INFO
 
-from bazos.models import Ad, Marketplace
+from marketplace.models import Ad, Marketplace
 from refprice.jobs import (
     LOOKUP_REFERENCE_PRICE,
     REFRESH_STALE_REFERENCE_PRICES,
@@ -46,15 +46,15 @@ def test_every_task_path_resolves(dotted):
 
 @pytest.mark.django_db
 def test_the_refresh_schedule_is_registered_from_this_app():
-    """Registered at `AppConfig.ready()`, not declared in `bazos.jobs` — `bazos` imports
-    nothing from `refprice`, and deleting this app must break nothing there."""
-    from bazos.jobs import SCHEDULES
+    """Registered at `AppConfig.ready()`, not declared in `marketplace.jobs` — `marketplace`
+    imports nothing from `refprice`, and deleting this app must break nothing there."""
+    from marketplace.jobs import SCHEDULES
 
     assert "refresh-stale-reference-prices" in SCHEDULES
     assert SCHEDULES["refresh-stale-reference-prices"].func == REFRESH_STALE_REFERENCE_PRICES
 
 
-def test_bazos_jobs_does_not_import_refprice():
+def test_marketplace_jobs_does_not_import_refprice():
     """The dependency points inward. `register_schedule` exists precisely so this stays true.
 
     Checks the import statements rather than the text: `refprice` is *named* in a comment

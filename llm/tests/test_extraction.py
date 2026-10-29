@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from django.test import override_settings
 
-from bazos.models import Ad, AdSpecExtraction, Marketplace
+from marketplace.models import Ad, AdSpecExtraction, Marketplace
 from llm.base import LLMResult
 from llm.extraction import AdSpecs, _present, extract_specs
 

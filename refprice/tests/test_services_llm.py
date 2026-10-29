@@ -8,7 +8,7 @@ import datetime as dt
 
 import pytest
 
-from bazos.models import Ad, Marketplace
+from marketplace.models import Ad, Marketplace
 from refprice.models import LookupStatus
 from refprice.providers.base import Candidate, PricePoint, RefProductFacts
 from refprice.resolution.llm_rungs import Choice, PhraseSuggestion

@@ -56,7 +56,7 @@ def extract_ad_specs(ad_pk: int) -> str:
     this stores a declined row rather than raising. That row is still worth writing: "the
     model looked and had no opinion" is a different fact from "nothing looked".
     """
-    from bazos.models import Ad
+    from marketplace.models import Ad
 
     from llm.extraction import extract_specs
 

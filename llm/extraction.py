@@ -27,7 +27,7 @@ from dataclasses import asdict, dataclass, fields
 
 from django.conf import settings
 
-from bazos.models import Ad, AdSpecExtraction
+from marketplace.models import Ad, AdSpecExtraction
 from llm.prompts import load
 from llm.services import complete
 

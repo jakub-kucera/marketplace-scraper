@@ -1,0 +1,1517 @@
+"""Tests for bazos/admin.py — QueryAdminForm's per-query filter rule picker.
+
+Covers the admin-friendly checkbox UI for `Query.filter_rule_names`, backed by
+`bazos.filters.RULE_REGISTRY` (see PROMPTS.md P17).
+"""
+import json
+from datetime import timedelta
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pytest
+from bs4 import BeautifulSoup
+from django import forms as dj_forms
+from django.contrib import admin
+from django.contrib.auth import get_user_model
+from django.forms import model_to_dict
+from django.test import RequestFactory
+from django.urls import reverse
+from django.utils import timezone
+
+from marketplace.admin import AdAdmin, QueryAdmin, QueryAdminForm, QueryRunAdmin
+from marketplace.filters import RULE_REGISTRY
+from marketplace.models import Ad, AdDelivery, AdStatus
+from senders.models import Discord
+
+
+@pytest.fixture
+def valid_query_data(query):
+    """A full, form-valid data dict for `query`.
+
+    Two quirks of building POST-style data from `model_to_dict` rather than an
+    actual HTML submission:
+    - `Query.sender` has no `blank=True` despite `null=True`, so the form
+      requires a value even though the DB allows NULL — give it a real one.
+    - `QueryAdmin` has a `QueryChangeInline`, so the POST needs that formset's
+      management form. A browser submission carries it in the rendered HTML; a
+      hand-built dict has to add it, or the formset is invalid and the change
+      view re-renders as 200 with an *empty* `form.errors` (the error is on the
+      formset, not the form) — which looks exactly like a silent no-op.
+    - The default `JSONField` form widget round-trips through a JSON *string*;
+      `model_to_dict` gives the raw Python value instead, and an empty list
+      lands in `to_python`'s `empty_values` and gets coerced to `None`
+      (violating the NOT NULL column). Serialize those fields as real HTML
+      form submissions would.
+    """
+    sender = Discord.objects.create(channel_name="test", url="https://discord.test/webhook")
+    data = model_to_dict(query)
+    data["sender"] = sender.pk
+    data["filter_blocklist"] = json.dumps(data["filter_blocklist"])
+    data["filter_required"] = json.dumps(data["filter_required"])
+    data.update({
+        "config_history-TOTAL_FORMS": "0",
+        "config_history-INITIAL_FORMS": "0",
+        "config_history-MIN_NUM_FORMS": "0",
+        "config_history-MAX_NUM_FORMS": "0",
+    })
+    # model_to_dict gives None for empty FKs; a real <select> submits "" instead,
+    # and the test client's multipart encoder rejects None outright.
+    return {key: ("" if value is None else value) for key, value in data.items()}
+
+
+# ---------------------------------------------------------------------------
+# Field definition (no DB required)
+# ---------------------------------------------------------------------------
+
+def test_filter_rule_names_choices_match_registry():
+    """Choices are a callable, so a rule another app registers at AppConfig.ready() --
+    after this form class is defined -- is still selectable here."""
+    choices = QueryAdminForm.base_fields["filter_rule_names"].choices
+    assert [value for value, _label in choices] == list(RULE_REGISTRY)
+
+
+def test_an_opt_in_rule_from_another_app_is_still_selectable():
+    from marketplace.filters import OPT_IN_RULE_NAMES
+
+    choices = dict(QueryAdminForm.base_fields["filter_rule_names"].choices)
+    for name in OPT_IN_RULE_NAMES:
+        assert name in choices
+
+
+def test_filter_rule_names_uses_checkboxes():
+    field = QueryAdminForm.base_fields["filter_rule_names"]
+    assert isinstance(field.widget, dj_forms.CheckboxSelectMultiple)
+
+
+def test_filter_rule_names_not_required():
+    """Empty selection must be allowed — it means "all default rules"."""
+    assert QueryAdminForm.base_fields["filter_rule_names"].required is False
+
+
+# ---------------------------------------------------------------------------
+# Rendering existing selections (prepopulating the form)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_form_prepopulates_selected_rules_from_instance(query):
+    query.filter_rule_names = ["price_range", "price_drop"]
+    query.save()
+
+    form = QueryAdminForm(instance=query)
+
+    assert form.initial["filter_rule_names"] == ["price_range", "price_drop"]
+
+
+@pytest.mark.django_db
+def test_form_prepopulates_empty_when_no_rules_set(query):
+    form = QueryAdminForm(instance=query)
+    assert form.initial["filter_rule_names"] == []
+
+
+# ---------------------------------------------------------------------------
+# Saving selections
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_form_saves_selected_rule_subset(query, valid_query_data):
+    valid_query_data["filter_rule_names"] = ["blocklist_keyword", "required_keyword"]
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.filter_rule_names == ["blocklist_keyword", "required_keyword"]
+
+
+@pytest.mark.django_db
+def test_form_saves_empty_selection_as_empty_list(query, valid_query_data):
+    query.filter_rule_names = ["price_range"]
+    query.save()
+    valid_query_data["filter_rule_names"] = []
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.filter_rule_names == []
+
+
+@pytest.mark.django_db
+def test_form_rejects_unknown_rule_name(query, valid_query_data):
+    """Unlike raw JSON, the checkbox UI can't submit a typo'd rule name —
+    but guard the form-level validation directly in case choices ever
+    drift out of sync with RULE_REGISTRY."""
+    valid_query_data["filter_rule_names"] = ["not_a_real_rule"]
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert not form.is_valid()
+    assert "filter_rule_names" in form.errors
+
+
+# ---------------------------------------------------------------------------
+# JSONField "empty value" gotcha — an emptied widget round-trips as None, not
+# {}/[], which would violate the NOT NULL column. clean_extra_params /
+# clean_filter_blocklist / clean_filter_required all guard against this.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_form_saves_blank_extra_params_widget_as_empty_dict(query, valid_query_data):
+    valid_query_data["extra_params"] = ""  # a real, genuinely-cleared Textarea
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.extra_params == {}
+
+
+@pytest.mark.django_db
+def test_form_saves_blank_filter_blocklist_widget_as_empty_list(query, valid_query_data):
+    valid_query_data["filter_blocklist"] = ""
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.filter_blocklist == []
+
+
+@pytest.mark.django_db
+def test_form_saves_blank_filter_required_widget_as_empty_list(query, valid_query_data):
+    valid_query_data["filter_required"] = ""
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert saved.filter_required == []
+
+
+# ---------------------------------------------------------------------------
+# End-to-end through the real admin URL (Client, not just the form class)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def admin_client_logged_in(db, client):
+    User = get_user_model()
+    user = User.objects.create_superuser(username="admin", email="admin@test.local", password="password")
+    client.force_login(user)
+    return client
+
+
+@pytest.mark.django_db
+def test_change_page_renders_a_checkbox_per_rule(admin_client_logged_in, query):
+    response = admin_client_logged_in.get(f"/admin/bazos/query/{query.pk}/change/")
+    assert response.status_code == 200
+    content = response.content.decode()
+    for name in RULE_REGISTRY:
+        assert f'value="{name}"' in content, f"no checkbox rendered for rule {name!r}"
+
+
+@pytest.mark.django_db
+def test_change_page_checks_existing_selection(admin_client_logged_in, query):
+    query.filter_rule_names = ["price_range"]
+    query.save()
+
+    response = admin_client_logged_in.get(f"/admin/bazos/query/{query.pk}/change/")
+    soup = BeautifulSoup(response.content.decode(), "html.parser")
+
+    def checkbox(rule_name):
+        tag = soup.find("input", attrs={"name": "filter_rule_names", "value": rule_name})
+        assert tag is not None, f"no checkbox rendered for rule {rule_name!r}"
+        return tag
+
+    # Parsed, not substring-matched: the themed widget's class list contains Tailwind
+    # variants like `checked:bg-primary-600`, so `"checked" in tag` is true of every
+    # checkbox whether or not the attribute is set.
+    assert checkbox("price_range").has_attr("checked")
+    assert not checkbox("blocklist_keyword").has_attr("checked")
+
+
+@pytest.mark.django_db
+def test_change_page_post_updates_rule_selection(admin_client_logged_in, query, valid_query_data):
+    valid_query_data["filter_rule_names"] = ["publisher_blocklist", "price_drop"]
+
+    response = admin_client_logged_in.post(f"/admin/bazos/query/{query.pk}/change/", data=valid_query_data)
+
+    assert response.status_code == 302, response.context["adminform"].form.errors if response.status_code == 200 else None
+    query.refresh_from_db()
+    assert query.filter_rule_names == ["publisher_blocklist", "price_drop"]
+
+
+# ---------------------------------------------------------------------------
+# QueryAdmin.ad_count — how many ads this query has found
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def query_admin():
+    from django.contrib.admin.sites import AdminSite
+
+    from marketplace.admin import QueryAdmin
+    from marketplace.models import Query
+
+    return QueryAdmin(Query, AdminSite())
+
+
+@pytest.mark.django_db
+def test_ad_count_counts_this_querys_ads(query_admin, query, make_ad, make_delivery, rf):
+    for bazos_id in (1, 2, 3):
+        ad = make_ad(query, bazos_id)
+        ad.save()
+        make_delivery(ad, query)
+
+    row = query_admin.get_queryset(rf.get("/")).get(pk=query.pk)
+
+    assert query_admin.ad_count(row) == 3
+
+
+@pytest.mark.django_db
+def test_ad_count_is_not_inflated_by_query_runs(query_admin, query, make_ad, make_delivery, rf):
+    """`ad_count` counts `deliveries` while `last_run` aggregates over `runs`. Done as one
+    joined queryset those two relations multiply, and a non-distinct Count reports 6 here.
+    They are separate correlated subqueries now, so the counts can't interfere at all —
+    this stays as the guard against anyone folding them back into one join.
+    """
+    from django.utils import timezone
+
+    from marketplace.models import QueryRun
+
+    for bazos_id in (1, 2, 3):
+        ad = make_ad(query, bazos_id)
+        ad.save()
+        make_delivery(ad, query)
+    for _ in range(2):
+        QueryRun.objects.create(query=query, run_start=timezone.now(), run_end=timezone.now())
+
+    row = query_admin.get_queryset(rf.get("/")).get(pk=query.pk)
+
+    assert query_admin.ad_count(row) == 3
+    assert row.last_run is not None  # the other annotation still works
+
+
+@pytest.mark.django_db
+def test_ad_count_is_zero_for_a_query_with_no_ads(query_admin, query, rf):
+    row = query_admin.get_queryset(rf.get("/")).get(pk=query.pk)
+
+    assert query_admin.ad_count(row) == 0
+
+
+@pytest.mark.django_db
+def test_changelist_queryset_does_not_join_deliveries_or_runs(query_admin, rf):
+    """Performance guard, not a style preference.
+
+    `annotate(Count('deliveries'), Max('runs__...'))` joins both reverse relations into
+    one query, so Postgres materialises a deliveries x runs product per Query row — tens
+    of millions of intermediate rows once history accumulates, which is what made this
+    changelist slow. Correlated subqueries read one table each through its FK index.
+    """
+    sql = str(query_admin.get_queryset(rf.get("/")).query)
+
+    # get_queryset() runs before the changelist applies `list_select_related`, so a JOIN
+    # here can only come from an annotation. If someone adds a select_related *inside*
+    # get_queryset, relax this to assert on the two table names specifically.
+    assert "JOIN" not in sql
+    assert "DISTINCT" not in sql
+    # Both tables are still read — as subqueries, not joins.
+    assert "bazos_addelivery" in sql
+    assert "bazos_queryrun" in sql
+
+
+@pytest.mark.django_db
+def test_last_run_prefers_run_end_but_falls_back_to_run_start(query_admin, query, rf):
+    """An in-flight run has no run_end yet; the column must not go blank because of it."""
+    from django.utils import timezone
+
+    from marketplace.models import QueryRun
+
+    started = timezone.now()
+    QueryRun.objects.create(query=query, run_start=started, run_end=None)
+
+    row = query_admin.get_queryset(rf.get("/")).get(pk=query.pk)
+
+    assert row.last_run == started
+
+
+@pytest.mark.django_db
+def test_changelist_renders_the_ad_count_column(admin_client_logged_in, query, make_ad):
+    make_ad(query, 1).save()
+
+    response = admin_client_logged_in.get("/admin/bazos/query/")
+
+    assert response.status_code == 200
+    assert "column-ad_count" in response.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# AdAdmin.ordering — nulls_last (Vinted ads carry no publish_date)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_ad_admin_ordering_puts_null_publish_date_last():
+    """Plain "-publish_date" would put every null (Vinted) ad above the newest dated
+    (Bazos) ad — Postgres's DESC defaults to NULLS FIRST. AdAdmin.ordering must use
+    nulls_last so the changelist's "newest first" reads correctly once Vinted ads exist.
+    """
+    now = timezone.now()
+
+    def make(external_id, marketplace, publish_date):
+        return Ad.objects.create(
+            external_id=external_id, marketplace=marketplace,
+            url=f"https://example.test/{external_id}", name="x", price_raw="1 Kč",
+            location="", publish_date=publish_date, short_description="", publisher_name="",
+        )
+
+    older = make(1, "bazos", now - timedelta(days=1))
+    newer = make(2, "bazos", now)
+    no_date = make(3, "vinted", None)
+
+    # getattr, not AdAdmin.ordering directly: mypy can't resolve the attribute's type
+    # through the base class's `# type: ignore[assignment]` on the F().desc() value.
+    ordered_ids = list(Ad.objects.order_by(*getattr(AdAdmin, "ordering")).values_list("pk", flat=True))
+
+    assert ordered_ids == [newer.pk, older.pk, no_date.pk]
+
+
+# ---------------------------------------------------------------------------
+# QueryAdmin ordering — the changelist as a stable control panel
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def ordering_queries(db, category):
+    """Four queries spanning both sort keys that matter: enabled, then marketplace."""
+    from marketplace.models import Marketplace, Query
+
+    def make(text, enabled=True, marketplace=Marketplace.BAZOS):
+        return Query.objects.create(
+            text=text,
+            category=category,
+            location_radius=25,
+            enabled=enabled,
+            marketplace=marketplace,
+        )
+
+    # Created in an order that no sort key would reproduce by accident, so a passing
+    # assertion cannot be the `-pk` fallback in disguise.
+    return {
+        "disabled_bazos": make("aaa", enabled=False),
+        "vinted": make("zzz", marketplace=Marketplace.VINTED),
+        "bazos_b": make("bbb"),
+        "bazos_a": make("aab"),
+    }
+
+
+@pytest.mark.django_db
+def test_changelist_lists_enabled_queries_before_disabled(query_admin, ordering_queries, rf):
+    """Disabled rows are dead weight on this page — and `randomly_generated` queries are
+    force-disabled at the top of every pass, so this is what sinks the generated noise."""
+    rows = list(query_admin.get_queryset(rf.get("/")).order_by(*query_admin.ordering))
+
+    assert rows[-1] == ordering_queries["disabled_bazos"]
+    assert all(row.enabled for row in rows[:-1])
+
+
+@pytest.mark.django_db
+def test_changelist_groups_by_marketplace_then_sorts_by_text(query_admin, ordering_queries, rf):
+    rows = list(query_admin.get_queryset(rf.get("/")).order_by(*query_admin.ordering))
+
+    assert rows[:3] == [
+        ordering_queries["bazos_a"],   # bazos, "aab"
+        ordering_queries["bazos_b"],   # bazos, "bbb"
+        ordering_queries["vinted"],    # vinted sorts after bazos
+    ]
+
+
+@pytest.mark.django_db
+def test_last_run_sorts_never_run_queries_last(query_admin, ordering_queries, rf):
+    """Postgres DESC defaults to NULLS FIRST, so a bare "-last_run" would open the
+    "most recently run" view on the queries that have never run at all."""
+    from django.utils import timezone
+
+    from marketplace.models import QueryRun
+
+    ran = ordering_queries["bazos_b"]
+    QueryRun.objects.create(query=ran, run_start=timezone.now(), run_end=timezone.now())
+
+    order_field = QueryAdmin.last_run.admin_order_field
+    rows = list(query_admin.get_queryset(rf.get("/")).order_by(order_field))
+
+    assert rows[0] == ran
+    assert all(row.last_run is None for row in rows[1:])
+
+
+@pytest.mark.django_db
+def test_last_run_reversed_puts_never_run_queries_first(query_admin, ordering_queries, rf):
+    """Django reverses an `OrderBy` by flipping direction *and* null placement, so the
+    ascending click reads as least-recently-run first — never-run being the extreme."""
+    from django.utils import timezone
+
+    from marketplace.models import QueryRun
+
+    ran = ordering_queries["bazos_b"]
+    QueryRun.objects.create(query=ran, run_start=timezone.now(), run_end=timezone.now())
+
+    reversed_field = QueryAdmin.last_run.admin_order_field.copy()
+    reversed_field.reverse_ordering()
+    rows = list(query_admin.get_queryset(rf.get("/")).order_by(reversed_field))
+
+    assert rows[-1] == ran
+    assert all(row.last_run is None for row in rows[:-1])
+
+
+@pytest.mark.django_db
+def test_changelist_honours_the_last_run_column_sort_links(admin_client_logged_in, ordering_queries):
+    """`admin_order_field` holds an `OrderBy` expression rather than a string, which is a
+    branch of Django's own ordering parser — exercise the real request, both directions."""
+    index = QueryAdmin.list_display.index("last_run")
+
+    for order_param in (str(index), f"-{index}"):
+        response = admin_client_logged_in.get("/admin/bazos/query/", {"o": order_param})
+        assert response.status_code == 200, order_param
+        assert len(response.context["cl"].result_list) == len(ordering_queries)
+
+
+@pytest.fixture
+def query_run_admin():
+    from django.contrib.admin.sites import AdminSite
+
+    from marketplace.admin import QueryRunAdmin
+    from marketplace.models import QueryRun
+
+    return QueryRunAdmin(QueryRun, AdminSite())
+
+
+@pytest.mark.django_db
+def test_duration_is_the_measured_run_length(query_run_admin, query, rf):
+    from django.utils import timezone
+
+    from marketplace.models import QueryRun
+
+    started = timezone.now()
+    QueryRun.objects.create(query=query, run_start=started, run_end=started + timedelta(seconds=12.5))
+
+    row = query_run_admin.get_queryset(rf.get("/")).get()
+
+    assert row.duration == timedelta(seconds=12.5)
+    assert query_run_admin.duration(row) == "12.5 s"
+
+
+@pytest.mark.django_db
+def test_duration_is_blank_for_a_run_that_never_ended(query_run_admin, query, rf):
+    """`run_end` is nullable — a crashed or in-flight run must not read as 0.0 s."""
+    from django.utils import timezone
+
+    from marketplace.models import QueryRun
+
+    QueryRun.objects.create(query=query, run_start=timezone.now(), run_end=None)
+
+    row = query_run_admin.get_queryset(rf.get("/")).get()
+
+    assert row.duration is None
+    assert query_run_admin.duration(row) is None
+
+
+@pytest.mark.django_db
+def test_duration_sorts_longest_first_with_unmeasured_runs_last(query_run_admin, query, rf):
+    """Postgres DESC defaults to NULLS FIRST, so a bare "-duration" would open the
+    "slowest runs" view on the runs that have no duration at all."""
+    from django.utils import timezone
+
+    from marketplace.models import QueryRun
+
+    started = timezone.now()
+    short = QueryRun.objects.create(query=query, run_start=started, run_end=started + timedelta(seconds=1))
+    long = QueryRun.objects.create(query=query, run_start=started, run_end=started + timedelta(seconds=90))
+    unfinished = QueryRun.objects.create(query=query, run_start=started, run_end=None)
+
+    order_field = QueryRunAdmin.duration.admin_order_field
+    rows = list(query_run_admin.get_queryset(rf.get("/")).order_by(order_field))
+
+    assert rows == [long, short, unfinished]
+
+
+@pytest.mark.django_db
+def test_changelist_honours_the_duration_column_sort_links(admin_client_logged_in, query):
+    """`admin_order_field` holds an `OrderBy` expression rather than a string, which is a
+    branch of Django's own ordering parser — exercise the real request, both directions."""
+    from django.utils import timezone
+
+    from marketplace.models import QueryRun
+
+    started = timezone.now()
+    QueryRun.objects.create(query=query, run_start=started, run_end=started + timedelta(seconds=3))
+    QueryRun.objects.create(query=query, run_start=started, run_end=None)
+
+    index = QueryRunAdmin.list_display.index("duration")
+
+    for order_param in (str(index), f"-{index}"):
+        response = admin_client_logged_in.get("/admin/bazos/queryrun/", {"o": order_param})
+        assert response.status_code == 200, order_param
+        assert len(response.context["cl"].result_list) == 2
+
+# ---------------------------------------------------------------------------
+# QueryAdminForm — distance filter fields
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_form_normalises_the_distance_centre(query, valid_query_data):
+    valid_query_data["filter_location_center"] = "110 00"
+    valid_query_data["filter_location_radius"] = 10
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    assert form.save().filter_location_center == "11000"
+
+
+@pytest.mark.django_db
+def test_form_rejects_a_centre_that_is_not_a_postal_code(query, valid_query_data):
+    valid_query_data["filter_location_center"] = "Praha"
+    valid_query_data["filter_location_radius"] = 10
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert not form.is_valid()
+    assert "filter_location_center" in form.errors
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("center,radius", [("110 00", ""), ("", 10)])
+def test_form_rejects_half_a_distance_filter(query, valid_query_data, center, radius):
+    """Half a filter is no filter, but looks like a configured one on the change form."""
+    valid_query_data["filter_location_center"] = center
+    valid_query_data["filter_location_radius"] = radius
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert not form.is_valid()
+
+
+@pytest.mark.django_db
+def test_form_accepts_neither_field_set(query, valid_query_data):
+    valid_query_data["filter_location_center"] = ""
+    valid_query_data["filter_location_radius"] = ""
+
+    form = QueryAdminForm(data=valid_query_data, instance=query)
+
+    assert form.is_valid(), form.errors
+    saved = form.save()
+    assert (saved.filter_location_center, saved.filter_location_radius) == ("", None)
+    
+
+# ---------------------------------------------------------------------------
+# AdAdmin — price-score columns
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def ad_admin():
+    from django.contrib.admin.sites import AdminSite
+    return AdAdmin(Ad, AdminSite())
+
+
+@pytest.mark.django_db
+def test_ad_changelist_does_not_join_price_scores(ad_admin, rf):
+    """Same performance guard as QueryAdmin's, narrowed to what is actually at stake here.
+
+    `AdAdmin` legitimately joins `bazos_addelivery` — that is `Count('deliveries',
+    distinct=True)`, and its own comment explains why. What must NOT happen is a *second*
+    reverse-FK join: deliveries x price_scores materialises the product per Ad row, which
+    is the exact shape QueryAdmin.get_queryset was rewritten to avoid. So the scores have
+    to arrive as a correlated subquery.
+    """
+    sql = str(ad_admin.get_queryset(rf.get("/")).query)
+
+    assert "bazos_adpricescore" in sql, "the score columns must still read the table"
+    assert 'JOIN "bazos_adpricescore"' not in sql, "scores must be a subquery, not a join"
+    assert sql.count("JOIN") == 1, f"exactly one join (deliveries) expected, got: {sql}"
+
+
+@pytest.mark.django_db
+def test_score_columns_render_a_dash_when_nothing_scored(ad_admin, query, make_ad, rf):
+    ad = make_ad(query, 1)
+    ad.save()
+
+    row = ad_admin.get_queryset(rf.get("/")).get(pk=ad.pk)
+
+    assert ad_admin.price_discount(row) == "—"
+    assert ad_admin.price_z(row) == "—"
+
+
+@pytest.mark.django_db
+def test_score_columns_show_the_newest_scored_row(ad_admin, query, make_ad, rf):
+    from marketplace.models import AdPriceScore
+
+    ad = make_ad(query, 1)
+    ad.save()
+    AdPriceScore.objects.create(
+        ad=ad, model_name="macbook", model_version="1",
+        predicted=50_000, residual_log=-0.2, discount_pct=18.1, z_score=-2.4,
+    )
+
+    row = ad_admin.get_queryset(rf.get("/")).get(pk=ad.pk)
+
+    assert ad_admin.price_discount(row) == "+18%"
+    assert ad_admin.price_z(row) == "-2.40"
+
+
+@pytest.mark.django_db
+def test_score_columns_ignore_a_declined_score(ad_admin, query, make_ad, rf):
+    """A declined row has null numbers; it must not blank out a real score, nor render 0."""
+    from marketplace.models import AdPriceScore
+
+    ad = make_ad(query, 1)
+    ad.save()
+    AdPriceScore.objects.create(
+        ad=ad, model_name="macbook", model_version="1",
+        predicted=None, discount_pct=None, z_score=None, declined_reason="incomplete specs",
+    )
+
+    row = ad_admin.get_queryset(rf.get("/")).get(pk=ad.pk)
+
+    assert ad_admin.price_discount(row) == "—"
+
+
+# ---------------------------------------------------------------------------
+# Whole-surface smoke — the admin is an operational tool, not scaffolding
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_every_registered_changelist_renders(admin_client_logged_in):
+    """Every registered ModelAdmin's changelist returns 200, third-party ones included.
+
+    The targeted tests above cover Query and Ad. This is the net for the rest: a Django
+    upgrade, or a theme that replaces the admin templates, breaks a changelist somewhere
+    other than the two that happen to have assertions.
+    """
+    from django.contrib import admin as dj_admin
+
+    for model in dj_admin.site._registry:
+        opts = model._meta
+        url = reverse(f"admin:{opts.app_label}_{opts.model_name}_changelist")
+        response = admin_client_logged_in.get(url)
+        assert response.status_code == 200, f"{url} returned {response.status_code}"
+
+
+def test_range_filters_declare_list_filter_submit():
+    """A two-input filter without `list_filter_submit` renders with no way to apply it.
+
+    Unfold's range filters draw a from/to pair, and the Apply button is what
+    `list_filter_submit` adds - without it the sheet collects two values and can do
+    nothing with them. The changelist still returns 200, so the smoke test above cannot
+    see it, and neither can a reviewer reading the diff of a single admin class.
+    """
+    from django.contrib import admin as dj_admin
+    from unfold.contrib.filters.admin import (
+        RangeDateFilter,
+        RangeDateTimeFilter,
+        RangeNumericFilter,
+    )
+
+    two_input = (RangeNumericFilter, RangeDateFilter, RangeDateTimeFilter)
+    offenders = []
+    for model, modeladmin in dj_admin.site._registry.items():
+        specs = [f for f in (modeladmin.list_filter or ()) if isinstance(f, (tuple, list))]
+        if any(isinstance(f[1], type) and issubclass(f[1], two_input) for f in specs):
+            if not getattr(modeladmin, "list_filter_submit", False):
+                offenders.append(f"{type(modeladmin).__name__} ({model._meta.label})")
+    assert not offenders, "range filter without list_filter_submit: " + ", ".join(offenders)
+
+
+@pytest.mark.django_db
+def test_query_changelist_renders_the_force_run_button(admin_client_logged_in):
+    """The button lives in a template override (templates/admin/bazos/query/change_list.html)
+    that hooks Django's `object-tools-items` block. Nothing else notices if that block is
+    renamed upstream — the view tests in test_force_run.py call the handler directly.
+    """
+    response = admin_client_logged_in.get(reverse("admin:bazos_query_changelist"))
+
+    assert "Force Run Now" in response.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# Vinted catalog picker (VINTED_REWRITE.md §4)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def vinted_tree(db):
+    from marketplace.models import Marketplace, MarketplaceCategory
+
+    electronics = MarketplaceCategory.objects.create(
+        marketplace=Marketplace.VINTED, external_id="2994", name="Elektronika",
+    )
+    computers = MarketplaceCategory.objects.create(
+        marketplace=Marketplace.VINTED, external_id="3564",
+        name="Počítače a příslušenství", parent=electronics,
+    )
+    laptops = MarketplaceCategory.objects.create(
+        marketplace=Marketplace.VINTED, external_id="3580",
+        name="Notebooky", parent=computers,
+    )
+    desktops = MarketplaceCategory.objects.create(
+        marketplace=Marketplace.VINTED, external_id="3581",
+        name="Stolní počítače", parent=computers,
+    )
+    return electronics, computers, laptops, desktops
+
+
+@pytest.fixture
+def vinted_query(db):
+    from marketplace.models import Marketplace, Query
+
+    return Query.objects.create(
+        text="macbook", marketplace=Marketplace.VINTED,
+        price_lower=0, price_upper=0, new_query=False,
+    )
+
+
+def submit(query, **overrides):
+    """Run QueryAdminForm the way the change view does, returning the cleaned form."""
+    data = model_to_dict(query)
+    data["filter_blocklist"] = json.dumps(data["filter_blocklist"])
+    data["filter_required"] = json.dumps(data["filter_required"])
+    data["extra_params"] = json.dumps(data.get("extra_params") or {})
+    data = {k: ("" if v is None else v) for k, v in data.items()}
+    data.update(overrides)
+    form = QueryAdminForm(data=data, instance=query)
+    form.is_valid()
+    return form
+
+
+def test_catalog_picker_labels_are_breadcrumbs(vinted_tree):
+    """205 Vinted titles are shared by more than one node, so bare names cannot identify
+    a category."""
+    _, _, laptops, _ = vinted_tree
+    field = QueryAdminForm().fields["vinted_catalogs"]
+    assert field.label_from_instance(laptops) == (
+        "Elektronika > Počítače a příslušenství > Notebooky"
+    )
+
+
+def test_catalog_picker_builds_labels_in_one_query(vinted_tree, django_assert_num_queries):
+    """Reading MarketplaceCategory.path per choice would walk parents per row — thousands
+    of queries to render one form."""
+    field = QueryAdminForm().fields["vinted_catalogs"]
+    with django_assert_num_queries(1):
+        for node in vinted_tree:
+            field.label_from_instance(node)
+
+
+def test_catalog_picker_only_offers_vinted_rows(vinted_tree):
+    from marketplace.models import Marketplace, MarketplaceCategory
+
+    MarketplaceCategory.objects.create(
+        marketplace=Marketplace.SBAZAR, external_id="3580", name="Nářadí",
+    )
+    offered = QueryAdminForm().fields["vinted_catalogs"].queryset
+    assert all(row.marketplace == Marketplace.VINTED for row in offered)
+
+
+def test_catalog_picker_is_seeded_from_extra_params(vinted_tree, vinted_query):
+    _, _, laptops, _ = vinted_tree
+    vinted_query.extra_params = {"catalog_ids": [3580]}
+    vinted_query.save()
+
+    initial = QueryAdminForm(instance=vinted_query).fields["vinted_catalogs"].initial
+    assert list(initial) == [laptops]
+
+
+def test_selecting_a_catalog_writes_extra_params(vinted_tree, vinted_query):
+    _, _, laptops, _ = vinted_tree
+    form = submit(vinted_query, vinted_catalogs=[laptops.pk])
+    assert form.cleaned_data["extra_params"]["catalog_ids"] == [3580]
+
+
+def test_selecting_several_catalogs(vinted_tree, vinted_query):
+    _, _, laptops, desktops = vinted_tree
+    form = submit(vinted_query, vinted_catalogs=[laptops.pk, desktops.pk])
+    assert sorted(form.cleaned_data["extra_params"]["catalog_ids"]) == [3580, 3581]
+
+
+def test_clearing_the_picker_removes_the_key(vinted_tree, vinted_query):
+    """Not left as an empty list: `catalog_ids: []` and an absent key mean the same thing
+    to the scraper, and the absent key is the honest representation of "no filter"."""
+    vinted_query.extra_params = {"catalog_ids": [3580]}
+    vinted_query.save()
+
+    form = submit(vinted_query, vinted_catalogs=[])
+    assert "catalog_ids" not in form.cleaned_data["extra_params"]
+
+
+def test_other_extra_params_are_preserved(vinted_tree, vinted_query):
+    _, _, laptops, _ = vinted_tree
+    vinted_query.extra_params = {"brand_ids": [54661], "base_url": "https://www.vinted.sk"}
+    vinted_query.save()
+
+    form = submit(vinted_query, vinted_catalogs=[laptops.pk])
+    extra = form.cleaned_data["extra_params"]
+    assert extra["brand_ids"] == [54661]
+    assert extra["base_url"] == "https://www.vinted.sk"
+    assert extra["catalog_ids"] == [3580]
+
+
+def test_ids_the_picker_cannot_see_are_preserved(vinted_tree, vinted_query):
+    """⚠️ The data-loss trap. A category Vinted has retired — or one set before the table
+    was seeded — has no row to select, so rebuilding the list from the selection alone
+    would silently delete it on the next unrelated save."""
+    _, _, laptops, _ = vinted_tree
+    vinted_query.extra_params = {"catalog_ids": [999999, 3580]}
+    vinted_query.save()
+
+    form = submit(vinted_query, vinted_catalogs=[laptops.pk])
+    assert sorted(form.cleaned_data["extra_params"]["catalog_ids"]) == [3580, 999999]
+
+
+def test_unknown_id_survives_clearing_the_picker(vinted_tree, vinted_query):
+    vinted_query.extra_params = {"catalog_ids": [999999]}
+    vinted_query.save()
+
+    form = submit(vinted_query, vinted_catalogs=[])
+    assert form.cleaned_data["extra_params"]["catalog_ids"] == [999999]
+
+
+def test_non_vinted_query_extra_params_untouched(vinted_tree, query):
+    """extra_params is shared with other marketplaces; a Vinted-only field must not
+    rewrite Sbazar's config."""
+    query.extra_params = {"category_id": 123}
+    query.save()
+
+    form = submit(query, vinted_catalogs=[])
+    assert form.cleaned_data["extra_params"] == {"category_id": 123}
+
+
+@pytest.mark.django_db
+def test_change_form_renders_the_picker(client, vinted_tree, vinted_query):
+    User = get_user_model()
+    User.objects.create_superuser("admin2", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin2"))
+
+    response = client.get(reverse("admin:bazos_query_change", args=[vinted_query.pk]))
+    assert response.status_code == 200
+    assert b"vinted_catalogs" in response.content
+
+
+@pytest.mark.django_db
+def test_saving_through_the_change_view_persists_catalog_ids(
+    client, vinted_tree, vinted_query, valid_query_data
+):
+    """End to end through the real view, including the inline management form the
+    change form needs."""
+    _, _, laptops, _ = vinted_tree
+    User = get_user_model()
+    User.objects.create_superuser("admin3", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin3"))
+
+    data = model_to_dict(vinted_query)
+    data["filter_blocklist"] = json.dumps([])
+    data["filter_required"] = json.dumps([])
+    data["extra_params"] = json.dumps({})
+    # `Query.sender` lacks blank=True despite null=True, so the form requires one, and
+    # QueryAdmin's inline needs its management form or the view re-renders as a 200 with
+    # empty form.errors — see valid_query_data.
+    data["sender"] = valid_query_data["sender"]
+    data.update({k: v for k, v in valid_query_data.items() if k.startswith("config_history-")})
+    data["vinted_catalogs"] = [laptops.pk]
+    data = {k: ("" if v is None else v) for k, v in data.items()}
+
+    response = client.post(
+        reverse("admin:bazos_query_change", args=[vinted_query.pk]), data
+    )
+    if response.status_code != 302:
+        form = response.context_data["adminform"].form
+        raise AssertionError(f"form did not validate: {form.errors.as_json()}")
+
+    vinted_query.refresh_from_db()
+    assert vinted_query.extra_params["catalog_ids"] == [3580]
+
+
+def test_picker_leaves_catalog_ids_alone_when_extra_params_is_invalid(vinted_tree, vinted_query):
+    """If extra_params failed validation it is absent from cleaned_data; writing the
+    picker's selection into a fresh dict would then wipe every other key on save."""
+    _, _, laptops, _ = vinted_tree
+    vinted_query.extra_params = {"catalog_ids": [3580], "brand_ids": [54661]}
+    vinted_query.save()
+
+    form = submit(vinted_query, extra_params="{not json", vinted_catalogs=[laptops.pk])
+
+    assert "extra_params" in form.errors
+    vinted_query.refresh_from_db()
+    assert vinted_query.extra_params == {"catalog_ids": [3580], "brand_ids": [54661]}
+
+
+@pytest.mark.django_db
+def test_marketplace_category_changelist_shows_breadcrumbs(client, vinted_tree):
+    User = get_user_model()
+    User.objects.create_superuser("admin4", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin4"))
+
+    response = client.get(reverse("admin:bazos_marketplacecategory_changelist"))
+    assert response.status_code == 200
+    assert "Elektronika &gt; Počítače a příslušenství &gt; Notebooky" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_breadcrumb_builds_the_path_map_once_per_marketplace(vinted_tree, django_assert_num_queries):
+    """Reading MarketplaceCategory.path per row would walk parents per row — hundreds of
+    queries on a full changelist."""
+    from marketplace.admin import MarketplaceCategoryAdmin
+    from marketplace.models import MarketplaceCategory
+
+    modeladmin = MarketplaceCategoryAdmin(MarketplaceCategory, admin.site)
+    with django_assert_num_queries(1):
+        labels = [modeladmin.breadcrumb(node) for node in vinted_tree]
+
+    assert labels[2] == "Elektronika > Počítače a příslušenství > Notebooky"
+
+
+@pytest.mark.django_db
+def test_breadcrumb_cache_is_cleared_per_changelist_request(client, vinted_tree):
+    """The admin instance outlives a request, so a re-seed must not need a restart to
+    show up."""
+    from marketplace.admin import MarketplaceCategoryAdmin
+    from marketplace.models import Marketplace, MarketplaceCategory
+
+    modeladmin = MarketplaceCategoryAdmin(MarketplaceCategory, admin.site)
+    modeladmin._path_cache = {Marketplace.VINTED: {}}
+
+    User = get_user_model()
+    User.objects.create_superuser("admin5", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin5"))
+    request = client.request(**{"PATH_INFO": reverse("admin:bazos_marketplacecategory_changelist")}).wsgi_request
+    modeladmin.changelist_view(request)
+
+    assert modeladmin._path_cache is None
+
+
+# ---------------------------------------------------------------------------
+# Per-marketplace fieldsets (VINTED_REWRITE.md §5)
+# ---------------------------------------------------------------------------
+
+def _fieldsets(obj):
+    """QueryAdmin.get_fieldsets for `obj`. `get_form` consults request.user permissions,
+    so the request needs a user that can do everything."""
+    from marketplace.admin import QueryAdmin
+    from marketplace.models import Query
+
+    request = RequestFactory().get("/")
+    request.user = SimpleNamespace(
+        has_perm=lambda *a, **k: True,
+        is_active=True, is_staff=True, is_superuser=True,
+    )
+    return QueryAdmin(Query, admin.site).get_fieldsets(request, obj)
+
+
+def _all_fields(fieldsets):
+    return [name for _title, opts in fieldsets for name in opts["fields"]]
+
+
+def _group(fieldsets, title):
+    return next((opts for name, opts in fieldsets if name == title), None)
+
+
+@pytest.mark.django_db
+def test_vinted_query_collapses_bazos_only_fields(vinted_query):
+    hidden = _group(_fieldsets(vinted_query), "Not used by this marketplace")
+    assert hidden is not None
+    assert set(hidden["fields"]) == {
+        "section", "category", "location_center", "location_radius",
+        "filter_location_center", "filter_location_radius",
+    }
+    assert "collapse" in hidden["classes"]
+
+
+@pytest.mark.django_db
+def test_bazos_query_collapses_vinted_only_fields(query):
+    hidden = _group(_fieldsets(query), "Not used by this marketplace")
+    assert set(hidden["fields"]) == {"vinted_catalogs", "extra_params"}
+
+
+@pytest.mark.django_db
+def test_vinted_query_shows_the_catalog_picker_in_place(vinted_query):
+    where = _group(_fieldsets(vinted_query), "Where to search")
+    assert "vinted_catalogs" in where["fields"]
+    assert "extra_params" in where["fields"]
+    assert "section" not in where["fields"]
+
+
+@pytest.mark.django_db
+def test_sbazar_query_keeps_extra_params_but_not_the_vinted_picker(query):
+    from marketplace.models import Marketplace
+
+    query.marketplace = Marketplace.SBAZAR
+    query.save()
+    fieldsets = _fieldsets(query)
+    assert "extra_params" in _group(fieldsets, "Where to search")["fields"]
+    assert "vinted_catalogs" in _group(fieldsets, "Not used by this marketplace")["fields"]
+
+
+@pytest.mark.django_db
+def test_nothing_is_dropped_for_any_marketplace(query):
+    """⚠️ The invariant that matters: a field missing from the fieldsets is missing from
+    the form, so the operator can neither see nor clear its stored value."""
+    from marketplace.admin import QueryAdmin, QueryAdminForm
+    from marketplace.models import Marketplace, Query as QueryModel
+
+    expected = set(QueryAdminForm.base_fields) | set(QueryAdmin(QueryModel, admin.site).readonly_fields)
+    for marketplace in Marketplace.values:
+        query.marketplace = marketplace
+        query.save()
+        assert set(_all_fields(_fieldsets(query))) == expected, marketplace
+
+
+@pytest.mark.django_db
+def test_new_query_shows_everything_uncollapsed(query):
+    """`marketplace` has not been chosen yet on an add form, so there is nothing to
+    tailor to."""
+    fieldsets = _fieldsets(None)
+    assert _group(fieldsets, "Not used by this marketplace") is None
+    assert "section" in _all_fields(fieldsets)
+    assert "vinted_catalogs" in _all_fields(fieldsets)
+
+
+@pytest.mark.django_db
+def test_marketplace_stays_editable(vinted_query):
+    """Otherwise a query could never be moved off the marketplace whose fields are hidden."""
+    first_group = _fieldsets(vinted_query)[0]
+    assert "marketplace" in first_group[1]["fields"]
+
+
+@pytest.mark.django_db
+def test_a_field_missing_from_the_groups_still_renders(vinted_query, monkeypatch):
+    """Regression guard for the maintenance trap: adding a field to Query without
+    naming it in QUERY_FIELD_GROUPS must not silently drop it from the admin."""
+    import marketplace.admin as admin_module
+
+    trimmed = tuple(
+        (title, tuple(n for n in names if n != "price_lower"))
+        for title, names in admin_module.QUERY_FIELD_GROUPS
+    )
+    monkeypatch.setattr(admin_module, "QUERY_FIELD_GROUPS", trimmed)
+    assert "price_lower" in _all_fields(_fieldsets(vinted_query))
+
+
+@pytest.mark.django_db
+def test_change_form_still_renders_and_saves(client, vinted_tree, vinted_query, valid_query_data):
+    """End to end: the grouped form must still validate and save."""
+    _, _, laptops, _ = vinted_tree
+    User = get_user_model()
+    User.objects.create_superuser("admin6", "a@b.c", "pw")
+    client.force_login(User.objects.get(username="admin6"))
+
+    url = reverse("admin:bazos_query_change", args=[vinted_query.pk])
+    assert client.get(url).status_code == 200
+
+    data = model_to_dict(vinted_query)
+    data["filter_blocklist"] = json.dumps([])
+    data["filter_required"] = json.dumps([])
+    data["extra_params"] = json.dumps({})
+    data["sender"] = valid_query_data["sender"]
+    data.update({k: v for k, v in valid_query_data.items() if k.startswith("config_history-")})
+    data["vinted_catalogs"] = [laptops.pk]
+    data = {k: ("" if v is None else v) for k, v in data.items()}
+
+    assert client.post(url, data).status_code == 302
+    vinted_query.refresh_from_db()
+    assert vinted_query.extra_params["catalog_ids"] == [3580]
+
+
+# ---------------------------------------------------------------------------
+# FK widgets must not grow with the tables they point at
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_ad_change_page_does_not_grow_with_the_tables_its_fks_point_at(
+    admin_client_logged_in, query, make_ad
+):
+    """A plain FK `<select>` embeds one `<option>` per row of its target table.
+
+    Measured against production 2026-09-19, when `Ad` had three such widgets
+    (`reposted_from`, `email_publisher`, `phone_publisher`): ~67 000 options,
+    5.8 MB of HTML and 8.0 s of server time, out of 23 queries. It is not a query
+    problem and query-count assertions do not see it, so this pins the shape
+    instead: rendering must not depend on how big those tables are.
+    """
+    from marketplace.models import EmailPublisher, PhonePublisher
+
+    subject = make_ad(query, bazos_id=1)
+    subject.save()
+    url = reverse("admin:bazos_ad_change", args=[subject.pk])
+
+    def option_count():
+        return admin_client_logged_in.get(url).content.decode().count("<option")
+
+    before = option_count()
+
+    for i in range(2, 32):
+        ad = make_ad(query, bazos_id=i)
+        ad.email_publisher = EmailPublisher.objects.create(bazos_id=1000 + i, email=f"s{i}@test.test")
+        ad.phone_publisher = PhonePublisher.objects.create(bazos_id=2000 + i, phone=f"+42077700{i:04d}")
+        ad.save()
+
+    assert option_count() == before, (
+        "the Ad change page grew when unrelated ads and publishers were added — "
+        "an FK widget is embedding its whole target table"
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "field_name, term_kind",
+    [("email_publisher", "contact"), ("email_publisher", "id"),
+     ("phone_publisher", "contact"), ("phone_publisher", "id")],
+)
+def test_publisher_autocomplete_endpoint_finds_a_publisher(
+    admin_client_logged_in, query, make_ad, field_name, term_kind
+):
+    """Autocomplete is only as good as the target admin's `search_fields`.
+
+    `bazos_id` is an IntegerField, so it has to be searched exactly (`=bazos_id`):
+    the default `icontains` builds `integer LIKE %...%`, which Postgres refuses. The
+    endpoint is what the widget actually calls, so a misconfiguration here is a dead
+    picker rather than a failing page.
+    """
+    from marketplace.models import EmailPublisher, PhonePublisher
+
+    email_publisher = EmailPublisher.objects.create(bazos_id=4242, email="findme@test.test")
+    phone_publisher = PhonePublisher.objects.create(bazos_id=5353, phone="+420777123456")
+    publisher = email_publisher if field_name == "email_publisher" else phone_publisher
+    term = str(publisher.bazos_id) if term_kind == "id" else (
+        "findme" if field_name == "email_publisher" else "777123456"
+    )
+
+    response = admin_client_logged_in.get(
+        reverse("admin:autocomplete"),
+        {"app_label": "bazos", "model_name": "ad", "field_name": field_name, "term": term},
+    )
+
+    assert response.status_code == 200, response.content[:200]
+    ids = [row["id"] for row in response.json()["results"]]
+    assert str(publisher.pk) in ids
+
+
+# ---------------------------------------------------------------------------
+# Listing-state filter — the delisting sweep's vocabulary, on the changelist
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def listing_state_corpus(query, make_ad, db):
+    """One ad in each of the four states the filter distinguishes."""
+    from datetime import timedelta
+
+    from marketplace.const import DELIST_MAX_AGE_DAYS
+    from marketplace.models import Ad, Marketplace
+
+    now = timezone.now()
+    old = now - timedelta(days=DELIST_MAX_AGE_DAYS + 5)
+
+    def build(bazos_id, **kwargs):
+        ad = make_ad(query, bazos_id=bazos_id)
+        for field, value in kwargs.items():
+            setattr(ad, field, value)
+        ad.save()
+        # `created` is auto_now_add, so it has to be written back after the insert.
+        if "created_override" in kwargs:
+            Ad.objects.filter(pk=ad.pk).update(created=kwargs["created_override"])
+        return ad
+
+    build(9001, last_seen_at=now)                                   # listed, watched
+    build(9002, last_seen_at=now - timedelta(days=2), removed_at=now)  # gone
+    aged = build(9003, last_seen_at=now - timedelta(days=61))       # watch expired
+    Ad.objects.filter(pk=aged.pk).update(created=old)
+    build(9004)                                                     # never checked
+    vinted = build(9005, last_seen_at=now, marketplace=Marketplace.VINTED)  # unwatchable
+    return {"listed": 9001, "gone": 9002, "expired": 9003, "unchecked": 9004, "vinted": vinted.external_id}
+
+
+def _filtered_ids(admin_client, value):
+    """Drive the filter through the real changelist, not its constructor.
+
+    Django 5 hands `ListFilter` its params as lists taken from `request.GET.lists()`, so
+    building one by hand is a test of that calling convention rather than of the filter.
+    """
+    response = admin_client.get(reverse("admin:bazos_ad_changelist"), {"listing_state": value})
+    assert response.status_code == 200
+    return sorted(response.context["cl"].queryset.values_list("external_id", flat=True))
+
+
+@pytest.mark.django_db
+def test_listing_state_filter_separates_the_four_states(admin_client_logged_in, listing_state_corpus):
+    assert _filtered_ids(admin_client_logged_in, "listed") == [9001]
+    assert _filtered_ids(admin_client_logged_in, "gone") == [9002]
+    # aged past the watch horizon, and a marketplace the sweep cannot check at all
+    assert _filtered_ids(admin_client_logged_in, "unwatched") == [9003, 9005]
+    assert _filtered_ids(admin_client_logged_in, "unchecked") == [9004]
+
+
+@pytest.mark.django_db
+def test_listing_state_options_partition_the_table(admin_client_logged_in, listing_state_corpus):
+    """Every ad lands in exactly one bucket — otherwise the filter hides rows.
+
+    The point of the four options is that `removed_at IS NULL` is not one state, so this
+    is the assertion that stops someone collapsing them back into two.
+    """
+    from marketplace.models import Ad
+
+    seen = []
+    for value in ("listed", "gone", "unwatched", "unchecked"):
+        seen.extend(_filtered_ids(admin_client_logged_in, value))
+
+    assert sorted(seen) == sorted(Ad.objects.values_list("external_id", flat=True))
+    assert len(seen) == len(set(seen)), "an ad matched more than one listing state"
+
+
+@pytest.mark.django_db
+def test_changelist_renders_with_the_listing_state_filter(admin_client_logged_in, listing_state_corpus):
+    response = admin_client_logged_in.get(reverse("admin:bazos_ad_changelist"), {"listing_state": "gone"})
+
+    assert response.status_code == 200
+    assert response.context["cl"].result_count == 1
+
+
+@pytest.mark.django_db
+def test_listing_state_column_agrees_with_the_filter(listing_state_corpus, rf):
+    """The column must not call a censored row "listed" — see ListingStateFilter."""
+    from django.contrib.admin.sites import AdminSite
+
+    from marketplace.admin import AdAdmin
+    from marketplace.models import Ad
+
+    model_admin = AdAdmin(Ad, AdminSite())
+    rendered = {
+        ad.external_id: model_admin.listing_state(ad)
+        for ad in Ad.objects.all()
+    }
+
+    assert rendered[9001] == "listed"
+    assert rendered[9002].startswith("gone after")
+    assert rendered[9003].startswith("last seen ")   # aged out of the sweep
+    assert rendered[9004] == "—"
+    assert rendered[9005].startswith("last seen ")   # Vinted: never sweepable
+
+
+@pytest.mark.django_db
+def test_requeue_action_revives_failed_deliveries(admin_client_logged_in, query, make_ad, make_delivery):
+    """A FAILED delivery should be a dead-letter queue, not a dead end."""
+    from marketplace.models import AdDelivery, AdStatus
+
+    ad = make_ad(query, bazos_id=900)
+    ad.save()
+    failed = make_delivery(ad, query, status=AdStatus.FAILED)
+    AdDelivery.objects.filter(pk=failed.pk).update(send_attempts=5)
+    other = make_ad(query, bazos_id=901)
+    other.save()
+    sent = make_delivery(other, query, status=AdStatus.SENT)
+
+    response = admin_client_logged_in.post(
+        reverse("admin:bazos_addelivery_changelist"),
+        {"action": "requeue", "_selected_action": [failed.pk, sent.pk]},
+        follow=True,
+    )
+
+    failed.refresh_from_db()
+    sent.refresh_from_db()
+    assert response.status_code == 200
+    assert failed.status == AdStatus.APPROVED
+    assert failed.send_attempts == 0, "the budget counts attempts against the current cause"
+    assert sent.status == AdStatus.SENT, "only FAILED rows are requeued"
+
+
+# ---------------------------------------------------------------------------
+# Publisher detail-page actions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("model_name", ["phonepublisher", "emailpublisher"])
+def test_publisher_detail_page_offers_the_seller_jobs(admin_client, model_name):
+    """`actions` is a changelist dropdown only, so before `actions_detail` a seller's own
+    page had no way to run any of this without going back to the list and re-finding them."""
+    from marketplace.models import EmailPublisher, PhonePublisher
+
+    model = PhonePublisher if model_name == "phonepublisher" else EmailPublisher
+    pub = model.objects.create(bazos_id=555)
+
+    html = admin_client.get(reverse(f"admin:bazos_{model_name}_change", args=[pub.pk])).content.decode()
+
+    for label in ("Fetch ratings", "Fetch listings", "Find relisted"):
+        assert label in html, f"{label!r} button missing from the {model_name} change form"
+
+
+@pytest.mark.django_db
+def test_the_detail_ratings_button_queues_exactly_that_seller(admin_client):
+    from marketplace.models import PhonePublisher
+
+    pub = PhonePublisher.objects.create(bazos_id=556)
+    url = reverse("admin:bazos_phonepublisher_fetch_ratings_detail", args=[pub.pk])
+
+    with patch("marketplace.admin.async_task") as queued:
+        response = admin_client.get(url)
+
+    queued.assert_called_once()
+    job, kind, pk = queued.call_args.args
+    assert kind == "phone" and pk == pub.pk
+    assert response.status_code == 302
+
+
+@pytest.mark.django_db
+def test_the_queued_message_tells_the_truth_about_what_is_stored(admin_client, settings):
+    """The old text promised unconditionally that reviewer data was discarded. With
+    STORE_SELLER_REVIEWS on that is the opposite of what happens, and a reassurance that is
+    sometimes false is worse than none."""
+    from marketplace.models import PhonePublisher
+
+    pub = PhonePublisher.objects.create(bazos_id=557)
+    url = reverse("admin:bazos_phonepublisher_fetch_ratings_detail", args=[pub.pk])
+
+    settings.STORE_SELLER_REVIEWS = True
+    with patch("marketplace.admin.async_task"):
+        response = admin_client.get(url, follow=True)
+    assert "are stored as well as the counts" in response.content.decode()
+
+    settings.STORE_SELLER_REVIEWS = False
+    with patch("marketplace.admin.async_task"):
+        response = admin_client.get(url, follow=True)
+    assert "are discarded" in response.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# Detail-page actions on Ad, PostalCode and AdDelivery
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_ad_detail_page_offers_every_per_ad_job(admin_client, query, make_ad):
+    """`Ad.admin_url` is where a Discord notification lands, usually on a phone. Before
+    these, acting on an alert meant going back to a 30 000-row changelist to re-find the
+    row you were already looking at."""
+    ad = make_ad(query, 424242)
+
+    ad.save()
+    html = admin_client.get(reverse("admin:bazos_ad_change", args=[ad.pk])).content.decode()
+
+    for label in ("Score", "Fetch description", "Re-read listing"):
+        assert label in html, f"{label!r} missing from the ad change form"
+
+
+@pytest.mark.django_db
+def test_other_apps_can_add_their_own_detail_buttons(admin_client, query, make_ad):
+    """`refprice` and `llm` append to `AdAdmin.actions_detail` from their own admin.py,
+    the same seam `actions` and `inlines` use - the dependency points inward, so `bazos`
+    cannot import them. Without this they would have a changelist action and no button on
+    the page you actually arrive at."""
+    ad = make_ad(query, 424243)
+
+    ad.save()
+    html = admin_client.get(reverse("admin:bazos_ad_change", args=[ad.pk])).content.decode()
+
+    assert "Reference price" in html
+    assert "Extract specs" in html
+
+
+@pytest.mark.django_db
+def test_the_ad_score_button_queues_that_ad(admin_client, query, make_ad):
+    ad = make_ad(query, 424244)
+
+    ad.save()
+    with patch("marketplace.admin.async_task") as queued:
+        response = admin_client.get(reverse("admin:bazos_ad_score_this_ad", args=[ad.pk]))
+
+    queued.assert_called_once()
+    assert queued.call_args.args[1] == ad.pk
+    assert response.status_code == 302
+
+
+@pytest.mark.django_db
+def test_re_reading_is_refused_for_a_marketplace_with_no_bulk_id_endpoint(
+    admin_client, query, make_ad
+):
+    """Refused here rather than left to fail in the worker: a Failure row would report
+    "something broke" about a marketplace that simply has no such endpoint."""
+    from marketplace.models import Marketplace
+
+    ad = make_ad(query, 424245)
+
+    ad.save()
+    Ad.objects.filter(pk=ad.pk).update(marketplace=Marketplace.VINTED)
+
+    with patch("marketplace.admin.async_task") as queued:
+        response = admin_client.get(
+            reverse("admin:bazos_ad_refresh_this_ad", args=[ad.pk]), follow=True
+        )
+
+    queued.assert_not_called()
+    assert "no bulk-id endpoint" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_requeue_button_refuses_a_delivery_that_did_not_fail(admin_client, query, make_ad):
+    """One row, so "nothing happened" and "it worked" would look identical - say which."""
+    ad = make_ad(query, 424246)
+
+    ad.save()
+    delivery = AdDelivery.objects.create(ad=ad, query=query, status=AdStatus.SENT)
+
+    response = admin_client.get(
+        reverse("admin:bazos_addelivery_requeue_this_delivery", args=[delivery.pk]), follow=True
+    )
+
+    delivery.refresh_from_db()
+    assert delivery.status == AdStatus.SENT
+    assert "Only a FAILED delivery can be requeued" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_requeue_button_revives_a_failed_delivery(admin_client, query, make_ad):
+    ad = make_ad(query, 424247)
+
+    ad.save()
+    delivery = AdDelivery.objects.create(
+        ad=ad, query=query, status=AdStatus.FAILED, send_attempts=5
+    )
+
+    admin_client.get(reverse("admin:bazos_addelivery_requeue_this_delivery", args=[delivery.pk]))
+
+    delivery.refresh_from_db()
+    assert (delivery.status, delivery.send_attempts) == (AdStatus.APPROVED, 0)
+
+
+@pytest.mark.django_db
+def test_postal_code_page_can_ask_zip_php_again(admin_client):
+    """This admin exists as the escape hatch for a code zip.php places badly, so "ask
+    again" is the one action worth having on the row."""
+    from marketplace.models import PostalCode
+
+    code = PostalCode.objects.create(code="11000", city="Praha", latitude=50.0, longitude=14.4)
+    with patch("marketplace.admin.async_task") as queued:
+        admin_client.get(reverse("admin:bazos_postalcode_regeocode_this_code", args=[code.pk]))
+
+    queued.assert_called_once()
+    assert queued.call_args.args[1] == "11000"
+
+
+@pytest.mark.django_db
+def test_a_job_that_can_defer_says_so_when_queued(admin_client):
+    """Bazos blocks about half our exits, so a queued job can take an hour rather than ten
+    seconds. "Queued" followed by twenty minutes of nothing reads as broken unless the
+    possibility is said out loud."""
+    from marketplace.models import PhonePublisher
+
+    pub = PhonePublisher.objects.create(bazos_id=771)
+    with patch("marketplace.admin.async_task"):
+        response = admin_client.get(
+            reverse("admin:bazos_phonepublisher_fetch_ratings_detail", args=[pub.pk]), follow=True
+        )
+
+    assert "retry itself" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_a_job_that_cannot_be_blocked_does_not_promise_a_retry(admin_client):
+    """`detect_reposts` reads our own archive and makes no requests, so it can never defer.
+    Telling the user it might would be noise that trains them to ignore the real one."""
+    from marketplace.models import PhonePublisher
+
+    pub = PhonePublisher.objects.create(bazos_id=772)
+    with patch("marketplace.admin.async_task"):
+        response = admin_client.get(
+            reverse("admin:bazos_phonepublisher_detect_reposts_detail", args=[pub.pk]), follow=True
+        )
+
+    assert "retry itself" not in response.content.decode()

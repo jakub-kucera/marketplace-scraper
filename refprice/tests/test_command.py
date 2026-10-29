@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from django.core.management import CommandError, call_command
 
-from bazos.models import Ad, AdDelivery, AdStatus, Marketplace, Query
+from marketplace.models import Ad, AdDelivery, AdStatus, Marketplace, Query
 from refprice.models import RefLookup, RefProduct, RefProductLink
 from refprice.providers.base import Candidate, PricePoint, RefProductFacts
 

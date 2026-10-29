@@ -18,8 +18,8 @@ from unfold.decorators import action as unfold_action
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 
-from bazos.admin import AdAdmin
-from bazos.models import Ad
+from marketplace.admin import AdAdmin
+from marketplace.models import Ad
 from django_q.tasks import async_task
 
 from refprice.jobs import LOOKUP_REFERENCE_PRICE

@@ -11,7 +11,7 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from bazos.models import Ad, Marketplace
+from marketplace.models import Ad, Marketplace
 from refprice.models import (
     LookupStatus,
     MatchMethod,

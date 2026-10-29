@@ -9,7 +9,7 @@ import datetime as dt
 
 from django.core.management.base import BaseCommand, CommandError
 
-from bazos.models import Ad
+from marketplace.models import Ad
 from refprice.models import LookupStatus, RefProduct, RefProductLink
 from refprice.providers.base import get_provider
 from refprice.results import ReferenceRequest

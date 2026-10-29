@@ -15,7 +15,7 @@ class RefpriceConfig(AppConfig):
         `DEFAULT_RULE_NAMES` — the rule is available to a query that names it and inert
         for every query that does not, which is how `price_model` already ships.
         """
-        from bazos.filters import register_rule
+        from marketplace.filters import register_rule
         from refprice.rules import ReferencePriceRule
 
         register_rule(ReferencePriceRule(), opt_in=True)
@@ -29,7 +29,7 @@ class RefpriceConfig(AppConfig):
         """
         from django_q.models import Schedule
 
-        from bazos.jobs import ScheduleSpec, register_schedule
+        from marketplace.jobs import ScheduleSpec, register_schedule
         from refprice.jobs import REFRESH_STALE_REFERENCE_PRICES
 
         register_schedule(
@@ -40,7 +40,7 @@ class RefpriceConfig(AppConfig):
 
     def _register_jobs(self) -> None:
         """Offer both tasks on the admin's Run-a-job page."""
-        from bazos.jobs import AD_PK, JobSpec, register_job
+        from marketplace.jobs import AD_PK, JobSpec, register_job
         from refprice.jobs import LOOKUP_REFERENCE_PRICE, REFRESH_STALE_REFERENCE_PRICES
 
         register_job(JobSpec(LOOKUP_REFERENCE_PRICE, "Look up an ad's reference price", AD_PK))

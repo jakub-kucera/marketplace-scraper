@@ -1,0 +1,1758 @@
+import json
+from pathlib import Path
+from datetime import timedelta
+from typing import Any
+
+from django import forms
+from django.conf import settings
+from django.contrib import admin, messages
+from django.contrib.admin.exceptions import NotRegistered
+from django.db import models
+from django.db.models import Count, F, IntegerField, Max, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
+from django.http import HttpResponseRedirect
+from django.urls import reverse
+from django.utils.html import format_html, format_html_join
+from django.utils.safestring import mark_safe
+from django.utils import timezone
+from django.utils.http import urlencode
+from django_db_logger.admin import StatusLogAdmin
+from django_db_logger.models import StatusLog
+from django_q.admin import FailAdmin, QueueAdmin, ScheduleAdmin, TaskAdmin
+from django_q.models import (
+    Failure as QFailure,
+    OrmQ as QTask,
+    Schedule as QSchedule,
+    Success as QSuccess,
+    Task as QTaskHistory,
+)
+from django_q.tasks import async_task
+from unfold.admin import ModelAdmin, TabularInline
+from unfold.contrib.filters.admin import (
+    BooleanRadioFilter,
+    ChoicesDropdownFilter,
+    DropdownFilter,
+    RangeDateTimeFilter,
+    RangeNumericFilter,
+    RelatedDropdownFilter,
+)
+from unfold.decorators import action as unfold_action
+from unfold.widgets import (
+    UnfoldAdminCheckboxSelectMultipleWidget,
+    UnfoldAdminSelect2MultipleWidget,
+)
+
+from marketplace.comparables import find_comparables
+from marketplace.const import DELIST_MAX_AGE_DAYS, JOB_BLOCK_MAX_DEFERRALS, STORE_SELLER_REVIEWS
+from marketplace.delisting import SWEEPABLE_MARKETPLACES
+from marketplace.jobs import (
+    DETECT_REPOSTS,
+    FETCH_FULL_DESCRIPTION,
+    FETCH_SELLER_LISTINGS,
+    FETCH_SELLER_RATINGS,
+    GEOCODE_POSTAL_CODE,
+    REFRESH_AD,
+    SCORE_AD,
+)
+from marketplace.filters import RULE_REGISTRY
+from marketplace.geo import normalize_postal_code
+from marketplace.models import AdOutcome, AdPriceScore, AdStatus, Marketplace, MarketplaceCategory, PostalCode, Query, QueryChange, Ad, AdDelivery, PriceChange, Section, Category, EmailPublisher, PhonePublisher, QueryRun, SellerReview
+
+
+def _block_retry_note() -> str:
+    """Said at enqueue time, because a blocked exit turns ten seconds into up to an hour.
+
+    Bazos 403s about half of all Tor exits, and the eight rotations a job gets are spent in
+    fifteen seconds against a correlated sample. A job that hits that now defers itself rather
+    than dying - but "queued" followed by nothing visible for twenty minutes reads as broken
+    unless the possibility is said out loud.
+    """
+    return (f"If the exit is blocked it will retry itself up to {JOB_BLOCK_MAX_DEFERRALS} "
+            f"times over the next hour - watch Scheduled tasks.")
+
+
+def _ratings_privacy_note() -> str:
+    """What a ratings lookup will actually keep, said at the moment it is queued.
+
+    `STORE_SELLER_REVIEWS` decides whether the reviewer's name, unmasked phone and review
+    text are persisted as `SellerReview` rows or dropped by `summarise()`. The old message
+    promised unconditionally that they were discarded, which stopped being true the moment
+    the setting was turned on - and a reassurance that is sometimes false is worse than none.
+    """
+    if getattr(settings, "STORE_SELLER_REVIEWS", STORE_SELLER_REVIEWS):
+        return (
+            "STORE_SELLER_REVIEWS is ON: the reviewer's name, phone number and review text "
+            "are stored as well as the counts."
+        )
+    return "Only counts are stored - reviewer names, numbers and review text are discarded."
+
+
+class CategoryInline(TabularInline):
+    model = Category
+    extra = 0
+    readonly_fields = [
+        "name",
+        "url",
+        "bazos_id",
+    ]
+
+
+class ListingStateFilter(DropdownFilter):
+    """Delisted / still listed / no longer watched / never checked.
+
+    Four options rather than two because `removed_at IS NULL` does not mean "for sale".
+    The sweep stops looking after `DELIST_MAX_AGE_DAYS`, and it only covers
+    `SWEEPABLE_MARKETPLACES` at all, so an ad can be unremoved for three different
+    reasons: we checked and it was there, we stopped checking, or we never could. Folding
+    those together is what would turn this filter into a way to build a wrong study — the
+    third group is censored observations, not survivors.
+
+    The predicates mirror `bazos.delisting.due_for_check`, deliberately: if the sweep's
+    notion of "watchable" changes, this filter should be changed with it, and the shared
+    vocabulary is what makes that obvious.
+    """
+
+    title = "listing state"
+    parameter_name = "listing_state"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("listed", "Listed — checked, still up"),
+            ("gone", "Delisted — checked, gone"),
+            ("unwatched", "No longer watched (censored)"),
+            ("unchecked", "Never checked"),
+        )
+
+    def queryset(self, request, queryset):
+        horizon = timezone.now() - timedelta(days=DELIST_MAX_AGE_DAYS)
+        value = self.value()
+        if value == "gone":
+            return queryset.filter(removed_at__isnull=False)
+        if value == "listed":
+            return queryset.filter(
+                removed_at__isnull=True, last_seen_at__isnull=False,
+                created__gt=horizon, marketplace__in=SWEEPABLE_MARKETPLACES,
+            )
+        if value == "unwatched":
+            # Seen at least once and never seen gone, but the sweep has moved past it —
+            # either aged out or on a marketplace with no bulk-id endpoint.
+            return queryset.filter(removed_at__isnull=True, last_seen_at__isnull=False).filter(
+                Q(created__lte=horizon) | ~Q(marketplace__in=SWEEPABLE_MARKETPLACES)
+            )
+        if value == "unchecked":
+            return queryset.filter(last_seen_at__isnull=True, removed_at__isnull=True)
+        return queryset
+
+
+class HasFullDescriptionFilter(admin.SimpleListFilter):
+    title = 'has full description'
+    parameter_name = 'has_full_description'
+
+    def lookups(self, request, model_admin):
+        return (
+            ('yes', 'Has description'),
+            ('no', 'No description'),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == 'yes':
+            return queryset.exclude(full_description__isnull=True).exclude(full_description='')
+        if self.value() == 'no':
+            return queryset.filter(full_description__isnull=True) | queryset.filter(full_description='')
+
+
+@admin.register(Category)
+class CategoryAdmin(ModelAdmin):
+    list_display = (
+        "name",
+        "section",
+        "bazos_id",
+    )
+    list_filter = ("section",)
+    search_fields = ("name", "section__name")
+
+
+@admin.register(Section)
+class SectionAdmin(ModelAdmin):
+    list_display = (
+        "name",
+        "url",
+        "bazos_id",
+    )
+    readonly_fields = [
+        "name",
+        "url",
+        "bazos_id",
+    ]
+    search_fields = ("name",)
+    inlines = (CategoryInline,)
+
+
+def ad_changelist_url(ad_fk_name: str, pk) -> str:
+    """URL of the Ad changelist filtered to one related row.
+
+    `ad_fk_name` is the FK on `Ad` — "email_publisher", "phone_publisher".
+    A link rather than an inline everywhere it's used: inlines render every row on the
+    page, and the biggest seller in the 2024-03 export has 369 ads (a broad query, far
+    more). The changelist is paginated and inherits `AdAdmin.ordering` (newest first).
+    """
+    return f"{reverse('admin:bazos_ad_changelist')}?{urlencode({f'{ad_fk_name}__id__exact': pk})}"
+
+
+def ads_browse_link(ad_fk_name: str, obj):
+    """Readonly-field renderer: 'Browse N ads — newest first', or a dash."""
+    if obj.pk is None:
+        return "—"
+    count = obj.ads.count()
+    if not count:
+        return "— (no ads)"
+    return format_html(
+        '<a href="{}">Browse {} ad{}</a> — newest first',
+        ad_changelist_url(ad_fk_name, obj.pk),
+        count,
+        "" if count == 1 else "s",
+    )
+
+
+#: Longest rendering of a single old/new value before it is elided. `extra_params` and
+#: the keyword lists are the ones that get long, and a changelist row has to stay one line.
+CHANGE_VALUE_MAX_CHARS = 80
+
+
+def format_change_value(value) -> str:
+    """One config value as compact JSON — `null`, `["dell", "hp"]`, `"macbook"`.
+
+    JSON rather than `repr` so an empty list reads as `[]` instead of `[]`-vs-`()`
+    ambiguity, and so Czech characters in a blocklist survive as themselves.
+    """
+    try:
+        rendered = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError:  # pragma: no cover - JSONField cannot hold non-serialisable values
+        rendered = repr(value)
+    if len(rendered) > CHANGE_VALUE_MAX_CHARS:
+        return rendered[: CHANGE_VALUE_MAX_CHARS - 1] + "\u2026"
+    return rendered
+
+
+def render_change_diff(obj):
+    """A `QueryChange` as `field: old -> new` lines.
+
+    Styled with Django's own admin CSS variables rather than literal colours, so it stays
+    legible in the dark theme — the struck-through old value and bold new one carry the
+    meaning, and neither depends on hue.
+    """
+    if not obj.changes:
+        return "\u2014"
+    return format_html(
+        '<ul style="margin:0;padding:0;list-style:none">{}</ul>',
+        format_html_join(
+            "",
+            '<li><code>{}</code>: '
+            '<span style="color:var(--body-quiet-color)"><s>{}</s></span> '
+            '&rarr; <strong>{}</strong></li>',
+            (
+                (
+                    name,
+                    format_change_value(obj.changes[name].get("old")),
+                    format_change_value(obj.changes[name].get("new")),
+                )
+                for name in obj.changed_fields
+            ),
+        ),
+    )
+
+
+class QueryChangeInline(TabularInline):
+    """Recent config edits, on the Query change form."""
+
+    model = QueryChange
+    fk_name = "query"
+    extra = 0
+    can_delete = False
+    fields = ("created", "diff")
+    readonly_fields = ("created", "diff")
+    ordering = ("-created",)
+    verbose_name_plural = "Recent config changes"
+
+    #: A change form renders every inline row — there is no pagination — so the history is
+    #: capped here and the full list lives one click away on the changelist. See the
+    #: `ad_changelist_url` docstring for the same trade-off made the other way.
+    MAX_ROWS = 15
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        recent = qs.order_by("-created").values_list("pk", flat=True)[: self.MAX_ROWS]
+        return qs.filter(pk__in=list(recent))
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Change")
+    def diff(self, obj):
+        return render_change_diff(obj)
+
+
+def query_change_changelist_url(query_pk) -> str:
+    return (
+        f"{reverse('admin:bazos_querychange_changelist')}"
+        f"?{urlencode({'query__id__exact': query_pk})}"
+    )
+
+
+class CatalogChoiceField(forms.ModelMultipleChoiceField):
+    """A `MarketplaceCategory` picker labelled by breadcrumb rather than by name.
+
+    The breadcrumb is not decoration: 205 of Vinted's node titles are shared by more than
+    one node — 575 of 2,920 are ambiguous on their own and "Ostatní" appears 35 times — so
+    a list of bare names cannot be used to pick anything.
+
+    Labels come from one bulk `path_map` query, memoised on the field. Reading
+    `MarketplaceCategory.path` per choice would walk parents per row, i.e. thousands of
+    queries to render one form.
+    """
+
+    def __init__(self, *args, marketplace: str, **kwargs):
+        self.marketplace = marketplace
+        self._paths: dict[int, str] | None = None
+        super().__init__(*args, **kwargs)
+
+    def label_from_instance(self, obj: MarketplaceCategory) -> str:
+        if self._paths is None:
+            self._paths = MarketplaceCategory.path_map(self.marketplace)
+        return self._paths.get(obj.pk) or obj.name
+
+
+class QueryAdminForm(forms.ModelForm):
+    vinted_catalogs = CatalogChoiceField(
+        marketplace=Marketplace.VINTED,
+        queryset=MarketplaceCategory.objects.filter(marketplace=Marketplace.VINTED),
+        # Select2 so 2,920 options stay searchable. Named explicitly because Unfold only
+        # themes widgets it maps from a model field, and this field has no model behind it.
+        widget=UnfoldAdminSelect2MultipleWidget,
+        required=False,
+        label="Vinted categories",
+        help_text=(
+            "Writes to extra_params['catalog_ids']. Far more precise than text search — a "
+            "'macbook' search returned 22 unrelated items in 96, while catalog + brand "
+            "returned 96/96 correct. Seed this list with manage.py create_vinted_catalogs."
+        ),
+    )
+
+    filter_rule_names = forms.MultipleChoiceField(
+        # A callable, not a list: another app may register a rule at AppConfig.ready(),
+        # which runs after this module is imported. Freezing the choices here would leave
+        # such a rule impossible to enable from the admin even though the engine knows it.
+        choices=lambda: [(name, name.replace("_", " ").title()) for name in RULE_REGISTRY],
+        # Unfold styles the widgets it maps from model fields, but this one is declared by
+        # hand, so it has to name the themed widget itself. It subclasses Django's
+        # CheckboxSelectMultiple, so nothing that checks the widget type has to change.
+        widget=UnfoldAdminCheckboxSelectMultipleWidget,
+        required=False,
+        help_text="Filter rules applied to this query. None checked = all rules (default).",
+    )
+
+    class Meta:
+        model = Query
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Seed the picker from extra_params. The ids stored there are Vinted's own
+        # (external_id), not this table's primary keys, so they have to be looked up.
+        catalog_ids = self._stored_catalog_ids()
+        if catalog_ids:
+            self.fields["vinted_catalogs"].initial = MarketplaceCategory.objects.filter(
+                marketplace=Marketplace.VINTED,
+                external_id__in=[str(value) for value in catalog_ids],
+            )
+
+    def _stored_catalog_ids(self) -> list:
+        extra_params = getattr(self.instance, "extra_params", None) or {}
+        stored = extra_params.get("catalog_ids")
+        return list(stored) if isinstance(stored, list) else []
+
+    def clean_extra_params(self):
+        # `{}` is one of Django's JSONField "empty values" (like `[]` for
+        # filter_blocklist/filter_required below), so an emptied widget round-trips as
+        # None rather than `{}` — which would violate the NOT NULL column.
+        return self.cleaned_data.get("extra_params") or {}
+
+    def clean_filter_blocklist(self):
+        return self.cleaned_data.get("filter_blocklist") or []
+
+    def clean_filter_required(self):
+        return self.cleaned_data.get("filter_required") or []
+
+    def clean_filter_location_center(self):
+        raw = (self.cleaned_data.get("filter_location_center") or "").strip()
+        if not raw:
+            return ""
+        normalized = normalize_postal_code(raw)
+        if normalized is None:
+            raise forms.ValidationError("Not a postal code — expected five digits, e.g. 110 00.")
+        # Stored normalised so the filter never has to guess which of "110 00"/"11000" a
+        # given row used, and so the PostalCode cache keys line up on sight in the admin.
+        return normalized
+
+    def clean(self):
+        cleaned = super().clean()
+        self._apply_catalog_picker(cleaned)
+        center = cleaned.get("filter_location_center")
+        radius = cleaned.get("filter_location_radius")
+        # Half a distance filter is not a weaker filter, it is no filter — and it looks
+        # exactly like a configured one on the change form. Refuse it rather than let a
+        # query silently notify everything the user thought it had narrowed.
+        if bool(center) != (radius is not None):
+            raise forms.ValidationError(
+                "Set both filter_location_center and filter_location_radius, or neither — "
+                "one alone does nothing."
+            )
+        return cleaned
+
+    def _apply_catalog_picker(self, cleaned: dict | None) -> None:
+        """Fold the picker's selection back into `extra_params["catalog_ids"]`.
+
+        Runs from `clean()`, so `clean_extra_params` has already coerced None to {}.
+
+        ⚠️ Ids the picker cannot see are preserved, not dropped. A category Vinted has
+        retired — or one added to a query before the table was seeded — has no row to
+        select, so rebuilding the list from the selection alone would silently delete it
+        on the next unrelated save. That is exactly the stranding this taxonomy was kept
+        out of a ForeignKey to avoid (see MarketplaceCategory's docstring).
+
+        Only touches Vinted queries: extra_params is shared with other marketplaces, and a
+        field the form does not apply to must not rewrite their config.
+        """
+        # `super().clean()` returns None when a subclass has not set cleaned_data;
+        # Django's own forms tolerate that, so this has to as well.
+        if not cleaned or cleaned.get("marketplace") != Marketplace.VINTED:
+            return
+        if "extra_params" not in cleaned or "vinted_catalogs" not in cleaned:
+            return          # one of them failed validation; leave the stored value alone
+
+        selected = [int(row.external_id) for row in cleaned["vinted_catalogs"]
+                    if row.external_id.isdigit()]
+        known = set(
+            MarketplaceCategory.objects
+            .filter(marketplace=Marketplace.VINTED)
+            .values_list("external_id", flat=True)
+        )
+        unknown = [value for value in self._stored_catalog_ids() if str(value) not in known]
+
+        extra_params = dict(cleaned["extra_params"])
+        catalog_ids = unknown + selected
+        if catalog_ids:
+            extra_params["catalog_ids"] = catalog_ids
+        else:
+            extra_params.pop("catalog_ids", None)
+        cleaned["extra_params"] = extra_params
+
+
+#: Fields that only mean something on some marketplaces. Everything not listed here
+#: applies everywhere. Used by QueryAdmin.get_fieldsets to fold the irrelevant ones into
+#: a collapsed group rather than leaving a Bazos query showing `vinted_catalogs` and a
+#: Vinted query showing `section`, `category` and two unusable location filters.
+MARKETPLACE_ONLY_FIELDS: dict[str, set[str]] = {
+    # Bazos addresses its taxonomy through Section/Category FKs and builds URLs from them;
+    # the other marketplaces have no equivalent and leave both null.
+    "section": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "category": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    # Search-time location params: only Bazos accepts them.
+    "location_center": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "location_radius": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    # Filter-time distance: needs a postal code on the ad, which only Bazos publishes.
+    # `location_distance` PASSes unconditionally for every Vinted and Sbazar ad.
+    "filter_location_center": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "filter_location_radius": {Marketplace.BAZOS, Marketplace.BAZOS_API},
+    "vinted_catalogs": {Marketplace.VINTED},
+    # Both Bazos scrapers ignore extra_params entirely.
+    "extra_params": {Marketplace.VINTED, Marketplace.SBAZAR},
+}
+
+#: Field groups for the Query change form, in render order. The catch-all group in
+#: get_fieldsets picks up anything not named here, so adding a field to `Query` can never
+#: silently drop it off the form.
+QUERY_FIELD_GROUPS: tuple[tuple[str | None, tuple[str, ...]], ...] = (
+    (None, ("text", "marketplace", "enabled", "sender")),
+    ("Where to search", ("section", "category", "vinted_catalogs", "extra_params",
+                         "location_center", "location_radius")),
+    ("Price range", ("price_lower", "price_upper")),
+    ("Behaviour", ("new_query", "ignore_first_run", "load_full_description",
+                   "randomly_generated")),
+    ("Filtering", ("filter_rule_names", "filter_blocklist", "filter_required",
+                   "filter_location_center", "filter_location_radius",
+                   "filter_price_model_z", "filter_price_model_min_discount")),
+    ("History", ("config_history",)),
+)
+
+
+@admin.register(Query)
+class QueryAdmin(ModelAdmin):
+    form = QueryAdminForm
+    list_display = (
+        "query_name",
+        "text",
+        "category",
+        "section",
+        "marketplace",
+        "enabled",
+        "load_full_description",
+        "randomly_generated",
+        "sender",
+        "ad_count",
+        "last_run",
+    )
+    list_filter = (
+        "enabled",
+        "load_full_description",
+        "randomly_generated",
+        ("marketplace", ChoicesDropdownFilter),
+        ("section", RelatedDropdownFilter),
+        ("category", RelatedDropdownFilter),
+    )
+    # str(Query) reads text/category/section, so without this the changelist does a
+    # section+category lookup per row.
+    list_select_related = ("category", "section", "sender")
+    actions = ["enable_queries", "disable_queries", "geocode_filter_centres"]
+    actions_list = ["force_run_now"]
+    autocomplete_fields = ["category", "section", "sender"]
+    inlines = (QueryChangeInline,)
+    readonly_fields = ("config_history",)
+    ordering = ("-enabled", "marketplace", "text")
+
+    def get_fieldsets(self, request, obj=None):
+        """Group the form, and collapse whatever this marketplace does not use.
+
+        ⚠️ Nothing is ever *dropped*. A field left out of the fieldsets is left out of the
+        form, so it is not submitted — and while `construct_instance` then leaves the
+        stored value alone, the operator also loses any way to see or clear it after
+        switching marketplace. Irrelevant fields move into a collapsed group instead.
+
+        An unsaved Query (`obj is None`) shows everything: `marketplace` has not been
+        chosen yet, so there is nothing to tailor to.
+        """
+        groups: list[tuple[str | None, dict[str, Any]]] = []
+        placed = {name for _title, names in QUERY_FIELD_GROUPS for name in names}
+        form_fields = list(self.get_form(request, obj, fields=None).base_fields)
+        # Anything not named in QUERY_FIELD_GROUPS — a field added to Query later — still
+        # renders, rather than silently disappearing from the admin.
+        leftovers = tuple(name for name in form_fields if name not in placed)
+
+        marketplace = getattr(obj, "marketplace", None)
+        hidden: list[str] = []
+        for title, names in QUERY_FIELD_GROUPS:
+            visible = []
+            for name in names:
+                if name not in form_fields and name not in self.readonly_fields:
+                    continue
+                allowed = MARKETPLACE_ONLY_FIELDS.get(name)
+                if marketplace and allowed and marketplace not in allowed:
+                    hidden.append(name)
+                else:
+                    visible.append(name)
+            if title is None:
+                visible = list(visible) + list(leftovers)
+            if visible:
+                groups.append((title, {"fields": visible}))
+
+        if hidden:
+            groups.append((
+                "Not used by this marketplace",
+                {
+                    "fields": hidden,
+                    "classes": ("collapse",),
+                    "description": (
+                        f"These do nothing for a {obj.get_marketplace_display()} query. "
+                        "Shown so stored values stay visible and editable — change "
+                        "Marketplace above to bring them back."
+                    ),
+                },
+            ))
+        return groups
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # Correlated subqueries, deliberately NOT annotate(Max('runs__...'),
+        # Count('deliveries')). Two aggregates over two different reverse FKs make Django
+        # join BOTH tables into one query, so Postgres materialises a deliveries x runs
+        # product per Query row — a query with 5k deliveries and 2k runs is 10M
+        # intermediate rows, and the `distinct=True` that was needed to un-inflate the
+        # count then has to de-duplicate all of them. That is what made this changelist
+        # slow, and it degrades as history accumulates (QueryRun especially: a
+        # blacklisted query now writes one row per retry attempt).
+        #
+        # Each subquery below reads exactly one table through its own query_id FK index,
+        # so the cost is per-table and independent of the other relation's size.
+        last_run_subquery = (
+            QueryRun.objects
+            .filter(query=OuterRef('pk'))
+            .order_by()  # clear any default ordering, or it leaks into the GROUP BY
+            .values('query')
+            .annotate(last=Coalesce(Max('run_end'), Max('run_start')))
+            .values('last')[:1]
+        )
+        ad_count_subquery = (
+            AdDelivery.objects
+            .filter(query=OuterRef('pk'))
+            .order_by()
+            .values('query')
+            .annotate(n=Count('pk'))
+            .values('n')[:1]
+        )
+        return qs.annotate(
+            last_run=Subquery(last_run_subquery),
+            # An aggregate subquery over zero rows yields no row at all, i.e. NULL — so a
+            # query that has never found an ad needs the Coalesce to read as 0, not blank.
+            ad_count=Coalesce(Subquery(ad_count_subquery), 0, output_field=IntegerField()),
+        )
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        center = obj.filter_location_center
+        if center and not PostalCode.objects.filter(code=center).exists():
+            # Saved anyway, and the next scrape pass resolves it
+            # (`ScrapeRunner._ensure_filter_centres`) — but say so, because until then the
+            # rule PASSes everything, which from the change form is indistinguishable from
+            # a working filter. The command is the way to close the window immediately.
+            self.message_user(
+                request,
+                f"Postal code {center} is not geocoded yet, so the distance filter on this "
+                f"query does nothing until the next scrape pass resolves it. To do it now: "
+                f"python manage.py geocode_postal_codes --codes {center}",
+                messages.WARNING,
+            )
+
+    @admin.display(description="Query", ordering="pk")
+    def query_name(self, obj):
+        """First column, so it is the clickable link into the change form — the pk it
+        replaced identified nothing you could read.
+
+        Ordered by pk because str(Query) has no single backing field (it falls back
+        text -> category -> section); sorting by pk at least keeps the column sortable,
+        in the creation order the pk column used to give.
+        """
+        return str(obj)
+
+    def last_run(self, obj):
+        return getattr(obj, 'last_run', None)
+
+    last_run.admin_order_field = models.F('last_run').desc(nulls_last=True)  # type: ignore[attr-defined]
+    last_run.short_description = 'Last run'  # type: ignore[attr-defined]
+
+    @admin.display(description="Ads", ordering="ad_count")
+    def ad_count(self, obj):
+        return obj.ad_count
+
+    @admin.display(description="Config history")
+    def config_history(self, obj):
+        """Link to this query's full edit history — the inline below is capped."""
+        if obj.pk is None:
+            return "\u2014 (saved queries only)"
+        count = obj.config_history.count()
+        if not count:
+            return "\u2014 (no changes recorded yet)"
+        return format_html(
+            '<a href="{}">Browse {} change{}</a> \u2014 newest first',
+            query_change_changelist_url(obj.pk),
+            count,
+            "" if count == 1 else "s",
+        )
+
+    @admin.action(description="Enable selected queries")
+    def enable_queries(self, request, queryset):
+        updated = queryset.update(enabled=True)
+        self.message_user(request, f"{updated} query(ies) enabled successfully.")
+
+    @admin.action(description="Disable selected queries")
+    def disable_queries(self, request, queryset):
+        updated = queryset.update(enabled=False)
+        self.message_user(request, f"{updated} query(ies) disabled successfully.")
+
+    @admin.action(description="Geocode the distance-filter centre")
+    def geocode_filter_centres(self, request, queryset):
+        """Queue a `zip.php` lookup for each selected query's `filter_location_center`.
+
+        A centre is typed by hand on this page and has no creation moment of its own, so
+        until something geocodes it `location_distance` PASSes for the whole query — which
+        looks exactly like "no filter configured". The runner warms centres once a pass, so
+        without this the window is up to 45 minutes of a filter this page says is on.
+
+        Queries with no centre are skipped and counted rather than passed through: a task
+        whose only possible outcome is "nothing to do" is noise in the run log.
+        """
+        centres = {
+            centre for centre in queryset.exclude(filter_location_center="")
+            .values_list("filter_location_center", flat=True) if centre
+        }
+        for centre in sorted(centres):
+            async_task(GEOCODE_POSTAL_CODE, centre)
+
+        skipped = queryset.count() - len(centres)
+        self.message_user(
+            request,
+            f"Queued {len(centres)} geocode(s)"
+            + (f"; {skipped} selected query(ies) have no filter centre." if skipped > 0 else "."),
+            messages.INFO,
+        )
+
+    @unfold_action(description="Force Run Now", icon="bolt", url_path="force-run")
+    def force_run_now(self, request):
+        """Touch the sentinel flag file so the runner wakes from sleep immediately.
+
+        `actions_list` puts this in the changelist header and registers the URL, which is
+        what replaced a `get_urls` override plus a `change_list.html` that hooked Django's
+        `object-tools-items` block to hand-draw the button. `url_path` keeps the address
+        it has always had (`force-run/`); only the URL *name* changed, to the
+        `bazos_query_force_run_now` that unfold derives from the method.
+        """
+        flag_path = Path(settings.FORCE_RUN_FLAG_PATH)
+        flag_path.touch()
+        self.message_user(
+            request,
+            "⚡ Force-run flag set — the runner will start a new cycle within ~5 seconds.",
+            level=messages.SUCCESS,
+        )
+        return HttpResponseRedirect(request.META.get("HTTP_REFERER", "../"))
+
+
+@admin.register(QueryRun)
+class QueryRunAdmin(ModelAdmin):
+    list_display = (
+        "query",
+        "run_start",
+        "run_end",
+        "duration",
+        "new_ads_count",
+        "exit_ip",
+        "success",
+        "error",
+    )
+    # query__marketplace as its own filter even though str(Query) now carries the
+    # marketplace: reading it off every row is not the same as slicing the list by it.
+    list_filter = (
+        ("query", RelatedDropdownFilter),
+        ("query__marketplace", ChoicesDropdownFilter),
+        "success",
+        ("run_start", RangeDateTimeFilter),
+    )
+    list_filter_submit = True
+    list_select_related = ("query", "query__category", "query__section")
+    # exit_ip only. `error` is an unindexed TextField holding stack traces, and admin
+    # search is an unanchored icontains — on a table that now grows by one row per retry
+    # attempt that is a seq scan over every trace on every keystroke-submitted search.
+    search_fields = ("exit_ip",)
+
+    def get_queryset(self, request):
+        # Two columns of the same row, so unlike QueryAdmin's aggregates this adds no
+        # join and cannot multiply rows.
+        return super().get_queryset(request).annotate(
+            duration=models.F("run_end") - models.F("run_start"),
+        )
+
+    def duration(self, obj):
+        delta = getattr(obj, "duration", None)
+        if delta is None:
+            # A run with no run_end has no duration rather than a zero one — it either
+            # crashed or is still in flight. None renders as the admin's empty value.
+            return None
+        return f"{delta.total_seconds():.1f} s"
+
+    # Descending is the direction the column is for ("which runs are slow"), and nulls
+    # belong at that end's bottom; Django reverses an OrderBy by flipping the null
+    # placement too, so the ascending click reads shortest-first with the unmeasured
+    # runs leading. Same shape as QueryAdmin.last_run.
+    duration.admin_order_field = models.F("duration").desc(nulls_last=True)  # type: ignore[attr-defined]
+    duration.short_description = "Duration"  # type: ignore[attr-defined]
+
+
+@admin.register(QueryChange)
+class QueryChangeAdmin(ModelAdmin):
+    """Config edit log, across every query. Read-only — the rows are an audit trail."""
+
+    list_display = ("created", "query_display", "fields_changed", "diff")
+    list_filter = (
+        ("query", RelatedDropdownFilter),
+        ("query__marketplace", ChoicesDropdownFilter),
+        ("created", RangeDateTimeFilter),
+    )
+    list_filter_submit = True
+    list_select_related = ("query", "query__category", "query__section")
+    # str(Query) is not a column, so the label snapshot is the only searchable text —
+    # and it is also the only thing left once the query itself is deleted.
+    search_fields = ("query_label",)
+    date_hierarchy = "created"
+    ordering = ("-created",)
+    readonly_fields = ("created", "query", "query_label", "changes", "diff")
+    fields = ("created", "query", "query_label", "diff", "changes")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Query", ordering="query")
+    def query_display(self, obj):
+        """The live query, linked; the label snapshot once the query is gone."""
+        if obj.query is None:
+            return format_html("{} <em>(deleted)</em>", obj.query_label or "\u2014")
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:bazos_query_change", args=[obj.query_id]),
+            str(obj.query),
+        )
+
+    @admin.display(description="Fields")
+    def fields_changed(self, obj):
+        return ", ".join(obj.changed_fields) or "\u2014"
+
+    @admin.display(description="Change")
+    def diff(self, obj):
+        return render_change_diff(obj)
+
+
+class PriceChangeInline(TabularInline):
+    model = PriceChange
+    extra = 0
+    readonly_fields = ("old_price", "new_price", "created")
+    can_delete = False
+
+
+class SellerReviewInlineBase(TabularInline):
+    """The reviews behind the counts, on the seller whose reputation they are.
+
+    Read-only and capped. A prolific dealer can carry hundreds of reviews and a change form
+    renders every inline row with no pagination - the same trade-off `QueryChangeInline`
+    makes, and for the same reason. The newest are the ones that answer "is this seller
+    still fine"; the rest are one click away on the `SellerReview` changelist.
+
+    Empty unless `STORE_SELLER_REVIEWS` is on. That is not a bug to work around: the counts
+    on the row above are the always-on answer, and these rows are third-party personal data
+    the project collects only deliberately (see `SellerReview`).
+    """
+    model = SellerReview
+    extra = 0
+    can_delete = False
+    fields = ("verdict", "rated_at", "reviewer_name", "reviewer_phone", "message")
+    readonly_fields = fields
+    #: A change form renders every inline row, so the history is capped here and the full
+    #: list lives on the SellerReview changelist.
+    MAX_ROWS = 20
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        newest = qs.order_by("-rated_at", "-id").values_list("pk", flat=True)[: self.MAX_ROWS]
+        return qs.filter(pk__in=list(newest))
+
+
+class EmailSellerReviewInline(SellerReviewInlineBase):
+    fk_name = "email_publisher"
+
+
+class PhoneSellerReviewInline(SellerReviewInlineBase):
+    fk_name = "phone_publisher"
+
+
+class AdOutcomeInline(TabularInline):
+    """The one place a human records what actually happened about an ad.
+
+    Editable, unlike every other inline here — this is the only table in the project whose
+    contents a person is supposed to type. `Ad.removed_at` measures time-to-disappear, which
+    confounds sold with expired; these rows are what calibrate that.
+    """
+    model = AdOutcome
+    extra = 0
+    max_num = 1
+    fields = ("kind", "realised_price", "note")
+    can_delete = True
+
+
+class AdPriceScoreInline(TabularInline):
+    """What the price model thought, on the ad's own page.
+
+    P23 step 4's point: a rule that only returns APPROVE/REJECT/PASS throws away the
+    interesting number. This is where the number becomes visible.
+    """
+    model = AdPriceScore
+    extra = 0
+    fields = ("model_name", "model_version", "predicted", "discount_pct", "z_score",
+              "seller_prior_ads", "features", "declined_reason", "created")
+    readonly_fields = fields
+    can_delete = False
+
+
+class AdDeliveryInline(TabularInline):
+    model = AdDelivery
+    extra = 0
+    fields = ("query", "status", "filter_reason", "sent_at", "send_attempts", "created")
+    readonly_fields = ("query", "status", "filter_reason", "sent_at", "send_attempts", "created")
+    can_delete = False
+
+
+@admin.register(Ad)
+class AdAdmin(ModelAdmin):
+    list_display = (
+        "name",
+        "marketplace",
+        "external_id",
+        "topped",
+        "price_raw",
+        "publish_date",
+        "url",
+        "query_count",
+        "price_discount",
+        "price_z",
+        "listing_state",
+        "relist_of",
+        "created",
+    )
+    # Plain "-publish_date" would put every Vinted ad (publish_date is always null —
+    # see VINTED_SCRAPER.md §2.2) above the newest Bazos ads: Postgres's DESC
+    # defaults to NULLS FIRST. nulls_last keeps "newest first" meaning what it says.
+    ordering = (models.F("publish_date").desc(nulls_last=True),)  # type: ignore[assignment]  # django-stubs types ordering as Sequence[str]; F().desc() is valid at runtime
+    # A price range and a date window are the two questions this changelist could not
+    # answer before — both are field-backed, so they cost no custom queryset code. The
+    # query filter becomes a dropdown because the list of queries is unbounded and grows.
+    list_filter = (
+        "marketplace",
+        ("deliveries__query", RelatedDropdownFilter),
+        ("price", RangeNumericFilter),
+        ("price_type", ChoicesDropdownFilter),
+        ("created", RangeDateTimeFilter),
+        ListingStateFilter,
+        ("removed_at", RangeDateTimeFilter),
+        HasFullDescriptionFilter,
+    )
+    # Range filters collect two inputs, so they need something to submit them.
+    list_filter_submit = True
+    # Hosted here rather than on a model of its own: `AdPriceScore` has no changelist, and
+    # the ads are what the model has opinions about, so this is the page you are already on.
+    actions_list = ["price_model_page", "market_page"]
+    search_fields = ("name", "external_id", "url")
+
+    @unfold_action(description="Price model", icon="function", url_path="price-model")
+    def price_model_page(self, request):
+        from marketplace.admin_pricing import price_model_view
+
+        return price_model_view(request)
+
+    @unfold_action(description="Market", icon="insights", url_path="market")
+    def market_page(self, request):
+        from marketplace.admin_market import market_view
+
+        return market_view(request)
+    # Not cosmetic. A plain FK widget embeds one <option> per row of its target, and all
+    # three of these point at tables that grow with the scrape: measured on production
+    # 2026-09-19, reposted_from (30 057 ads), email_publisher (17 842) and phone_publisher
+    # (19 347) rendered ~67 000 options, 5.8 MB of HTML and 8.0 s of server time - out of
+    # 23 queries, so nothing that counts queries can see it. With autocomplete the same
+    # page is 115 ms and 180 KB. This is the page every Discord notification links to
+    # (Ad.admin_url), which is usually opened on a phone.
+    autocomplete_fields = ("reposted_from", "email_publisher", "phone_publisher")
+    readonly_fields = (
+        "external_id", "marketplace",
+        "seller_ad_counts",
+        "comparables",
+    )
+    inlines = (AdOutcomeInline, AdDeliveryInline, PriceChangeInline, AdPriceScoreInline)
+    # Annotated rather than left to inference: `refprice/admin.py` appends its own action
+    # to this tuple from outside (the dependency points inward, so `bazos` cannot import
+    # it), and a literal would be inferred as tuple[str] and reject the callable.
+    actions: tuple[Any, ...] = (
+        "score_selected_ads", "fetch_full_descriptions", "refresh_selected_ads",
+    )
+    # query_count's Count(...) annotation forces a GROUP BY over the whole ad × addelivery
+    # join. Without this, the changelist paginator's separate "N results" count query runs
+    # that GROUP BY as a subquery aggregate over the FULL table on every page load — cheap
+    # today, not at scale. This only drops the extra full-table count; the displayed page's
+    # own query (bounded by page size) still pays the join, same as QueryAdmin.ad_count.
+    show_full_result_count = False
+
+    def get_queryset(self, request):
+        # distinct=True: an Ad matching several queries has one delivery per query, and
+        # without it the join would multiply rows the same way QueryAdmin.ad_count's
+        # comment describes for the mirror-image annotation.
+        #
+        # The two score columns are correlated subqueries, NOT a second and third
+        # aggregate: adding Max('price_scores__...') alongside the Count above would join
+        # deliveries x price_scores and materialise the product per row, which is exactly
+        # what QueryAdmin.get_queryset was rewritten to avoid.
+        # Restricted to registered models and ranked by registry order, never by `-created`
+        # alone: nothing deletes an AdPriceScore, so a retired model's rows live on with
+        # stale numbers, and `update_or_create` never refreshes `created`
+        # (docs/backlog/PRICE_MODEL_DEFECTS.md §9). SQL cannot run `applies_to`, so this is
+        # a deterministic documented tiebreak rather than "the claiming model" — which is
+        # what `Ad.current_price_score()` gives the notification, where it can be computed.
+        from marketplace.pricing.registry import MODEL_REGISTRY
+
+        registered = list(MODEL_REGISTRY)
+        rank = models.Case(
+            *[models.When(model_name=name, then=models.Value(i)) for i, name in enumerate(registered)],
+            default=models.Value(len(registered)),
+            output_field=models.IntegerField(),
+        )
+        scores = (
+            AdPriceScore.objects
+            .filter(ad=OuterRef("pk"), predicted__isnull=False, model_name__in=registered)
+            .annotate(_registry_rank=rank)
+            .order_by("_registry_rank", "-created")
+        )
+        return super().get_queryset(request).annotate(
+            query_count=Count('deliveries', distinct=True),
+            price_discount=Subquery(scores.values("discount_pct")[:1]),
+            price_z=Subquery(scores.values("z_score")[:1]),
+        )
+
+    @admin.display(description="Queries", ordering="query_count")
+    def query_count(self, obj):
+        return obj.query_count
+
+    # nulls_last for the same reason as `ordering` above and QueryAdmin.last_run: most ads
+    # are never scored (no registered model claims them), and Postgres DESC is NULLS FIRST,
+    # so "biggest discount first" would open on a page of blanks.
+    @admin.display(description="Disc. %", ordering=models.F("price_discount").desc(nulls_last=True))
+    def price_discount(self, obj):
+        return "—" if obj.price_discount is None else f"{obj.price_discount:+.0f}%"
+
+    @admin.display(description="z", ordering=models.F("price_z").asc(nulls_last=True))
+    def price_z(self, obj):
+        return "—" if obj.price_z is None else f"{obj.price_z:+.2f}"
+
+    @admin.action(description="Re-score with the price model")
+    def score_selected_ads(self, request, queryset):
+        """Queue one scoring task per ad. Never scores inline.
+
+        CPU-only work, so it would in fact survive being done here — but a fifty-row
+        selection is fifty model evaluations plus fifty writes inside one admin request,
+        and routing it through the queue is what makes each one visible as its own row in
+        Successful/Failed tasks. The message says "queued" for the same reason it does on
+        the reference-price action: the outcome lives on those rows.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(SCORE_AD, pk)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} scoring task(s). Results appear on each ad, and in "
+            f"Scheduled tasks → Successful/Failed tasks.",
+            messages.INFO,
+        )
+
+    #: Buttons on the ad's own page, not only in the changelist dropdown. This is the page
+    #: `Ad.admin_url` points at, so it is where a Discord notification lands - usually on a
+    #: phone - and without these, acting on an alert meant going back to a 30 000-row
+    #: changelist to re-find the row you had just been looking at.
+    #:
+    #: A tuple, and appended to rather than replaced by `refprice` and `llm` from their own
+    #: `admin.py` (the same seam as `actions` and `inlines`, for the same reason: the
+    #: dependency points inward and `bazos` cannot import them). A list here would be
+    #: mutated in place by the first app to arrive and silently shared with the next.
+    actions_detail: tuple[Any, ...] = (
+        "score_this_ad", "fetch_this_description", "refresh_this_ad",
+    )
+
+    def _queue_for_ad(self, request, object_id, job: str, note: str) -> HttpResponseRedirect:
+        async_task(job, int(object_id))
+        self.message_user(request, note, messages.INFO)
+        return HttpResponseRedirect(reverse("admin:bazos_ad_change", args=[object_id]))
+
+    @unfold_action(description="Score", icon="function", url_path="score")
+    def score_this_ad(self, request, object_id):
+        return self._queue_for_ad(
+            request, object_id, SCORE_AD,
+            "Queued scoring. The result appears on this page once the worker picks it up.",
+        )
+
+    @unfold_action(description="Fetch description", icon="description", url_path="fetch-description")
+    def fetch_this_description(self, request, object_id):
+        """Unlike the changelist action this does not skip an ad that already has one.
+
+        There the skip protects you from spending fifty paced requests re-fetching text you
+        already hold; here you have asked about one specific ad, and "re-read it" is a
+        reasonable thing to want when the stored copy looks wrong.
+        """
+        return self._queue_for_ad(
+            request, object_id, FETCH_FULL_DESCRIPTION,
+            f"Queued a detail fetch. One paced request; it will overwrite any stored description. {_block_retry_note()}",
+        )
+
+    @unfold_action(description="Re-read listing", icon="refresh", url_path="refresh")
+    def refresh_this_ad(self, request, object_id):
+        ad = self.model.objects.filter(pk=object_id).only("marketplace").first()
+        if ad is not None and ad.marketplace not in SWEEPABLE_MARKETPLACES:
+            # Refused here rather than left to fail in the worker: a Failure row would say
+            # "something broke" about a marketplace that simply has no bulk-id endpoint.
+            self.message_user(
+                request,
+                f"{ad.marketplace} has no bulk-id endpoint, so a listing cannot be re-read.",
+                messages.WARNING,
+            )
+            return HttpResponseRedirect(reverse("admin:bazos_ad_change", args=[object_id]))
+        return self._queue_for_ad(
+            request, object_id, REFRESH_AD,
+            f"Queued a re-read. Price, view count and whether it is still listed. {_block_retry_note()}",
+        )
+
+    @admin.action(description="Fetch the full description")
+    def fetch_full_descriptions(self, request, queryset):
+        """Queue a detail fetch per ad, regardless of its query's `load_full_description`.
+
+        Ads that already have one are skipped and counted — this costs a paced request
+        against a marketplace that 403s about half our exits, so re-fetching something we
+        have is not a free no-op the way a cache hit is.
+        """
+        pks = list(queryset.filter(full_description__isnull=True).values_list("pk", flat=True))
+        for pk in pks:
+            async_task(FETCH_FULL_DESCRIPTION, pk)
+        skipped = queryset.count() - len(pks)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} detail fetch(es)"
+            + (f"; {skipped} already had a description." if skipped > 0 else "."),
+            messages.INFO,
+        )
+
+    @admin.action(description="Re-read the listing (price, still up?)")
+    def refresh_selected_ads(self, request, queryset):
+        """Queue a listing re-read per ad. Bazos only — see `enrichment.refresh_ad`.
+
+        Filtered here rather than left to fail in the worker: a Failure row per Vinted ad
+        would say "something broke" about a marketplace that simply has no bulk-id endpoint.
+        """
+        from marketplace.delisting import SWEEPABLE_MARKETPLACES
+
+        refreshable = queryset.filter(marketplace__in=SWEEPABLE_MARKETPLACES)
+        pks = list(refreshable.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(REFRESH_AD, pk)
+        skipped = queryset.count() - len(pks)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} refresh(es)"
+            + (f"; {skipped} on a marketplace with no bulk-id endpoint." if skipped > 0 else "."),
+            messages.INFO,
+        )
+
+    @admin.display(description="Relist of")
+    def relist_of(self, obj):
+        """Inferred, never stated — see `bazos/reposts.py`. Blank is the common case."""
+        if obj.reposted_from_id is None:
+            return "—"
+        return format_html(
+            '<a href="{}" title="inferred, not stated by the marketplace">#{}</a>',
+            reverse("admin:bazos_ad_change", args=[obj.reposted_from_id]),
+            obj.reposted_from_id,
+        )
+
+    @admin.display(description="Listing", ordering="removed_at")
+    def listing_state(self, obj):
+        """How long it stayed up — the one outcome-ish number in the database.
+
+        Says "gone", never "sold": a disappearance conflates sold, withdrawn and expired.
+        A never-swept ad reads "—", because it is not evidence of anything.
+
+        "last seen" rather than "listed" once the sweep has moved past an ad — aged out of
+        `DELIST_SCHEDULE` or on a marketplace with no bulk-id endpoint. The row is then a
+        censored observation, and the distinction has to survive into the column: filtering
+        to `ListingStateFilter`'s "No longer watched" and reading a page of rows that all
+        say "listed" is how a censored cohort gets counted as survivors.
+        """
+        if obj.removed_at:
+            days = (obj.removed_at - obj.created).days
+            return f"gone after {days}d"
+        if not obj.last_seen_at:
+            return "—"
+        watched = (
+            obj.marketplace in SWEEPABLE_MARKETPLACES
+            and obj.created > timezone.now() - timedelta(days=DELIST_MAX_AGE_DAYS)
+        )
+        return "listed" if watched else f"last seen {obj.last_seen_at:%Y-%m-%d}"
+
+    @admin.display(description="Seller history")
+    @admin.display(description="Comparable listings")
+    def comparables(self, obj):
+        """Same spec, cheapest first, with this ad marked — see `bazos/comparables.py`.
+
+        Detail page only, like `seller_ad_counts` and for the same reason: one bounded
+        query per page is fine, one per changelist row is not.
+        """
+        if obj.pk is None:
+            return "—"
+        found = find_comparables(obj)
+        if found is None:
+            return format_html(
+                '<span style="color:var(--body-quiet-color)">{}</span>',
+                "— no comparable bucket (needs a scored ad of a model that defines "
+                "comparable_keys)",
+            )
+        rows = format_html_join(
+            "",
+            '<li><a href="{}">{}</a> — <strong>{}</strong> Kč{}</li>',
+            (
+                (row.url, row.name[:70], row.price, " ← this ad" if row.is_subject else "")
+                for row in found.rows
+            ),
+        )
+        return format_html(
+            '<div><strong>{}</strong> — {} listed, median {} Kč{}</div>'
+            '<ul style="margin:.4em 0 0;padding-left:1.2em">{}</ul>'
+            '<div style="color:var(--body-quiet-color)">asking prices, not sold; '
+            'a relisted item counts once per listing</div>',
+            found.label, found.count, found.median,
+            f", this one ranks {found.subject_rank}" if found.subject_rank else "",
+            rows,
+        )
+
+    def seller_ad_counts(self, obj):
+        """Three counts plus links to each identity — see `SellerAdCounts` for why three.
+
+        Detail page only, deliberately: this walks the identity graph (a handful of
+        queries), which is fine once per page but not once per changelist row.
+        """
+        if obj.pk is None:
+            return "—"
+        counts = obj.seller_ad_counts()
+        if not counts.combined:
+            return "— (no publisher on this ad)"
+
+        links = []
+        for publisher, label in ((obj.email_publisher, "email"), (obj.phone_publisher, "phone")):
+            if publisher is None:
+                links.append(format_html("<li>{}: —</li>", label))
+                continue
+            url = reverse(f"admin:bazos_{publisher._meta.model_name}_change", args=[publisher.pk])
+            count = counts.by_email if label == "email" else counts.by_phone
+            links.append(
+                format_html(
+                    '<li>{}: <a href="{}">{}</a> — {} ad{}</li>',
+                    label, url, publisher.bazos_id, count, "" if count == 1 else "s",
+                )
+            )
+        note = (
+            " — this seller posts under more than one email/phone pairing"
+            if counts.has_split_identity
+            else ""
+        )
+        return format_html(
+            "<b>{} ad{} seen from this seller</b>{}<ul style=\"margin:0;padding-left:1.2em\">{}</ul>"
+            "<small>Counts ads in this database (what our queries scraped), not the seller's "
+            "Bazos total.</small>",
+            counts.combined,
+            "" if counts.combined == 1 else "s",
+            note,
+            mark_safe("".join(links)),
+        )
+
+
+@admin.register(AdDelivery)
+class AdDeliveryAdmin(ModelAdmin):
+    """The pipeline view: one row per (ad, query), where `Ad.status` used to live."""
+
+    list_display = ("ad", "query", "status", "filter_reason", "sent_at", "send_attempts", "created")
+    #: Requeueing the delivery whose page you are on, without going back to the list. Only
+    #: meaningful for a FAILED row, and it says so rather than silently doing nothing -
+    #: the changelist action filters a selection, but here there is exactly one row and
+    #: "nothing happened" would be indistinguishable from "it worked".
+    actions_detail = ["requeue_this_delivery"]
+
+    @unfold_action(description="Requeue", icon="send", url_path="requeue")
+    def requeue_this_delivery(self, request, object_id):
+        updated = self.model.objects.filter(pk=object_id, status=AdStatus.FAILED).update(
+            status=AdStatus.APPROVED, send_attempts=0
+        )
+        if updated:
+            self.message_user(request, "Requeued for sending; attempt budget reset.", messages.INFO)
+        else:
+            self.message_user(
+                request, "Only a FAILED delivery can be requeued; this one is not.", messages.WARNING
+            )
+        return HttpResponseRedirect(reverse("admin:bazos_addelivery_change", args=[object_id]))
+    list_filter = (
+        ("status", ChoicesDropdownFilter),
+        ("query", RelatedDropdownFilter),
+        ("created", RangeDateTimeFilter),
+    )
+    list_filter_submit = True
+    search_fields = ("ad__name", "ad__external_id")
+    ordering = ("-created",)
+    readonly_fields = ("ad", "query", "status", "filter_reason", "sent_at", "send_attempts")
+    actions = ["requeue"]
+
+    @admin.action(description="Requeue for sending (FAILED → APPROVED)")
+    def requeue(self, request, queryset):
+        """Give up-for-dead notifications another go.
+
+        Without this a FAILED delivery is a dead end rather than a dead-letter queue: the
+        ad is in the database, the reason it never arrived has usually been fixed, and
+        there is no way back. A *bulk* action rather than a per-row one because the
+        recovery case is 65 deliveries stranded by one cause, not one unlucky ad.
+
+        `send_attempts` resets because the budget counts attempts against *the current
+        cause*, not against one that was fixed weeks ago.
+        """
+        updated = queryset.filter(status=AdStatus.FAILED).update(
+            status=AdStatus.APPROVED, send_attempts=0
+        )
+        skipped = queryset.count() - updated
+        message = f"{updated} delivery(ies) requeued; run_sender will pick them up within a poll."
+        if skipped:
+            message += f" {skipped} skipped — only FAILED deliveries can be requeued."
+        self.message_user(request, message, level=messages.WARNING if skipped else messages.SUCCESS)
+
+
+PARTNER_DISPLAY_LIMIT = 50
+
+
+class PublisherAdminBase(ModelAdmin):
+    """Shared behaviour for the `EmailPublisher` / `PhonePublisher` admins.
+
+    Both models are the same shape — an opaque Bazos id, an unpopulated contact field, and
+    a `blocked` flag — and differ only in which `Ad` FK points at them. Subclasses declare
+    that difference via `own_ad_field` / `partner_ad_field` / `partner_model`.
+
+    The partner list is the point: a seller's identity on Bazos is a *pair* of ids, and the
+    same person routinely posts under several. One email pairing with four phones over four
+    months is a real, observed pattern (a recruiter posting job ads), and it's invisible
+    until you look at the pairing. See docs/backlog/BACKLOG_IDEAS.md — this is the cheap
+    precursor to reseller detection.
+    """
+    # Autocomplete paginates its results, and an unordered queryset makes page 2
+    # arbitrary - Django warns UnorderedObjectListWarning and the picker can repeat
+    # or skip rows as you scroll. bazos_id is the identity, so it is also the sort.
+    ordering = ("bazos_id",)
+
+    #: Name of the FK on `Ad` pointing at *this* admin's model.
+    own_ad_field: str = ""
+    #: Name of the FK on `Ad` pointing at the *other* publisher type.
+    partner_ad_field: str = ""
+    #: The other publisher model, used to build admin links.
+    partner_model: type[models.Model] | None = None
+
+    list_filter = ("blocked",)
+    actions = [
+        "block_publishers", "unblock_publishers",
+        "fetch_ratings", "fetch_listings", "detect_reposts",
+    ]
+
+    #: "email" or "phone" — `ratings.php` takes one of two mutually exclusive params, and a
+    #: pk alone would not say which table a task should look in.
+    publisher_kind: str = ""
+
+    def get_queryset(self, request):
+        # Annotated so the changelist column costs one query rather than one per row.
+        return super().get_queryset(request).annotate(
+            partner_count=Count(f"ads__{self.partner_ad_field}", distinct=True),
+            ad_count=Count("ads", distinct=True),
+        )
+
+    @admin.display(description="Ads", ordering="ad_count")
+    def ad_count(self, obj):
+        if not obj.ad_count:
+            return obj.ad_count
+        return format_html('<a href="{}">{}</a>', self.ads_changelist_url(obj), obj.ad_count)
+
+    @admin.display(description="Partner ids", ordering="partner_count")
+    def partner_count(self, obj):
+        return obj.partner_count
+
+    @admin.display(description="Seen together with")
+    def partners(self, obj):
+        if obj.pk is None:
+            return "—"
+        # Query lives on the model (PublisherMixin) so the sender and any future
+        # reseller-detection code share one definition of "seen together with".
+        rows = list(obj.partner_rows()[: PARTNER_DISPLAY_LIMIT + 1])
+        if not rows:
+            return "— (no ads with a publisher of the other type)"
+
+        assert self.partner_model is not None
+        url_name = f"admin:bazos_{self.partner_model._meta.model_name}_change"
+        overflow = len(rows) > PARTNER_DISPLAY_LIMIT
+        items = []
+        for row in rows[:PARTNER_DISPLAY_LIMIT]:
+            pk = row[self.partner_ad_field]
+            shared = row["shared_ads"]
+            items.append(
+                format_html(
+                    '<li><a href="{}">{}</a> — {} ad{}{}</li>',
+                    reverse(url_name, args=[pk]),
+                    row[f"{self.partner_ad_field}__bazos_id"],
+                    shared,
+                    "" if shared == 1 else "s",
+                    " · blocked" if row[f"{self.partner_ad_field}__blocked"] else "",
+                )
+            )
+        suffix = format_html("<li>… more than {} — see the ad list</li>", PARTNER_DISPLAY_LIMIT) if overflow else ""
+        return format_html('<ul style="margin:0;padding-left:1.2em">{}{}</ul>', mark_safe("".join(items)), suffix)
+
+    def ads_changelist_url(self, obj) -> str:
+        return ad_changelist_url(self.own_ad_field, obj.pk)
+
+    @admin.display(description="All ads by this publisher")
+    def ads_link(self, obj):
+        return ads_browse_link(self.own_ad_field, obj)
+
+    #: Unfold renders `actions` as a changelist dropdown only, so on a seller's own page
+    #: there was no way to run any of this without going back to the list and re-finding the
+    #: row. These are the same three jobs as buttons at the top of the change form.
+    actions_detail = ["fetch_ratings_detail", "fetch_listings_detail", "detect_reposts_detail"]
+
+    def _queue_one(self, request, object_id, job: str, note: str) -> HttpResponseRedirect:
+        """Enqueue one job for the seller whose page this is, then come back to it."""
+        async_task(job, self.publisher_kind, int(object_id))
+        self.message_user(request, note, messages.INFO)
+        return HttpResponseRedirect(
+            reverse(f"admin:bazos_{self.model._meta.model_name}_change", args=[object_id])
+        )
+
+    @unfold_action(description="Fetch ratings", icon="star", url_path="fetch-ratings")
+    def fetch_ratings_detail(self, request, object_id):
+        return self._queue_one(
+            request, object_id, FETCH_SELLER_RATINGS,
+            f"Queued a ratings lookup. {_ratings_privacy_note()} {_block_retry_note()}",
+        )
+
+    @unfold_action(description="Fetch listings", icon="inventory_2", url_path="fetch-listings")
+    def fetch_listings_detail(self, request, object_id):
+        return self._queue_one(
+            request, object_id, FETCH_SELLER_LISTINGS,
+            "Queued an inventory pull. New ads are stored with no delivery and "
+            f"source='seller_sweep' — they are not notified. {_block_retry_note()}",
+        )
+
+    @unfold_action(description="Find relisted", icon="repeat", url_path="detect-reposts")
+    def detect_reposts_detail(self, request, object_id):
+        return self._queue_one(
+            request, object_id, DETECT_REPOSTS,
+            "Queued repost detection. Reads our own archive; makes no requests.",
+        )
+
+    @admin.action(description="Block selected publishers")
+    def block_publishers(self, request, queryset):
+        updated = queryset.update(blocked=True)
+        self.message_user(request, f"{updated} publisher(s) blocked successfully.")
+
+    @admin.action(description="Unblock selected publishers")
+    def unblock_publishers(self, request, queryset):
+        updated = queryset.update(blocked=False)
+        self.message_user(request, f"{updated} publisher(s) unblocked successfully.")
+
+    @admin.action(description="Fetch seller ratings")
+    def fetch_ratings(self, request, queryset):
+        """Queue one `ratings.php` read per publisher id.
+
+        What this makes possible is `blocked` becoming evidence-based rather than a hunch:
+        a seller with several recent negatives is a blocklist candidate you can confirm in
+        one click, instead of one discovered after wasting a trip.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(FETCH_SELLER_RATINGS, self.publisher_kind, pk)
+        self.message_user(request, f"Queued {len(pks)} ratings lookup(s). {_ratings_privacy_note()}", messages.INFO)
+
+    @admin.action(description="Fetch this seller's current listings")
+    def fetch_listings(self, request, queryset):
+        """Queue an inventory pull per publisher id — one request each, the whole catalogue.
+
+        ⚠️ This creates `Ad` rows nobody searched for. They carry `source=SELLER_SWEEP` and
+        no delivery, so they never reach a notification, but they do land in the ad counts —
+        which is exactly what the provenance column exists to disambiguate.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(FETCH_SELLER_LISTINGS, self.publisher_kind, pk)
+        self.message_user(
+            request,
+            f"Queued {len(pks)} inventory pull(s). New ads are stored with no delivery and "
+            f"source='seller_sweep' — they are not notified.",
+            messages.INFO,
+        )
+
+    @admin.action(description="Find relisted items")
+    def detect_reposts(self, request, queryset):
+        """Queue repost detection per publisher. Reads our own archive; no requests.
+
+        Worth running right after "Fetch this seller's current listings" — before that, a
+        seller's past inventory is in the database only if a query happened to catch it.
+        """
+        pks = list(queryset.values_list("pk", flat=True))
+        for pk in pks:
+            async_task(DETECT_REPOSTS, self.publisher_kind, pk)
+        self.message_user(request, f"Queued repost detection for {len(pks)} seller(s).", messages.INFO)
+
+    @admin.display(description="Ratings", ordering="ratings_negative")
+    def ratings_summary(self, obj):
+        """Null fetched_at means nobody has looked, which is not the same as no ratings."""
+        if obj.ratings_fetched_at is None:
+            return "—"
+        if not obj.ratings_total:
+            return "none"
+        return format_html(
+            '<span title="{}">{} + / <strong>{} -</strong> / {} ~</span>',
+            f"last rating {obj.ratings_last_at:%Y-%m-%d}" if obj.ratings_last_at else "date unknown",
+            obj.ratings_positive, obj.ratings_negative, obj.ratings_neutral,
+        )
+
+
+@admin.register(EmailPublisher)
+class EmailPublisherAdmin(PublisherAdminBase):
+    own_ad_field = "email_publisher"
+    partner_ad_field = "phone_publisher"
+    partner_model = PhonePublisher
+    publisher_kind = "email"
+
+    list_display = ("bazos_id", "email", "blocked", "ad_count", "partner_count", "ratings_summary")
+    readonly_fields = ("ads_link", "partners", "ratings_summary")
+    inlines = (EmailSellerReviewInline,)
+    # `=` because bazos_id is an IntegerField: the default icontains builds
+    # `integer LIKE %...%`, which Postgres refuses outright.
+    search_fields = ("=bazos_id", "email")
+
+
+@admin.register(PhonePublisher)
+class PhonePublisherAdmin(PublisherAdminBase):
+    own_ad_field = "phone_publisher"
+    partner_ad_field = "email_publisher"
+    partner_model = EmailPublisher
+    publisher_kind = "phone"
+
+    list_display = ("bazos_id", "phone", "blocked", "ad_count", "partner_count", "ratings_summary")
+    readonly_fields = ("ads_link", "partners", "ratings_summary")
+    inlines = (PhoneSellerReviewInline,)
+    search_fields = ("=bazos_id", "phone")
+
+
+@admin.register(PostalCode)
+class PostalCodeAdmin(ModelAdmin):
+    """The geocode cache. Read-mostly — rows are written by the scraper and by
+    `manage.py geocode_postal_codes`; editing one here is the escape hatch for a code
+    zip.php places badly.
+    """
+    list_display = ("code", "city", "latitude", "longitude", "created")
+    search_fields = ("code", "city")
+    #: This admin exists as the escape hatch for a code `zip.php` places badly, so the one
+    #: action worth having on the row is "go and ask again". Otherwise it is reachable only
+    #: through Jobs -> Run a job, by typing back the code you are already looking at.
+    actions_detail = ["regeocode_this_code"]
+
+    @unfold_action(description="Re-geocode", icon="location_on", url_path="regeocode")
+    def regeocode_this_code(self, request, object_id):
+        code = self.model.objects.filter(pk=object_id).values_list("code", flat=True).first()
+        async_task(GEOCODE_POSTAL_CODE, code)
+        self.message_user(request, f"Queued a geocode lookup for {code}. {_block_retry_note()}", messages.INFO)
+        return HttpResponseRedirect(reverse("admin:bazos_postalcode_change", args=[object_id]))
+    ordering = ("code",)
+
+
+@admin.register(MarketplaceCategory)
+class MarketplaceCategoryAdmin(ModelAdmin):
+    """Taxonomy lookup, seeded by `manage.py create_vinted_catalogs`.
+
+    Read-mostly and deliberately not referenced by any `Query` FK — the ids live in
+    `Query.extra_params`. See the model docstring for why.
+    """
+    list_display = ("name", "marketplace", "external_id", "breadcrumb")
+    autocomplete_fields = ("parent",)
+    list_filter = (("marketplace", ChoicesDropdownFilter),)
+    search_fields = ("name", "external_id", "slug")
+    ordering = ("marketplace", "name")
+    list_select_related = ("parent",)
+
+    @admin.display(description="Path")
+    def breadcrumb(self, obj: MarketplaceCategory) -> str:
+        """Uses the bulk path map, not `obj.path`.
+
+        `path` walks `parent` one query per level, which on a full changelist page would
+        be hundreds of queries. The map is built once per marketplace and memoised on the
+        admin instance — which Django keeps for the life of the registry, not per request,
+        so `changelist_view` clears it on the way in. Without that a re-seed would not show
+        up until the process restarted.
+        """
+        cache = getattr(self, "_path_cache", None)
+        if cache is None or obj.marketplace not in cache:
+            cache = cache or {}
+            cache[obj.marketplace] = MarketplaceCategory.path_map(obj.marketplace)
+            self._path_cache = cache
+        return cache[obj.marketplace].get(obj.pk) or obj.name
+
+    def changelist_view(self, request, extra_context=None):
+        # Drop the memo per request so a re-seed is visible without a restart.
+        self._path_cache = None
+        return super().changelist_view(request, extra_context)
+
+
+# django-db-logger registers StatusLog with a stock ModelAdmin. Under Unfold that still
+# renders — the chrome comes from the templates — but its filters and widgets stay
+# unthemed, and this is not an incidental third-party table: the app loggers write here
+# (see Observability in CLAUDE.md) and it sits in the sidebar. Re-registering on the
+# themed base is the documented way to adopt a third-party admin.
+admin.site.unregister(StatusLog)
+
+
+@admin.register(StatusLog)
+class ThemedStatusLogAdmin(StatusLogAdmin, ModelAdmin):
+    list_filter = (
+        ("level", ChoicesDropdownFilter),
+        ("create_datetime", RangeDateTimeFilter),
+    )
+    list_filter_submit = True
+    search_fields = ("msg", "logger_name")
+
+
+@admin.register(AdOutcome)
+class AdOutcomeAdmin(ModelAdmin):
+    """The outcome logbook, across all ads.
+
+    A cross-ad changelist as well as the per-ad inline, because the question this table
+    exists to answer is aggregate — "of the ads I was told about, how many did I buy, and
+    how did the ones that disappeared quickly differ" — and that is not askable one change
+    page at a time.
+    """
+    list_display = ("ad", "kind", "realised_price", "created")
+    list_filter = (("kind", ChoicesDropdownFilter), ("created", RangeDateTimeFilter))
+    list_filter_submit = True
+    search_fields = ("ad__name", "ad__external_id", "note")
+    autocomplete_fields = ("ad",)
+    ordering = ("-created",)
+
+
+class JobFuncFilter(DropdownFilter):
+    """Filter task history by job, labelled the way the Run-a-job page labels them.
+
+    Lookups come from the funcs actually present in the table rather than from
+    `JOB_CATALOG` alone: a job that was renamed or removed still has history, and a
+    filter that cannot reach it hides rows. The catalog supplies the human label when it
+    knows the func, so the dropdown reads "Delisting sweep (chunked)" rather than
+    `bazos.jobs.sweep_delisted`.
+    """
+
+    title = "job"
+    parameter_name = "job_func"
+
+    def lookups(self, request, model_admin):
+        from marketplace.jobs import JOB_CATALOG
+
+        funcs = (
+            model_admin.model.objects.order_by()
+            .values_list("func", flat=True)
+            .distinct()
+        )
+        seen = sorted(f for f in funcs if f)
+        return [(f, JOB_CATALOG[f].label if f in JOB_CATALOG else f) for f in seen]
+
+    def queryset(self, request, queryset):
+        return queryset.filter(func=self.value()) if self.value() else queryset
+
+
+# django-q2 ships stock ModelAdmins, which render unthemed under unfold — the same problem
+# and the same fix as StatusLog above. These are not incidental third-party tables: they are
+# the run log, and "see what ran and what it returned" is the reason the queue was adopted
+# over a systemd timer.
+for _model, _themed_name in (
+    (QTask, "ThemedQueuedTaskAdmin"),
+    (QSuccess, "ThemedSuccessAdmin"),
+    (QFailure, "ThemedFailureAdmin"),
+    (QSchedule, "ThemedScheduleAdmin"),
+):
+    try:
+        admin.site.unregister(_model)
+    except NotRegistered:  # pragma: no cover - depends on app load order
+        pass
+
+
+@admin.register(QSchedule)
+class ThemedScheduleAdmin(ScheduleAdmin, ModelAdmin):
+    """Cadence lives here, editable, which is the whole reason for the queue.
+
+    `manage.py ensure_schedules` creates these rows and owns the dotted `func`, but it
+    deliberately does not reset a hand-edited cadence — otherwise this page would be a
+    control that a deploy silently overrides.
+
+    Also hosts the **Run a job** page. This is where someone looking for "run that job now"
+    already is, and it is the page whose generic alternative — add a Schedule with
+    `schedule_type=Once` — that page exists to replace: see `bazos/admin_jobs.py`.
+    """
+
+    actions_list = ["run_a_job"]
+
+    @unfold_action(description="Run a job now", icon="play_arrow", url_path="run-job")
+    def run_a_job(self, request):
+        from marketplace.admin_jobs import run_job_view
+
+        return run_job_view(request)
+    list_filter = (("schedule_type", ChoicesDropdownFilter),)
+
+
+@admin.register(QSuccess)
+class ThemedSuccessAdmin(TaskAdmin, ModelAdmin):
+    list_filter = (JobFuncFilter, ("started", RangeDateTimeFilter))
+    list_filter_submit = True
+
+
+@admin.register(QFailure)
+class ThemedFailureAdmin(FailAdmin, ModelAdmin):
+    list_filter = (JobFuncFilter, ("started", RangeDateTimeFilter))
+    list_filter_submit = True
+
+
+@admin.register(QTaskHistory)
+class ThemedTaskHistoryAdmin(ModelAdmin):
+    """Every run of every job, successes and failures in one list.
+
+    django-q models `Success` and `Failure` as proxies over this one table, so those two
+    changelists are the same rows split by a boolean. That split is wrong for the question
+    people actually ask — "has the delisting sweep been failing lately?" — which needs the
+    two interleaved in time. Both proxies stay registered: they are what the sidebar's
+    "Failed tasks" link means, and a list that is *only* failures is worth one click.
+
+    Read-only, like django-q's own admins: the queue owns these rows.
+    """
+
+    list_display = ("name", "job", "started", "duration", "outcome", "attempt_count")
+    list_filter = (JobFuncFilter, ("success", BooleanRadioFilter), ("started", RangeDateTimeFilter))
+    list_filter_submit = True
+    search_fields = ("name", "func", "group")
+    ordering = ("-started",)
+
+    def get_queryset(self, request):
+        # Annotated because `Task.time_taken()` is a method: django-q's own columns render
+        # it but cannot sort by it, and "which runs are creeping toward the 30-minute
+        # timeout" is a sort, not a scan.
+        return super().get_queryset(request).annotate(_duration=F("stopped") - F("started"))
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        return [f.name for f in self.model._meta.fields]
+
+    @admin.display(description="Job", ordering="func")
+    def job(self, obj):
+        from marketplace.jobs import JOB_CATALOG
+
+        spec = JOB_CATALOG.get(obj.func)
+        return spec.label if spec else obj.func
+
+    @admin.display(description="Duration", ordering="_duration")
+    def duration(self, obj):
+        from marketplace.dashboard import humanise_duration
+
+        return humanise_duration(getattr(obj, "_duration", None))
+
+    @admin.display(description="Outcome", ordering="success", boolean=True)
+    def outcome(self, obj):
+        return obj.success
+
+
+@admin.register(QTask)
+class ThemedQueuedTaskAdmin(QueueAdmin, ModelAdmin):
+    pass

@@ -13,8 +13,8 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from unfold.admin import ModelAdmin as UnfoldModelAdmin
 
-from bazos.admin import AdAdmin
-from bazos.models import Ad, Marketplace
+from marketplace.admin import AdAdmin
+from marketplace.models import Ad, Marketplace
 from refprice.models import LookupStatus, RefLookup, RefProduct, RefProductLink
 
 pytestmark = pytest.mark.django_db
@@ -79,8 +79,8 @@ def test_the_reference_inline_is_attached_to_the_ad_admin():
     assert ReferenceLinkInline in AdAdmin.inlines
 
 
-def test_bazos_admin_does_not_import_refprice():
-    """The dependency points inward. `bazos` must stay deletable-independent of this app,
+def test_marketplace_admin_does_not_import_refprice():
+    """The dependency points inward. `marketplace` must stay deletable-independent of this app,
     so the wiring lives here and mutates AdAdmin rather than the reverse."""
     from refprice.tests.import_direction import modules_imported_by
 

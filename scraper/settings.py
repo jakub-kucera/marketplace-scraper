@@ -67,7 +67,7 @@ INSTALLED_APPS = [
     "django_db_logger",
     "django_q",
     # my apps
-    "bazos",
+    "marketplace",
     "ip_changer",
     "senders",
     "llm",
@@ -91,7 +91,7 @@ TEMPLATES = [
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         # Project-level overrides. This has to be a DIRS entry rather than an app template
         # directory: APP_DIRS searches INSTALLED_APPS in order, and `unfold` is deliberately
-        # listed above everything, so `bazos/templates/admin/index.html` would lose to
+        # listed above everything, so `marketplace/templates/admin/index.html` would lose to
         # unfold's own. DIRS is searched before any app.
         "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
@@ -170,9 +170,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 UNFOLD = {
     "SITE_TITLE": "Marketplace scraper",
     # The admin index is the only page that answers "is the whole thing still working"
-    # without knowing which changelist to open. See bazos/dashboard.py for why these
+    # without knowing which changelist to open. See marketplace/dashboard.py for why these
     # particular numbers and not others.
-    "DASHBOARD_CALLBACK": "bazos.dashboard.dashboard_callback",
+    "DASHBOARD_CALLBACK": "marketplace.dashboard.dashboard_callback",
     "SITE_HEADER": "Marketplace scraper",
     "SITE_SUBHEADER": "Bazos · Sbazar · Vinted",
     "SITE_SYMBOL": "storefront",
@@ -298,7 +298,7 @@ ZERO_NEW_ADS_ALERT_THRESHOLD = env("ZERO_NEW_ADS_ALERT_THRESHOLD", default=10)
 QUERY_FAILURE_ALERT_THRESHOLD = env("QUERY_FAILURE_ALERT_THRESHOLD", default=3)
 
 # ---------------------------------------------------------------------------
-# Log/history retention (bazos/housekeeping.py)
+# Log/history retention (marketplace/housekeeping.py)
 # ---------------------------------------------------------------------------
 
 # `StatusLog` and `QueryRun` are the only two tables that grow with the clock rather than
@@ -327,7 +327,7 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "simple": {
-            # e.g.  09:31:18 INFO  [bazos.scraping.runner] Running query ...
+            # e.g.  09:31:18 INFO  [marketplace.scraping.runner] Running query ...
             "format": "{asctime} {levelname:<8} [{name}] {message}",
             "datefmt": "%H:%M:%S",
             "style": "{",
@@ -348,7 +348,7 @@ LOGGING = {
         "level": "WARNING",
     },
     "loggers": {
-        "bazos":      {"level": "INFO", "handlers": ["console", "db"], "propagate": False},
+        "marketplace": {"level": "INFO", "handlers": ["console", "db"], "propagate": False},
         "senders":    {"level": "INFO", "handlers": ["console", "db"], "propagate": False},
         "ip_changer": {"level": "INFO", "handlers": ["console", "db"], "propagate": False},
         "stem":       {"level": "WARNING", "propagate": True},
@@ -357,7 +357,7 @@ LOGGING = {
 
 # Sentry DSN — left empty in .env to disable entirely.
 # Which price-model artifact to load. "latest" resolves to the highest version directory
-# present under bazos/pricing/artifacts/<name>/. Pinning an older version here is the
+# present under marketplace/pricing/artifacts/<name>/. Pinning an older version here is the
 # fast rollback lever -- no rebuild, just a restart (ML_PRICE_SCORING.md §4.5).
 PRICE_MODEL_VERSION: str = env("PRICE_MODEL_VERSION", default="latest")
 # Per-model override, and the one to reach for with more than one model registered. A single
@@ -365,9 +365,9 @@ PRICE_MODEL_VERSION: str = env("PRICE_MODEL_VERSION", default="latest")
 # directory that does not exist, which declines, which on a deals-only query APPROVEs
 # everything (PRICE_MODEL_DEFECTS.md §7). JSON in the env: {"macbook": "2026-08-26"}.
 PRICE_MODEL_VERSIONS: dict[str, str] = env.json("PRICE_MODEL_VERSIONS", default={})
-# Overrides bazos.const.PRICE_MODEL_SHADOW_MODE without a code change.
+# Overrides marketplace.const.PRICE_MODEL_SHADOW_MODE without a code change.
 PRICE_MODEL_SHADOW_MODE: bool = env.bool("PRICE_MODEL_SHADOW_MODE", default=True)
-# Overrides bazos.const.STORE_SELLER_REVIEWS without a code change. See that constant for
+# Overrides marketplace.const.STORE_SELLER_REVIEWS without a code change. See that constant for
 # what turning it on starts collecting, and about whom.
 STORE_SELLER_REVIEWS: bool = env.bool("STORE_SELLER_REVIEWS", default=False)
 
