@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-from bazos.protocols import Sendable
+from marketplace.protocols import Sendable
 
 
 class Sender(ABC):

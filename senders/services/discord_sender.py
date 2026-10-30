@@ -7,7 +7,7 @@ from random import uniform
 
 import discord_notify as dn
 
-from bazos.protocols import Sendable
+from marketplace.protocols import Sendable
 from senders.exceptions import RateLimitError
 from senders.services.discord_webhook import retry_after_seconds
 from senders.models import Discord
