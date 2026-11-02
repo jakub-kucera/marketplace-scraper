@@ -1,9 +1,15 @@
 [tool.poetry]
-name = "scraper"
+name = "marketplace-scraper"
 version = "0.1.0"
-description = ""
+description = "Scrapes online marketplaces for new listings and sends matches to Discord."
 authors = ["Jakub Kucera <jakub.kucerja@gmail.com>"]
 readme = "README.md"
+# A Django app run in place, never built or published as a distributable package. Without
+# this, `poetry install` tries to install "the current project" as a package named
+# marketplace-scraper and fails outright - it only ever worked before by coincidence,
+# because the old name ("scraper") matched the scraper/ directory (the Django settings
+# package) that poetry's auto-detection picked up as the package root.
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.12"
