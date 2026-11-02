@@ -118,14 +118,11 @@ services:
       - 8081:8080
 
   tor_proxy:
-    image: dperson/torproxy
+    build: ./tor_proxy
     restart: always
     ports:
       - "9050:9050"
       - "9051:9051"
-      - "8118:8118"
     environment:
-      TORUSER: root
       PASSWORD: root
-#      LOCATION: CZE
       TOR_NewCircuitPeriod: 9999999
