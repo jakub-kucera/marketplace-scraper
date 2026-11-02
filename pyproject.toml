@@ -82,7 +82,6 @@ build-backend = "poetry.core.masonry.api"
 [tool.ruff]
 line-length = 120
 exclude = [
-    "old_tests",
     "experiments",
     "bazos_app_decomplied",
     "data_export_23_3_2024",
@@ -103,7 +102,7 @@ exclude = [
 [tool.mypy]
 plugins = ["mypy_django_plugin.main"]
 exclude = '''(?x)(
-    ^(old_tests|experiments|bazos_app_decomplied|data_export_23_3_2024)/
+    ^(experiments|bazos_app_decomplied|data_export_23_3_2024)/
     | /migrations/
     | ^marketplace/scraping/bazos/bazos_scraper_click\.py$
     | ^marketplace/scraping/notifier\.py$

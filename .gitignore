@@ -73,6 +73,7 @@ pi_bad_encoding.sql
 asdfasfd.txt
 verify_ip_changer.py
 *.backup
+*.log
 old_tests/
 /bazos_app_decomplied/
 
