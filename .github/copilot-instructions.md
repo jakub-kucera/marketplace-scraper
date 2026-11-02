@@ -1,4 +1,4 @@
-# Copilot Instructions for `marketplace-scrapper`
+# Copilot Instructions for `marketplace-scraper`
 
 The authoritative guide for this repository is [`CLAUDE.md`](../CLAUDE.md) at the repo root -
 commands, architecture, coding patterns, testing conventions and the committing/writing-style

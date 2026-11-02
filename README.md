@@ -1,6 +1,6 @@
 # Marketplace Scraper
 
-[![tests](https://github.com/jakub-kucera/marketplace-scrapper/actions/workflows/test.yml/badge.svg)](https://github.com/jakub-kucera/marketplace-scrapper/actions/workflows/test.yml)
+[![tests](https://github.com/jakub-kucera/marketplace-scraper/actions/workflows/test.yml/badge.svg)](https://github.com/jakub-kucera/marketplace-scraper/actions/workflows/test.yml)
 
 A Django application that watches online marketplaces for new listings, filters them against
 saved searches, and sends matches to Discord. Built around the Czech classifieds site
