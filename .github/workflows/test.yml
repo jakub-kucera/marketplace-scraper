@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Neither job needs more than reading the checkout - without this they'd inherit the
+# repo's default_workflow_permissions (write), which is more than a PR from an outside
+# contributor should be able to run with.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
