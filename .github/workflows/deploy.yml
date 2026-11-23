@@ -13,7 +13,7 @@ jobs:
         working-directory: /home/user/marketplace-scrapper
 
     steps:
-      - name: Checkout tag
+      - name: Fetch tags
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -26,7 +26,20 @@ jobs:
           # the only fix is deleting them by hand on the Pi, which is not a thing a deploy
           # should need.
           git fetch --tags --force origin
-          git checkout ${{ github.ref_name }}
+
+      # Who may deploy is enforced elsewhere: a ruleset lets only the owner create v* tags, and
+      # runner/job-started.sh refuses anyone else's job. This catches a release tagged on the
+      # wrong commit. It must run before the checkout, because every service bind-mounts this
+      # directory, so checking out is already a deploy.
+      - name: Refuse a tag that is not on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_REF^{commit}" origin/main; then
+            echo "::error::$GITHUB_REF is not on main; refusing to deploy it"
+            exit 1
+          fi
+
+      - name: Checkout tag
+        run: git checkout ${{ github.ref_name }}
 
       # --profile backup is required: plain `docker compose build` silently skips
       # services behind a profile, which would leave the backup image stale forever
