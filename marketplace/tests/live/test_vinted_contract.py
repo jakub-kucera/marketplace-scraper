@@ -18,13 +18,14 @@ everywhere else (`addopts = -m "not live"` in pytest.ini):
 ⚠️ These must not touch the database — that job runs with TEST_DB=sqlite in a container
 with no Postgres — so every assertion here works on unsaved `Ad` objects.
 
-⚠️ Vantage point is UNTESTED for Vinted. The Bazos contract tests next door need the
-self-hosted Pi runner because Bazos refuses GitHub-hosted IPs; whether Vinted does the
-same was never measured — the 2026-09-16 probe ran from a residential Czech connection
-only. They share that runner anyway, so this is a note for whoever moves them, not a
-current problem.
+⚠️ The vantage point is a real problem for Vinted. The Bazos contract tests next door need
+the self-hosted Pi runner because Bazos refuses GitHub-hosted IPs. Vinted's Cloudflare has
+challenged the Pi's own home IP since 2026-10-08 (`cf-mitigated: challenge`, measured
+2026-10-26), so from there these tests skip. Whether GitHub-hosted IPs get through has
+never been measured.
 """
 import pytest
+import requests
 
 from marketplace.models import Marketplace, Query
 from marketplace.scraping.vinted import flight
@@ -36,8 +37,21 @@ pytestmark = pytest.mark.live
 
 @pytest.fixture(scope="module")
 def payload():
-    """One real catalog page: laptops, Apple, newest first."""
+    """One real catalog page: laptops, Apple, newest first.
+
+    A 403 on the bootstrap skips rather than errors. That GET is the site root, so a refusal
+    there is about this vantage point and says nothing about the catalog contract. From
+    2026-10-08 Cloudflare challenged the Pi's home IP on every request, which kept this job
+    red for weeks and hid the Bazos and Zbozi halves behind it. Any failure after the
+    bootstrap (a withdrawn path, a renamed field) still fails.
+    """
     client = VintedClient()
+    try:
+        client.bootstrap()
+    except requests.HTTPError as exc:
+        if str(exc).startswith("403 "):
+            pytest.skip(f"Vinted refused this vantage point, contract NOT checked: {exc}")
+        raise
     scraper = VintedScraper()
     query = Query(text="", marketplace=Marketplace.VINTED, price_lower=0, price_upper=0)
     params = scraper._search_params(query, {"catalog_ids": [3580], "brand_ids": [54661]})

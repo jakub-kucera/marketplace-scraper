@@ -10,8 +10,12 @@
 # /api/v2/catalog/items was withdrawn (~2026-09-08) every Vinted query failed for
 # eight days unnoticed. The runner's per-query guard contained the error, and the
 # canary counts rows across all queries in a pass, so Bazos returning rows masked
-# Vinted returning none. This job shortens that blind window to a week; a
-# per-query failure rate is the real fix and is not built yet.
+# Vinted returning none. That case is now caught in production by
+# ScrapeRunner._check_query_failure_streaks, so this job is left with partial drift.
+#
+# While Vinted's Cloudflare challenges the Pi's IP (since 2026-10-08), the Vinted
+# tests SKIP instead of erroring. Read the skip reason in the log: a green run can
+# mean Vinted was not checked at all.
 #
 # `pytest -m live` selects every test marked live, so a new marketplace's contract
 # tests are picked up here with no change to this file.
@@ -75,4 +79,4 @@ jobs:
             sh -c "pip install --quiet poetry==2.4.1 && \
                    poetry config virtualenvs.create false && \
                    poetry install --no-root --without notebooks --no-interaction --no-ansi && \
-                   pytest -m live -v -p no:cacheprovider"
+                   pytest -m live -v -rs -p no:cacheprovider"
